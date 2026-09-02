@@ -1,0 +1,484 @@
+{
+  "name": "05 LinkedIn Task Queue (compliant manual lane)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Weekday 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.LEADS_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -600,
+        300
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build today's LinkedIn task list. The cap is set by LinkedIn's own weekly invite\n// limit, not by ambition: roughly 100 connection requests a week across an account,\n// and accounts that push past it get restricted. 20 a day is the safe ceiling.\nconst CAP = Math.min(Number($env.LI_DAILY_CAP || 20), 25);\nconst MIN_FIT = Number($env.LI_MIN_FIT || 60);\nconst today = new Date().toISOString().slice(0, 10);\n\nconst STEPS = [\n  { step: 0, action: 'view_profile', label: 'View profile', needs_copy: false, wait_days: 1 },\n  { step: 1, action: 'connect', label: 'Connect with a note', needs_copy: true, wait_days: 4 },\n  { step: 2, action: 'message', label: 'Message (if they accepted)', needs_copy: true, wait_days: 6 },\n  { step: 3, action: 'engage', label: 'Comment on a recent post', needs_copy: false, wait_days: 0 }\n];\n\nconst dropped = { no_linkedin: 0, low_fit: 0, suppressed: 0, not_due: 0, finished: 0, over_cap: 0 };\nconst due = [];\n\nfor (const item of $input.all()) {\n  const lead = item.json;\n\n  if (!lead.linkedin_url) { dropped.no_linkedin++; continue; }\n  if (String(lead.stage || '') === 'suppressed') { dropped.suppressed++; continue; }\n  if (Number(lead.fit_score || 0) < MIN_FIT) { dropped.low_fit++; continue; }\n\n  const step = Number(lead.li_step || 0);\n  if (step >= STEPS.length) { dropped.finished++; continue; }\n\n  const nextDue = String(lead.li_next_due || '').slice(0, 10);\n  if (nextDue && nextDue > today) { dropped.not_due++; continue; }\n\n  due.push({ lead: lead, plan: STEPS[step] });\n}\n\n// Best fit first, so a capped day spends itself on the best people.\ndue.sort((a, b) => Number(b.lead.fit_score || 0) - Number(a.lead.fit_score || 0));\n\nif (due.length > CAP) dropped.over_cap = due.length - CAP;\nconst batch = due.slice(0, CAP);\n\nif (batch.length === 0) return [];\n\nreturn batch.map((entry, index) => ({ json: Object.assign({}, entry.lead, {\n  li_action: entry.plan.action,\n  li_action_label: entry.plan.label,\n  li_needs_copy: entry.plan.needs_copy,\n  li_wait_days: entry.plan.wait_days,\n  li_step_now: entry.plan.step,\n  task_date: today,\n  batch_size: batch.length,\n  batch_dropped: dropped,\n  batch_index: index\n})}));"
+      },
+      "id": "select-tasks",
+      "name": "select today's touches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.li_needs_copy }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "needs-copy",
+      "name": "needs written copy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LLM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.LLM_MODEL_WRITER || $env.LLM_MODEL, max_tokens: 4000, stream: false, messages: [{ role: 'system', content: 'You write one LinkedIn message for a human to copy, paste and send themselves. A connection note has a hard 300-character limit including spaces - count it. A follow-up message must be under 90 words. Rules: reference one specific thing about them, no flattery, no \"I came across your profile\", no pitch in a connection note, and never claim we have met. Sound like a person typing on a phone, not like marketing. Return only the message text.' }, { role: 'user', content: 'Action: ' + $json.li_action + ($json.li_action === 'connect' ? ' (300 character hard limit)' : ' (under 90 words)') + '\\n\\nPerson: ' + $json.first_name + ' ' + $json.last_name + ', ' + ($json.title || 'unknown role') + ' at ' + $json.company + '\\nIndustry: ' + ($json.industry || 'unknown') + '\\nRecent change: ' + ($json.recent_trigger || 'none found') + '\\nVisible pain: ' + ($json.visible_pain || 'none found') + '\\n\\nSender: ' + ($env.SENDER_INTRO || 'a small automation studio that builds internal tools for SMEs') }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "write-copy",
+      "name": "[cred] LLM - write the note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Attach the copy, and enforce the 300-character connection-note limit here rather\n// than trusting the model - LinkedIn silently truncates and the operator never notices.\nconst tasks = $('needs written copy?').all();\nconst out = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const task = Object.assign({}, tasks[i].json);\n  const res = $input.all()[i].json || {};\n  let copy = String(((((res.choices || [])[0]) || {}).message || {}).content || '').trim();\n\n  if (task.li_action === 'connect' && copy.length > 300) {\n    copy = copy.slice(0, 297).trim() + '...';\n    task.copy_was_truncated = true;\n  }\n\n  task.li_copy = copy;\n  out.push({ json: task });\n}\n\nreturn out;"
+      },
+      "id": "attach-copy",
+      "name": "attach copy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Steps that need no writing still need an instruction the operator can act on.\nreturn $input.all().map((item) => ({ json: Object.assign({}, item.json, {\n  li_copy: item.json.li_action === 'view_profile'\n    ? 'Open the profile, spend ten seconds, close it. No action needed - this is the warm-up touch.'\n    : 'Find their most recent post and leave one specific, non-generic comment.'\n})}));"
+      },
+      "id": "no-copy",
+      "name": "instruction only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "merge",
+      "name": "merge tasks",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.LEADS_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "LinkedIn Tasks",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task_date": "={{ $json.task_date }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "name": "={{ $json.first_name }} {{ $json.last_name }}",
+            "company": "={{ $json.company }}",
+            "linkedin_url": "={{ $json.linkedin_url }}",
+            "action": "={{ $json.li_action_label }}",
+            "copy": "={{ $json.li_copy }}",
+            "done": "no"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-tasks",
+      "name": "[cred] Sheets - write task list",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One message the operator works top to bottom. Fifteen minutes, done by 09:15.\nconst tasks = $('merge tasks').all().map((i) => i.json);\nif (!tasks.length) return [];\n\nconst dropped = tasks[0].batch_dropped || {};\nconst lines = [':busts_in_silhouette: *LinkedIn queue - ' + tasks[0].task_date + '* (' + tasks.length + ' touches, cap ' + ($env.LI_DAILY_CAP || 20) + ')', ''];\n\ntasks.forEach((t, i) => {\n  lines.push((i + 1) + '. *' + t.li_action_label + '* - ' + t.first_name + ' ' + t.last_name + ', ' + t.company);\n  lines.push('   ' + t.linkedin_url);\n  if (t.li_copy) lines.push('   > ' + String(t.li_copy).split('\\n').join('\\n   > '));\n  if (t.copy_was_truncated) lines.push('   :scissors: _note was trimmed to 300 characters_');\n  lines.push('');\n});\n\nlines.push('_Skipped: ' + (dropped.no_linkedin || 0) + ' no profile, ' + (dropped.low_fit || 0) + ' low fit, ' + (dropped.not_due || 0) + ' not due yet, ' + (dropped.over_cap || 0) + ' held by the cap._');\nlines.push('_Mark done in the LinkedIn Tasks tab, or POST the lead_id to the /li-done webhook._');\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "format",
+      "name": "format the queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "notify",
+      "name": "[cred] Post the queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "li-done",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-done",
+      "name": "Webhook - touch completed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        620
+      ],
+      "webhookId": "li-done-webhook",
+      "notes": "POST {\"lead_id\":\"...\",\"outcome\":\"accepted|ignored|replied|declined\"}"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Advance the sequence, or stop it. 'declined' and 'replied' both end the LinkedIn\n// lane: one is a no, the other means a human has taken over.\nconst WAIT = { view_profile: 1, connect: 4, message: 6, engage: 0 };\n\nreturn $input.all().map((item) => {\n  const b = item.json.body || item.json;\n  const outcome = String(b.outcome || 'done').toLowerCase();\n  const step = Number(b.li_step || 0) + 1;\n\n  const stop = outcome === 'declined' || outcome === 'replied';\n  const waitDays = Number(b.wait_days || WAIT[b.action] || 3);\n  const next = new Date(Date.now() + waitDays * 86400000).toISOString().slice(0, 10);\n\n  return { json: {\n    lead_id: b.lead_id,\n    li_step: stop ? 99 : step,\n    li_next_due: stop ? '' : next,\n    li_last_outcome: outcome,\n    updated_at: new Date().toISOString()\n  }};\n});"
+      },
+      "id": "advance",
+      "name": "advance the sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.LEADS_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "lead_id"
+          ],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-lead",
+      "name": "[cred] Sheets - update li_step",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -380,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 05 LinkedIn Task Queue\n\n**This deliberately does not automate LinkedIn.** No logged-in session, no browser driver, no Expandi-style account risk. It builds the queue, writes the copy, and a human sends it - fifteen minutes a morning.\n\n**Why:** automating a logged-in LinkedIn account breaks LinkedIn's terms and the account belongs to the client, not to us. Restricted accounts are not recoverable by an apology.\n\n**The cap is LinkedIn's, not ours:** roughly 100 connection requests a week across an account. `LI_DAILY_CAP` is hard-limited to 25 in code.\n\n**Four-step sequence:** view profile, connect with a note, message if accepted, comment on a post. Each step sets the next due date.\n\n**Env:** `LEADS_SHEET_ID`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `ALERT_WEBHOOK_URL`, `LI_DAILY_CAP`, `LI_MIN_FIT`, `SENDER_INTRO`.\n\n**Sheet columns:** `li_step`, `li_next_due`, `li_last_outcome`, plus a `LinkedIn Tasks` tab.",
+        "height": 520,
+        "width": 460,
+        "color": 3
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -340
+      ]
+    }
+  ],
+  "connections": {
+    "Weekday 09:00": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read leads": {
+      "main": [
+        [
+          {
+            "node": "select today's touches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "select today's touches": {
+      "main": [
+        [
+          {
+            "node": "needs written copy?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "needs written copy?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - write the note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "instruction only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attach copy": {
+      "main": [
+        [
+          {
+            "node": "merge tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "instruction only": {
+      "main": [
+        [
+          {
+            "node": "merge tasks",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge tasks": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - write task list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - write task list": {
+      "main": [
+        [
+          {
+            "node": "format the queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format the queue": {
+      "main": [
+        [
+          {
+            "node": "[cred] Post the queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - touch completed": {
+      "main": [
+        [
+          {
+            "node": "advance the sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "advance the sequence": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - update li_step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - write the note": {
+      "main": [
+        [
+          {
+            "node": "attach copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "acme",
+    "linkedin"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "_comment": "Merge this entry into ~/.hermes/cron/jobs.json, or create it with `cronjob action=create` using the same values — see SETUP.md §4. Replace every REPLACE_WITH_ value. Nothing reads this file directly; it is the reference shape.",
+
+  "jobs": [
+    {
+      "_template": "06 linkedin-post-job",
+      "name": "man_lin_pos",
+      "schedule_display": "0 8 * * 1-5",
+      "repeat": "forever",
+      "script": "linkedin_context.py --brand acme",
+      "no_agent": false,
+      "skill": "acme-linkedin-content",
+      "enabled_toolsets": "web,terminal",
+      "deliver": "discord:REPLACE_WITH_ACME_APPROVAL_CHANNEL_ID",
+      "prompt_file": "cron/man_lin_pos.prompt.md"
+    },
+    {
+      "_comment": "The sibling MCH job, for reference only. It must never share this job's channel, approval directory, log account or token file. Set it up from the mch-linkedin-content skill, not this template.",
+      "_template": "06 linkedin-post-job — sibling brand",
+      "name": "mch_lin_pos",
+      "schedule_display": "30 8 * * 1-5",
+      "repeat": "forever",
+      "script": "linkedin_context.py --brand mch",
+      "no_agent": false,
+      "skill": "mch-linkedin-content",
+      "enabled_toolsets": "web,terminal",
+      "deliver": "discord:REPLACE_WITH_MCH_APPROVAL_CHANNEL_ID",
+      "prompt_file": "cron/mch_lin_pos.prompt.md"
+    }
+  ]
+}

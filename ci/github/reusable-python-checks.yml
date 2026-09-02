@@ -1,0 +1,139 @@
+# A reusable Python quality gate.
+#
+# Call it from another repository:
+#
+#   jobs:
+#     checks:
+#       uses: OWNER/REPO/.github/workflows/reusable-python-checks.yml@main
+#       with:
+#         python-versions: '["3.11", "3.12", "3.13"]'
+#         min-coverage: 80
+#
+# The gate lives here so that twenty repositories do not each keep a slightly
+# different copy and drift apart on what "passing" means.
+
+name: reusable python checks
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of versions to test against.'
+        type: string
+        default: '["3.12"]'
+      working-directory:
+        type: string
+        default: '.'
+      min-coverage:
+        description: 'Fail below this line coverage percentage. 0 disables.'
+        type: number
+        default: 0
+      run-type-check:
+        type: boolean
+        default: true
+    secrets:
+      codecov-token:
+        required: false
+
+# Read-only by default. Each job raises this only if it needs to.
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to the same ref cancels the run nobody will read the result of.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install ruff
+        run: pip install --disable-pip-version-check ruff
+      - name: Lint
+        run: ruff check --output-format=github .
+      - name: Format check
+        run: ruff format --check --diff .
+
+  types:
+    if: inputs.run-type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install --disable-pip-version-check mypy
+      - name: Type check
+        # Non-blocking on the first adoption. Delete continue-on-error once the
+        # baseline is clean; a permanently-yellow check is one nobody reads.
+        continue-on-error: true
+        run: mypy . --ignore-missing-imports --pretty
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # One failing version should not cancel the others: knowing it fails on
+      # 3.11 and passes on 3.13 is the useful result.
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          # Keyed on the lockfile, so a dependency change invalidates the cache
+          # and a branch name does not.
+          cache-dependency-path: '**/requirements*.txt'
+      - name: Install
+        run: |
+          python -m pip install --disable-pip-version-check --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install pytest pytest-cov
+      - name: Test
+        run: pytest -q --cov --cov-report=term-missing --cov-report=xml
+      - name: Enforce the coverage floor
+        if: inputs.min-coverage > 0
+        env:
+          MIN: ${{ inputs.min-coverage }}
+        run: |
+          python - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          floor = float(os.environ["MIN"])
+          rate = float(ET.parse("coverage.xml").getroot().get("line-rate")) * 100
+          print("line coverage %.1f%%, floor %.1f%%" % (rate, floor))
+          sys.exit(0 if rate >= floor else 1)
+          PY
+      # The `secrets` context is not available in a step-level `if`, so the
+      # presence of the token is copied into the environment first and the
+      # condition reads that. Checking `secrets.x != ''` directly silently never
+      # matches.
+      - name: Is coverage upload configured
+        id: codecov
+        env:
+          TOKEN: ${{ secrets.codecov-token }}
+        run: echo "enabled=${TOKEN:+yes}" >> "$GITHUB_OUTPUT"
+      - name: Upload coverage
+        if: steps.codecov.outputs.enabled == 'yes'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.codecov-token }}
+          fail_ci_if_error: false

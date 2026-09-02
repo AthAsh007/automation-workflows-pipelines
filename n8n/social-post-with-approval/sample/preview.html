@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>17-runs-on-one-persons-memory</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1350px; }
+  body {
+    background: #050505;
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  .strip { position: absolute; left: 0; right: 0; bottom: 0; height: 13px; background: #DC2056; }
+  .content {
+    position: absolute; inset: 74px 74px 88px 74px;
+    display: flex; flex-direction: column;
+  }
+  .head { display: flex; align-items: center; justify-content: space-between; }
+  .logo svg { width: 306px; height: auto; display: block; }
+  .cat { color: #A8A8A8; font-size: 19px; letter-spacing: 0.3em; font-weight: bold; }
+
+  .headline {
+    margin-top: 74px;
+    font-size: 88px; line-height: 1.06; font-weight: bold;
+    color: #FFFFFF; letter-spacing: -0.015em;
+  }
+  .headline em { color: #DC2056; font-style: normal; }
+  .subhead { margin-top: 30px; font-size: 30px; line-height: 1.4; color: #A8A8A8; max-width: 830px; }
+
+  .timeline { display: flex; flex-direction: column; flex: 1; margin-top: 56px; }
+  .titem { display: flex; gap: 30px; flex: 1; }
+  .titem.last { flex: none; }
+  .tcol { width: 58px; flex: none; display: flex; flex-direction: column; align-items: center; }
+  .circle {
+    width: 58px; height: 58px; border-radius: 50%; flex: none;
+    border: 1px solid #303030; color: #FFFFFF;
+    font-size: 21px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .circle.focal { background: #DC2056; border-color: #DC2056; }
+  .tline { width: 1px; flex: 1; background: #303030; }
+  .tbody { padding-top: 4px; padding-bottom: 32px; }
+  .ttitle { font-size: 35px; font-weight: bold; color: #FFFFFF; }
+  .ttitle.focal { color: #DC2056; }
+  .tdesc { margin-top: 11px; font-size: 25px; color: #A8A8A8; }
+
+  .cards { display: flex; gap: 26px; flex: 1; margin-top: 58px; }
+  .card {
+    flex: 1; display: flex; flex-direction: column;
+    border: 1px solid #262626; border-radius: 14px;
+    background: #0B0B0B; padding: 34px 30px;
+  }
+  .card.focal { border-color: #DC2056; background: rgba(220, 32, 86, 0.07); }
+  .ceyebrow { font-size: 17px; letter-spacing: 0.11em; font-weight: bold; color: #A8A8A8; }
+  .ctitle { margin-top: 22px; font-size: 41px; line-height: 1.12; font-weight: bold; color: #FFFFFF; }
+  .ctitle.focal { color: #DC2056; }
+  .cspacer { flex: 1; min-height: 40px; }
+  .cdesc { font-size: 23px; line-height: 1.42; color: #A8A8A8; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1; margin-top: 48px; }
+  .gcell {
+    border: 1px solid #262626; border-radius: 14px; background: #0B0B0B;
+    padding: 30px 28px; display: flex; flex-direction: column;
+  }
+  .gx { font-size: 42px; line-height: 0.9; font-weight: bold; color: #A8A8A8; }
+  .gtitle { margin-top: 18px; font-size: 32px; font-weight: bold; color: #FFFFFF; }
+  .gdesc { margin-top: 10px; font-size: 23px; line-height: 1.4; color: #A8A8A8; }
+  .band {
+    margin-top: 24px; background: #DC2056; border-radius: 14px;
+    padding: 28px 30px; text-align: center;
+    color: #FFFFFF; font-size: 29px; font-weight: bold; letter-spacing: 0.01em;
+  }
+
+  .split { display: flex; gap: 26px; flex: 1; margin-top: 48px; }
+  .scol {
+    flex: 1; display: flex; flex-direction: column;
+    border: 1px solid #262626; border-radius: 14px;
+    background: #0B0B0B; padding: 30px 28px;
+  }
+  .scol.focal { border-color: #DC2056; background: rgba(220, 32, 86, 0.07); }
+  .shead { font-size: 19px; letter-spacing: 0.2em; font-weight: bold; color: #A8A8A8; }
+  .scol.focal .shead { color: #DC2056; }
+  .srows { display: flex; flex-direction: column; flex: 1; margin-top: 14px; }
+  .srow {
+    flex: 1; display: flex; align-items: center;
+    font-size: 25px; line-height: 1.3; color: #A8A8A8;
+    border-bottom: 1px solid #262626;
+  }
+  .srow:last-child { border-bottom: none; }
+  .scol.focal .srow { color: #FFFFFF; }
+
+  .statwrap {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+  }
+  .statbig { font-size: 260px; line-height: 0.86; font-weight: bold; color: #DC2056; letter-spacing: -0.04em; }
+  .statsub { margin-top: 26px; font-size: 30px; line-height: 1.35; color: #A8A8A8; max-width: 640px; }
+  .statcols { display: flex; gap: 26px; margin-top: 10px; }
+  .scell {
+    flex: 1; border: 1px solid #262626; border-radius: 14px;
+    background: #0B0B0B; padding: 26px 24px;
+  }
+  .scell.focal { border-color: #DC2056; background: rgba(220, 32, 86, 0.07); }
+  .slabel { font-size: 19px; letter-spacing: 0.16em; font-weight: bold; color: #FFFFFF; }
+  .scell.focal .slabel { color: #DC2056; }
+  .sdesc { margin-top: 12px; font-size: 22px; line-height: 1.4; color: #A8A8A8; }
+
+  .stack { display: flex; flex-direction: column; gap: 16px; flex: 1; margin-top: 50px; }
+  .bar {
+    flex: 1; display: flex; align-items: center; gap: 30px;
+    border: 1px solid #262626; border-radius: 14px;
+    background: #0B0B0B; padding: 0 30px;
+  }
+  .bar.focal { border-color: #DC2056; background: rgba(220, 32, 86, 0.07); }
+  .blabel {
+    width: 210px; flex: none;
+    font-size: 20px; letter-spacing: 0.16em; font-weight: bold; color: #A8A8A8;
+  }
+  .bar.focal .blabel { color: #DC2056; }
+  .bdesc { font-size: 27px; line-height: 1.3; color: #FFFFFF; }
+
+  .foot {
+    margin-top: 40px; padding-top: 28px; border-top: 1px solid #303030;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 25px; font-weight: bold;
+  }
+  .foot .take { color: #FFFFFF; }
+  .foot .site { color: #FFFFFF; }
+</style></head>
+<body>
+  <div class="content">
+    <div class="head">
+      <div class="logo"><svg width="958" height="152" viewBox="0 0 958 152" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M378.101 148.608V46.5515H396.275L426.473 114.636H428.71L458.767 46.5515H477.082V148.608H463.381V61.5105L464.36 61.7901L435.42 127.498H418.644L389.564 61.7901L390.683 61.5105V148.608H378.101Z" fill="white"/>
+<path d="M543.617 148.608V126.24H541.38V100.376C541.38 95.2498 540.029 91.3819 537.326 88.7722C534.716 86.1626 530.849 84.8577 525.722 84.8577C522.833 84.8577 519.851 84.9043 516.775 84.9975C513.699 85.0907 510.763 85.184 507.967 85.2772C505.171 85.3704 502.748 85.5102 500.698 85.6966V73.953C502.748 73.7666 504.892 73.6268 507.129 73.5336C509.459 73.3472 511.835 73.254 514.259 73.254C516.682 73.1608 519.012 73.1142 521.249 73.1142C528.891 73.1142 535.136 74.0462 539.982 75.9103C544.829 77.6811 548.417 80.617 550.747 84.7179C553.077 88.8188 554.242 94.3644 554.242 101.355V148.608H543.617ZM519.152 150.566C513.559 150.566 508.713 149.633 504.612 147.769C500.604 145.812 497.482 143.016 495.245 139.381C493.102 135.746 492.03 131.366 492.03 126.24C492.03 120.927 493.195 116.5 495.525 112.958C497.948 109.417 501.443 106.76 506.01 104.989C510.577 103.125 516.076 102.193 522.507 102.193H542.778V112.259H521.948C516.542 112.259 512.394 113.564 509.505 116.174C506.616 118.783 505.171 122.139 505.171 126.24C505.171 130.341 506.616 133.649 509.505 136.166C512.394 138.682 516.542 139.94 521.948 139.94C525.117 139.94 528.146 139.381 531.035 138.263C533.924 137.051 536.301 135.094 538.165 132.391C540.122 129.595 541.194 125.774 541.38 120.927L545.015 126.24C544.549 131.552 543.244 136.026 541.101 139.661C539.05 143.203 536.161 145.905 532.433 147.769C528.798 149.633 524.371 150.566 519.152 150.566Z" fill="white"/>
+<path d="M572.584 148.608V73.953H583.209V105.968H581.531C581.531 98.6051 582.51 92.4071 584.467 87.3742C586.518 82.2481 589.593 78.3802 593.694 75.7705C597.795 73.0676 602.968 71.7162 609.213 71.7162H609.772C619.185 71.7162 626.129 74.6521 630.603 80.5238C635.169 86.3956 637.453 94.877 637.453 105.968V148.608H624.032V103.172C624.032 97.3935 622.401 92.78 619.139 89.3315C615.877 85.7898 611.403 84.0189 605.717 84.0189C599.846 84.0189 595.092 85.8364 591.457 89.4713C587.823 93.1062 586.005 97.9527 586.005 104.011V148.608H572.584Z" fill="white"/>
+<path d="M687.454 151.125C680.929 151.125 675.291 150.006 670.537 147.769C665.784 145.533 661.916 142.597 658.934 138.962C655.951 135.234 653.714 131.086 652.223 126.519C650.825 121.952 650.126 117.292 650.126 112.539V110.022C650.126 105.176 650.825 100.469 652.223 95.9022C653.714 91.3353 655.951 87.2344 658.934 83.5995C661.916 79.8714 665.691 76.9355 670.258 74.7919C674.918 72.555 680.37 71.4366 686.615 71.4366C694.723 71.4366 701.387 73.2074 706.607 76.7491C711.919 80.1976 715.834 84.6713 718.35 90.1703C720.96 95.6692 722.265 101.541 722.265 107.786V113.797H655.998V103.731H712.478L709.403 109.184C709.403 103.871 708.564 99.3041 706.886 95.4828C705.209 91.5683 702.692 88.5392 699.337 86.3956C695.982 84.2519 691.741 83.1801 686.615 83.1801C681.302 83.1801 676.875 84.3917 673.333 86.815C669.885 89.2383 667.275 92.5469 665.504 96.7411C663.827 100.935 662.988 105.782 662.988 111.281C662.988 116.593 663.827 121.393 665.504 125.68C667.275 129.875 669.978 133.23 673.613 135.746C677.248 138.17 681.861 139.381 687.454 139.381C693.325 139.381 698.079 138.076 701.713 135.467C705.442 132.857 707.678 129.828 708.424 126.379H721.006C719.981 131.506 717.931 135.933 714.855 139.661C711.779 143.389 707.911 146.232 703.251 148.189C698.591 150.146 693.325 151.125 687.454 151.125Z" fill="white"/>
+<path d="M725.809 148.608L752.511 109.323L752.092 112.119L727.067 73.953H741.886L759.921 102.054H761.878L778.934 73.953H792.775L769.148 111.141L769.567 108.624L797.528 148.608H782.709L761.738 118.271H759.781L739.649 148.608H725.809Z" fill="white"/>
+<path d="M830.921 150.845C822.066 150.845 815.263 147.956 810.509 142.177C805.756 136.399 803.379 128.057 803.379 117.152V73.8132H816.8V119.809C816.8 125.68 818.385 130.294 821.554 133.649C824.723 136.911 829.01 138.542 834.416 138.542C840.008 138.542 844.575 136.772 848.116 133.23C851.658 129.595 853.429 124.655 853.429 118.411V73.8132H866.85V148.608H856.225V116.593H857.903C857.903 123.956 856.924 130.201 854.967 135.327C853.01 140.36 850.074 144.228 846.159 146.931C842.338 149.54 837.445 150.845 831.48 150.845H830.921Z" fill="white"/>
+<path d="M911.018 150.845C901.232 150.845 893.636 148.748 888.23 144.554C882.918 140.36 880.168 134.628 879.982 127.358H892.564C892.751 130.247 894.195 132.997 896.898 135.607C899.694 138.123 904.401 139.381 911.018 139.381C916.983 139.381 921.55 138.216 924.719 135.886C927.888 133.463 929.472 130.527 929.472 127.078C929.472 124.003 928.307 121.626 925.977 119.948C923.647 118.178 919.873 117.013 914.653 116.453L906.545 115.615C899.461 114.869 893.683 112.772 889.209 109.323C884.735 105.782 882.498 100.842 882.498 94.5042C882.498 89.7509 883.71 85.6966 886.133 82.3413C888.556 78.8928 891.912 76.2831 896.199 74.5123C900.486 72.6482 905.426 71.7162 911.018 71.7162C919.407 71.7162 926.21 73.5802 931.43 77.3083C936.649 81.0364 939.352 86.582 939.538 93.945H926.956C926.863 90.9625 925.465 88.446 922.762 86.3956C920.152 84.2519 916.238 83.1801 911.018 83.1801C905.799 83.1801 901.838 84.2519 899.135 86.3956C896.432 88.5392 895.081 91.2421 895.081 94.5042C895.081 97.3003 896.013 99.5371 897.877 101.215C899.834 102.892 903.003 103.964 907.383 104.43L915.492 105.269C923.507 106.108 929.938 108.345 934.785 111.98C939.631 115.521 942.055 120.554 942.055 127.078C942.055 131.739 940.703 135.886 938 139.521C935.391 143.063 931.756 145.859 927.096 147.909C922.436 149.866 917.076 150.845 911.018 150.845Z" fill="white"/>
+<path d="M947.306 74.0444C945.625 74.0444 944.137 73.7564 942.84 73.1802C941.568 72.58 940.5 71.7998 939.636 70.8396C938.771 69.8553 938.123 68.775 937.691 67.5987C937.259 66.4224 937.043 65.2461 937.043 64.0698V63.4937C937.043 62.2693 937.259 61.081 937.691 59.9287C938.147 58.7524 938.807 57.6841 939.672 56.7239C940.56 55.7636 941.64 55.0074 942.913 54.4553C944.185 53.8791 945.649 53.5911 947.306 53.5911C948.962 53.5911 950.426 53.8791 951.699 54.4553C952.971 55.0074 954.039 55.7636 954.904 56.7239C955.792 57.6841 956.452 58.7524 956.884 59.9287C957.34 61.081 957.568 62.2693 957.568 63.4937V64.0698C957.568 65.2461 957.352 66.4224 956.92 67.5987C956.488 68.775 955.84 69.8553 954.976 70.8396C954.111 71.7998 953.031 72.58 951.735 73.1802C950.462 73.7564 948.986 74.0444 947.306 74.0444ZM947.306 72.1719C948.962 72.1719 950.402 71.7998 951.627 71.0556C952.875 70.2874 953.835 69.2792 954.508 68.0309C955.204 66.7585 955.552 65.3542 955.552 63.8177C955.552 62.2333 955.204 60.817 954.508 59.5686C953.835 58.2963 952.875 57.3 951.627 56.5798C950.402 55.8357 948.962 55.4636 947.306 55.4636C945.649 55.4636 944.197 55.8357 942.949 56.5798C941.724 57.3 940.764 58.2963 940.068 59.5686C939.396 60.817 939.059 62.2333 939.059 63.8177C939.059 65.3542 939.396 66.7585 940.068 68.0309C940.764 69.2792 941.724 70.2874 942.949 71.0556C944.197 71.7998 945.649 72.1719 947.306 72.1719ZM943.417 69.1471V58.0922H945.433V69.1471H943.417ZM950.042 69.1471L946.585 64.934H948.854L952.419 69.1471H950.042ZM944.389 65.5102V63.7097H947.414C948.134 63.7097 948.674 63.5537 949.034 63.2416C949.418 62.9295 949.61 62.4494 949.61 61.8012C949.61 61.129 949.418 60.6489 949.034 60.3608C948.674 60.0488 948.134 59.8927 947.414 59.8927H944.389V58.0922H947.126C948.494 58.0922 949.586 58.4163 950.402 59.0645C951.243 59.7127 951.663 60.6249 951.663 61.8012C951.663 62.9535 951.243 63.8658 950.402 64.5379C949.586 65.1861 948.494 65.5102 947.126 65.5102H944.389Z" fill="white"/>
+<path d="M191.274 0.974222C194.063 0.974725 196.737 2.08241 198.709 4.05441L338.382 143.689C340.734 146.041 339.069 150.063 335.742 150.063H274.752C271.963 150.063 269.288 148.955 267.315 146.982C253.825 133.492 267.31 146.977 267.315 146.982L196.777 76.4455C194.425 74.0935 190.404 75.7589 190.403 79.0851V109.184C190.403 145.527 146.464 163.728 120.766 138.03L59.1837 76.4475C56.8317 74.0955 52.8099 75.7609 52.8097 79.0871V144.799C52.8097 147.703 50.4554 150.058 47.5511 150.058H5.48126C2.57701 150.058 0.222656 147.703 0.222656 144.799V26.4928C0.222681 23.1666 4.24461 21.5013 6.59666 23.8533L46.4357 63.6913C48.7878 66.0433 52.8097 64.378 52.8097 61.0517V4.71892C52.8099 1.39274 56.8317 -0.272656 59.1837 2.07935L131.443 74.339C133.795 76.691 137.817 75.0256 137.817 71.6994V6.23077C137.817 3.32653 140.172 0.972168 143.076 0.972168L191.274 0.974222Z" fill="#DC2056"/>
+</svg></div>
+      <div class="cat">KNOWLEDGE</div>
+    </div>
+    <div class="headline">IT RUNS ON ONE<br>PERSON’S <em>MEMORY</em>.</div>
+    <div class="subhead">Which is fine, until the week they are away.</div>
+    <div class="split">
+      <div class="scol">
+        <div class="shead">BEFORE</div>
+        <div class="srows">
+        <div class="srow">Asked in a chat thread</div>
+        <div class="srow">Answered from memory</div>
+        <div class="srow">Right until they are on leave</div>
+        <div class="srow">Learned by shadowing someone</div>
+        </div>
+      </div>
+      <div class="scol focal">
+        <div class="shead">AFTER</div>
+        <div class="srows">
+        <div class="srow">Asked once, answered in place</div>
+        <div class="srow">Written where the work happens</div>
+        <div class="srow">The same answer at 2am</div>
+        <div class="srow">Learned by reading the record</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="take">The expertise stays. The bottleneck goes.</span><span class="site">acme.example</span></div>
+  </div>
+  <div class="strip"></div>
+</body></html>

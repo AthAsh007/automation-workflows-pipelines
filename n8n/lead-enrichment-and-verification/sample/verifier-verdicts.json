@@ -1,0 +1,16 @@
+{
+  "_comment": "MillionVerifier v3 responses, keyed by address. Anything not listed here comes back with no usable status, which the workflow must treat as 'unknown' and hold — that case is exercised too.",
+
+  "denise.whitfield@northgate-health.example": { "email": "denise.whitfield@northgate-health.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "marcus.reilly@northgate-health.example":    { "email": "marcus.reilly@northgate-health.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "keith.ramos@jfs.lakeshore-county.example": { "email": "keith.ramos@jfs.lakeshore-county.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "info@jfs.lakeshore-county.example":        { "email": "info@jfs.lakeshore-county.example", "result": "ok", "resultcode": 1, "role": true, "free": false },
+  "powens@harborview-recovery.example":                   { "email": "powens@harborview-recovery.example", "result": "catch_all", "resultcode": 3, "role": false, "free": false },
+  "dkirk@harborview-recovery.example":                    { "email": "dkirk@harborview-recovery.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "rbaptiste@community-action.example":                 { "email": "rbaptiste@community-action.example", "result": "invalid", "resultcode": 2, "subresult": "mailbox_not_found", "role": false },
+  "gnash@southside-services.example":                 { "email": "gnash@southside-services.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "yfreeman@southside-services.example":              { "email": "yfreeman@southside-services.example", "result": "unknown", "resultcode": 4, "role": false },
+  "lisa.cordero@bridgeway-house.example":          { "email": "lisa.cordero@bridgeway-house.example", "result": "ok", "resultcode": 1, "role": false, "free": false },
+  "nboyd@riverbend-recovery.example":        { "email": "nboyd@riverbend-recovery.example", "result": "ok", "resultcode": 1, "role": false },
+  "zak@mentorship-alliance.example":            { "email": "zak@mentorship-alliance.example", "result": "ok", "resultcode": 1, "role": false }
+}

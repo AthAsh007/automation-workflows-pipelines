@@ -1,0 +1,140 @@
+# Daily partner extract, as a Windmill flow.
+#
+# Windmill's model: each step is an ordinary script with a typed signature, and
+# Windmill generates the input form and the UI from that signature. There is no
+# DAG object to declare; the flow is the wiring between script inputs and
+# outputs.
+#
+# Import:
+#   docker compose up   (see https://windmill.dev, self-hosted is AGPL and free)
+#   In the UI: Flows, New, Import from file, pick this YAML.
+#   Add the scripts under f/partner/ from windmill/scripts/.
+#
+# Backfill: there is no partition primitive, so run the flow once per day. The
+# `backfill.py` script in windmill/scripts/ does the loop and is itself runnable
+# as a Windmill script with a generated date-range form.
+
+summary: Daily partner extract
+description: |
+  Waits for the partner's daily CSV, loads and validates it, upserts the
+  partition, records four quality checks, and alerts only when one fails.
+
+value:
+  modules:
+    - id: wait_for_drop
+      summary: Fail fast when the partner has not dropped today's file
+      value:
+        type: rawscript
+        language: python3
+        input_transforms:
+          business_date:
+            type: javascript
+            expr: flow_input.business_date
+          drop_dir:
+            type: javascript
+            expr: flow_input.drop_dir
+        content: |
+          import os
+
+          def main(business_date: str, drop_dir: str = "/tmp/partner") -> dict:
+              """Returns the path, or raises so the retry policy takes over."""
+              path = os.path.join(drop_dir, f"partner-{business_date}.csv")
+              if not os.path.exists(path):
+                  raise FileNotFoundError(f"no drop yet for {business_date} at {path}")
+              return {"path": path, "bytes": os.path.getsize(path)}
+      retry:
+        exponential:
+          attempts: 6
+          multiplier: 2
+          seconds: 60
+          random_factor: 50
+
+    - id: load_and_check
+      summary: Parse, validate, upsert the partition, record the checks
+      value:
+        type: rawscript
+        language: python3
+        input_transforms:
+          business_date:
+            type: javascript
+            expr: flow_input.business_date
+          source:
+            type: javascript
+            expr: results.wait_for_drop.path
+        content: |
+          import sys
+          sys.path.insert(0, "/app")          # where shared/ is mounted
+
+          from shared.pipeline import run
+
+          def main(business_date: str, source: str) -> dict:
+              """Returns the summary. Does not raise on a failing check.
+
+              A quality failure is a result, not an exception: the next step
+              branches on it, and the run still records what loaded.
+              """
+              summary = run(business_date, source, db_path="/app/data/warehouse.db")
+              return {
+                  "rows": summary["load"]["upserted"],
+                  "rejected": summary["load"]["rejected"],
+                  "failed_checks": summary["failed_checks"],
+                  "alert": summary["alert"],
+                  "checks": summary["checks"],
+              }
+      retry:
+        constant:
+          attempts: 2
+          seconds: 30
+
+    - id: alert_branch
+      summary: Alert only when a check failed
+      value:
+        type: branchone
+        branches:
+          - summary: A check failed
+            expr: results.load_and_check.failed_checks.length > 0
+            modules:
+              - id: send_alert
+                value:
+                  type: rawscript
+                  language: python3
+                  input_transforms:
+                    message:
+                      type: javascript
+                      expr: results.load_and_check.alert
+                  content: |
+                    def main(message: str) -> str:
+                        """Swap for wmill.send_slack_message, or an SMTP script.
+
+                        Printing keeps the flow runnable before any resource is
+                        configured, which is the point of the whole repository.
+                        """
+                        print(message)
+                        return message
+        default:
+          - id: no_alert
+            value:
+              type: rawscript
+              language: python3
+              input_transforms: {}
+              content: |
+                def main() -> str:
+                    return "all checks passed, nothing sent"
+
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  required:
+    - business_date
+  properties:
+    business_date:
+      type: string
+      format: date
+      description: The day to load, as YYYY-MM-DD.
+    drop_dir:
+      type: string
+      default: /tmp/partner
+      description: Where the partner drops the daily CSV.
+
+# A cron schedule is attached to the flow in the UI rather than declared here,
+# so the same file can be imported into a dev workspace without scheduling itself.

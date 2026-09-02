@@ -1,0 +1,33 @@
+{
+  "_comment": "The SAME job order as job-order-bullhorn.json, in CEIPAL's shape: flat fields, different names, a skills ARRAY of objects instead of a comma string, and a pay range object instead of a number. Nothing in any of the three workflows changes to handle this - only ATS_FIELDS.job in the config node. That substitution is the whole multi-client story, and it is worth showing on camera.",
+
+  "_field_map_for_this_vendor": {
+    "id": "job_id",
+    "title": "job_title",
+    "description": "job_description",
+    "skills": "required_skills",
+    "city": "city",
+    "state": "state_name",
+    "pay_rate": "pay_rate",
+    "shift": "shift_timing",
+    "employment": "employment_type",
+    "recruiter": "assigned_recruiter.full_name",
+    "recruiter_mail": "assigned_recruiter.email_id"
+  },
+
+  "job_id": "CEI-77310",
+  "job_title": "Forklift Operator",
+  "job_description": "Distribution centre in Calder City is hiring experienced forklift operators for first shift, Monday to Friday, 6am to 2:30pm. Sit-down and stand-up reach trucks. RF scanner experience preferred. OSHA certification a plus.",
+  "required_skills": [
+    { "id": 91, "name": "Forklift" },
+    { "id": 104, "name": "Pallet Jack" },
+    { "id": 118, "name": "RF Scanner" }
+  ],
+  "city": "Calder City",
+  "state_name": "MW",
+  "pay_rate": { "min": 21.0, "max": 22.5, "currency": "USD" },
+  "shift_timing": "1st shift, Mon-Fri",
+  "employment_type": "Contract",
+  "job_status": "Active",
+  "assigned_recruiter": { "full_name": "Dana Reyes", "email_id": "dana.reyes@example.com" }
+}

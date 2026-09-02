@@ -1,0 +1,65 @@
+{
+  "_comment": "Every action the router may choose. The output enum is built from these ids, so the model cannot name anything that is not here. 'reversible: false' means the action is always queued for a human, whatever the confidence.",
+  "default": "hold_for_human",
+  "actions": [
+    {
+      "id": "hold_for_human",
+      "when": "The item is ambiguous, hostile, addressed to the router itself, or matches nothing below. Always safe.",
+      "reversible": true,
+      "arguments": { "type": "object", "properties": { "note": { "type": "string", "maxLength": 300 } }, "required": [] }
+    },
+    {
+      "id": "book_meeting",
+      "when": "The reply agrees to a call or asks for times. A specific interest in talking, not a general pleasantry.",
+      "reversible": true,
+      "arguments": {
+        "type": "object", "additionalProperties": false,
+        "required": ["preferred_window"],
+        "properties": {
+          "preferred_window": { "type": "string", "maxLength": 120, "description": "what they said about timing, quoted" },
+          "timezone_hint": { "type": "string", "nullable": true, "maxLength": 60 }
+        }
+      }
+    },
+    {
+      "id": "send_information",
+      "when": "They asked a specific question that a standard document answers: pricing, coverage, a case study.",
+      "reversible": true,
+      "arguments": {
+        "type": "object", "additionalProperties": false,
+        "required": ["document"],
+        "properties": { "document": { "type": "string", "enum": ["pricing", "coverage", "case_study", "onboarding"] } }
+      }
+    },
+    {
+      "id": "snooze",
+      "when": "They asked to be contacted later and named a time. Not a refusal.",
+      "reversible": true,
+      "arguments": {
+        "type": "object", "additionalProperties": false,
+        "required": ["until_hint"],
+        "properties": { "until_hint": { "type": "string", "maxLength": 120 } }
+      }
+    },
+    {
+      "id": "suppress_contact",
+      "when": "They asked not to be contacted again, in any wording. Unsubscribe, remove me, stop, do not contact.",
+      "reversible": false,
+      "arguments": {
+        "type": "object", "additionalProperties": false,
+        "required": ["scope"],
+        "properties": { "scope": { "type": "string", "enum": ["this_campaign", "all_contact"] } }
+      }
+    },
+    {
+      "id": "route_to_owner",
+      "when": "The reply is from someone who says they are not the right person and names or implies who is.",
+      "reversible": true,
+      "arguments": {
+        "type": "object", "additionalProperties": false,
+        "required": ["referred_to"],
+        "properties": { "referred_to": { "type": "string", "maxLength": 160, "description": "quoted from the reply" } }
+      }
+    }
+  ]
+}

@@ -1,0 +1,368 @@
+{
+  "name": "12 Cold Email Sequencer (GCC volume - mailbox and subject rotation)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 0 8-16 * * 0-4"}]}
+      },
+      "id": "schedule",
+      "name": "Hourly 08-16, Sun-Thu",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1180, 300],
+      "notes": "GCC working week is Sunday to Thursday. 0-4 = Sun-Thu. Hourly slices beat one daily blast for deliverability."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preflight. Every check here maps to a promise in the statement of work, and each\n// one fails the run loudly rather than warning into a log nobody reads.\nconst MONTHLY_TARGET = Number($env.MONTHLY_TARGET || 14000);\nconst WORKING_DAYS = Number($env.WORKING_DAYS_PER_MONTH || 22);\nconst SLOTS = Number($env.SEND_SLOTS_PER_DAY || 9);\nconst PER_MAILBOX = Number($env.PER_MAILBOX_DAILY_CAP || 35);\nconst domainsVerified = String($env.SENDING_DOMAINS_VERIFIED || 'false').toLowerCase() === 'true';\nconst mode = String($env.APPROVAL_MODE || 'review').toLowerCase();\nconst ramp = Number($env.RAMP_DAY || 999);\n\nif (!domainsVerified) {\n  throw new Error('SENDING_DOMAINS_VERIFIED is not true. Every sending domain needs SPF, DKIM and DMARC confirmed and warmup finished before this runs. None of them may be the client primary domain.');\n}\n\nif (['review', 'auto'].indexOf(mode) === -1) {\n  throw new Error('APPROVAL_MODE must be \"review\" or \"auto\", got: ' + mode);\n}\n\n// Ramp: week 1 at 25%, week 2 at 50%, week 3 at 75%, full from week 4.\n// Going to full volume on a fresh set of mailboxes is the single fastest way to burn them.\nlet rampFactor = 1;\nif (ramp <= 5) rampFactor = 0.25;\nelse if (ramp <= 10) rampFactor = 0.5;\nelse if (ramp <= 15) rampFactor = 0.75;\n\nconst dailyTarget = Math.round((MONTHLY_TARGET / WORKING_DAYS) * rampFactor);\nconst hourlyTarget = Math.ceil(dailyTarget / SLOTS);\nconst mailboxesNeeded = Math.ceil(dailyTarget / PER_MAILBOX);\n\n// Ramadan and Eid: response rates collapse and sending through it looks tone deaf.\nconst paused = String($env.SEASONAL_PAUSE || 'false').toLowerCase() === 'true';\nif (paused) {\n  return [{ json: { paused: true, reason: String($env.SEASONAL_PAUSE_REASON || 'seasonal pause is on') } }];\n}\n\nreturn [{ json: {\n  paused: false,\n  monthly_target: MONTHLY_TARGET,\n  daily_target: dailyTarget,\n  hourly_target: hourlyTarget,\n  ramp_day: ramp,\n  ramp_factor: rampFactor,\n  per_mailbox_cap: PER_MAILBOX,\n  mailboxes_needed: mailboxesNeeded,\n  mode: mode,\n  day_key: new Date().toISOString().slice(0, 10),\n  month_key: new Date().toISOString().slice(0, 7),\n  year_key: new Date().toISOString().slice(0, 4)\n}}];"
+      },
+      "id": "preflight",
+      "name": "preflight and ramp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-960, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {"id": "c0", "leftValue": "={{ $json.paused }}", "rightValue": "true", "operator": {"type": "boolean", "operation": "notTrue", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "not-paused",
+      "name": "sending this hour?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-740, 300]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-520, 220],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Suppression", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-suppression",
+      "name": "[cred] Sheets - read suppression",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-300, 220],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Mailboxes", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-mailboxes",
+      "name": "[cred] Sheets - read mailboxes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-80, 220],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "SendLedger", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-ledger",
+      "name": "[cred] Sheets - read send ledger",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [140, 220],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "One row per subject variant, holding the 24h / 30d / annual counters."
+    },
+    {
+      "parameters": {
+        "jsCode": "// THE ALLOCATOR. Three independent ceilings have to hold at once, and this is the\n// only node that knows about all three:\n//\n//   1. STATUTE      - per SUBJECT LINE, not per campaign. Singapore's Spam Control Act\n//                     calls it bulk above 100 same-subject in 24h, 1,000 in 30 days or\n//                     10,000 in a year. At 14k/month that needs 17+ rotating subjects.\n//   2. DELIVERABILITY - per MAILBOX. 30-40 a day each, or reputation goes.\n//   3. TARGET       - the monthly number in the contract, spread over working days\n//                     and hourly slots, scaled by the warmup ramp.\n//\n// Whichever ceiling binds first wins, and the reason is recorded either way.\nconst cfg = $('preflight and ramp').first().json;\nconst leads = $('[cred] Sheets - read leads').all().map((i) => i.json);\nconst mailboxes = $('[cred] Sheets - read mailboxes').all().map((i) => i.json);\nconst ledger = $input.all().map((i) => i.json);\n\nconst MIN_CONFIDENCE = Number($env.MIN_CONFIDENCE || 70);\nconst SUBJ_DAY = Number($env.SUBJECT_CAP_24H || 90);\nconst SUBJ_MONTH = Number($env.SUBJECT_CAP_30D || 900);\nconst SUBJ_YEAR = Number($env.SUBJECT_CAP_YEAR || 9000);\n\n// --- sequences and their subject variants -------------------------------------\nlet sequences;\ntry {\n  sequences = JSON.parse($env.SEQUENCES_JSON || '[]');\n} catch (e) {\n  throw new Error('SEQUENCES_JSON is not valid JSON: ' + String(e.message));\n}\nif (!sequences.length) throw new Error('SEQUENCES_JSON is empty. Define 3-5 sequences, each with subject variants.');\n\nconst subjects = [];\nfor (const seq of sequences) {\n  for (const s of (seq.subjects || [])) {\n    subjects.push({ subject_id: seq.id + '::' + s.replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 40), subject: s, sequence: seq.id, angle: seq.angle || '' });\n  }\n}\n\n// The annual ceiling is the binding one at this volume - check it before sending, not after.\nconst needed = Math.ceil((cfg.monthly_target * 12) / SUBJ_YEAR);\nif (subjects.length < needed) {\n  throw new Error('Only ' + subjects.length + ' subject variants defined. At ' + cfg.monthly_target + '/month you need at least ' + needed + ' to stay under the per-subject annual threshold. Add variants to SEQUENCES_JSON.');\n}\n\n// --- current counters ---------------------------------------------------------\nconst subjState = {};\nfor (const s of subjects) subjState[s.subject_id] = { sent_today: 0, sent_month: 0, sent_year: 0 };\nfor (const row of ledger) {\n  const id = String(row.subject_id || '');\n  if (!subjState[id]) continue;\n  subjState[id] = {\n    sent_today: String(row.day_key) === cfg.day_key ? Number(row.sent_today || 0) : 0,\n    sent_month: String(row.month_key) === cfg.month_key ? Number(row.sent_month || 0) : 0,\n    sent_year: String(row.year_key) === cfg.year_key ? Number(row.sent_year || 0) : 0\n  };\n}\n\nconst boxes = mailboxes\n  .filter((m) => String(m.active).toLowerCase() === 'true' && String(m.warmed).toLowerCase() === 'true')\n  .map((m) => ({\n    email: m.mailbox_email,\n    domain: m.domain,\n    cap: Number(m.daily_cap || cfg.per_mailbox_cap),\n    sent_today: String(m.day_key) === cfg.day_key ? Number(m.sent_today || 0) : 0\n  }));\n\nif (!boxes.length) throw new Error('No warmed, active mailbox in the Mailboxes tab.');\n\nconst mailboxCapacity = boxes.reduce((t, b) => t + Math.max(0, b.cap - b.sent_today), 0);\nif (boxes.length < cfg.mailboxes_needed) {\n  // Not fatal - it just means today's target is unreachable, and saying so beats\n  // quietly sending less and letting someone discover the shortfall at month end.\n  cfg.mailbox_shortfall = cfg.mailboxes_needed - boxes.length;\n}\n\n// --- eligible leads -----------------------------------------------------------\nconst suppressedEmails = new Set();\nconst suppressedDomains = new Set();\nfor (const item of $('[cred] Sheets - read suppression').all()) {\n  const e = String(item.json.email || '').toLowerCase().trim();\n  const d = String(item.json.domain || '').toLowerCase().trim();\n  if (e) suppressedEmails.add(e);\n  if (d) suppressedDomains.add(d);\n}\n\nconst dropped = { no_email: 0, suppressed: 0, already_contacted: 0, low_confidence: 0, held_by_cap: 0, no_subject_headroom: 0, no_mailbox_headroom: 0 };\nconst eligible = [];\n\nfor (const lead of leads) {\n  const email = String(lead.email || '').toLowerCase().trim();\n  const stage = String(lead.stage || '').toLowerCase();\n  if (!email) { dropped.no_email++; continue; }\n  if (suppressedEmails.has(email) || suppressedDomains.has(String(lead.domain || '').toLowerCase())) { dropped.suppressed++; continue; }\n  if (['queued', 'sent', 'replied', 'booked', 'suppressed'].indexOf(stage) !== -1) { dropped.already_contacted++; continue; }\n  if (Number(lead.confidence || 0) < MIN_CONFIDENCE) { dropped.low_confidence++; continue; }\n  eligible.push(lead);\n}\n\neligible.sort((a, b) => Number(b.fit_score || 0) - Number(a.fit_score || 0));\n\n// --- allocate -----------------------------------------------------------------\nconst hourly = Math.min(cfg.hourly_target, mailboxCapacity);\nconst out = [];\nlet boxIndex = 0;\n\nfor (const lead of eligible) {\n  if (out.length >= hourly) { dropped.held_by_cap++; continue; }\n\n  // Sticky sequence per lead, so a lead never jumps between angles mid-cadence.\n  const hash = String(lead.lead_id || lead.email).split('').reduce((h, c) => ((h * 31) + c.charCodeAt(0)) % 100000, 7);\n  const seqIndex = hash % sequences.length;\n  const seq = sequences[seqIndex];\n  const seqSubjects = subjects.filter((s) => s.sequence === seq.id);\n\n  // Cheapest subject first: the one furthest from its ceilings.\n  const usable = seqSubjects\n    .filter((s) => {\n      const st = subjState[s.subject_id];\n      return st.sent_today < SUBJ_DAY && st.sent_month < SUBJ_MONTH && st.sent_year < SUBJ_YEAR;\n    })\n    .sort((a, b) => subjState[a.subject_id].sent_today - subjState[b.subject_id].sent_today);\n\n  if (!usable.length) { dropped.no_subject_headroom++; continue; }\n  const chosen = usable[0];\n\n  // Round-robin the mailboxes, skipping any at its daily cap.\n  let box = null;\n  for (let tries = 0; tries < boxes.length; tries++) {\n    const candidate = boxes[(boxIndex + tries) % boxes.length];\n    if (candidate.sent_today < candidate.cap) { box = candidate; boxIndex = (boxIndex + tries + 1) % boxes.length; break; }\n  }\n  if (!box) { dropped.no_mailbox_headroom++; continue; }\n\n  subjState[chosen.subject_id].sent_today++;\n  subjState[chosen.subject_id].sent_month++;\n  subjState[chosen.subject_id].sent_year++;\n  box.sent_today++;\n\n  out.push({ json: Object.assign({}, lead, {\n    sequence_id: seq.id,\n    sequence_angle: seq.angle || '',\n    sequence_step: Number(lead.sequence_step || 0),\n    ab_variant: (hash % 2 === 0) ? 'A' : 'B',\n    subject_id: chosen.subject_id,\n    subject_template: chosen.subject,\n    mailbox: box.email,\n    mailbox_domain: box.domain,\n    slot_at: new Date().toISOString(),\n    day_key: cfg.day_key,\n    month_key: cfg.month_key,\n    year_key: cfg.year_key,\n    approval_mode: cfg.mode,\n    run_stats: {\n      hourly_target: cfg.hourly_target,\n      daily_target: cfg.daily_target,\n      ramp_factor: cfg.ramp_factor,\n      mailbox_capacity_left: mailboxCapacity,\n      mailbox_shortfall: cfg.mailbox_shortfall || 0,\n      subject_variants: subjects.length,\n      eligible: eligible.length,\n      dropped: dropped\n    }\n  })});\n}\n\nreturn out;"
+      },
+      "id": "allocate",
+      "name": "allocate subjects and mailboxes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [360, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_BASE_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "content-type", "value": "application/json"},
+            {"name": "Authorization", "value": "=Bearer {{ $env.LLM_API_KEY }}"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.LLM_MODEL_WRITER || $env.LLM_MODEL, max_tokens: 4000, stream: false, messages: [{ role: 'system', content: 'You write one short cold email for a B2B seller approaching a decision maker in the Gulf. Rules in order of importance: (1) Reference one specific thing about their business from the research - if the research is thin, write a shorter email rather than a vaguer one. (2) Under 90 words. (3) No flattery, no \"I hope this finds you well\", no \"I noticed you are\", no bragging about our client. (4) One question at the end that is easy to answer in a sentence. (5) Plain sentences a busy person reads in fifteen seconds. (6) Never use an honorific or guess at gender from a name. (7) Never reference religion, politics, or the local weekend. Return only the body text - no subject line, no signature, no preamble.' }, { role: 'user', content: 'Sequence angle: ' + ($json.sequence_angle || 'general') + '\\nA/B variant: ' + $json.ab_variant + ($json.ab_variant === 'B' ? ' (open with the question instead of the context)' : ' (open with the context, then the question)') + '\\n\\nSender: ' + ($env.SENDER_INTRO || 'a small automation studio that builds internal tools for SMEs') + '\\n\\nRecipient: ' + $json.first_name + ' ' + $json.last_name + ', ' + ($json.title || 'unknown role') + ' at ' + $json.company + ' (' + ($json.country || 'GCC') + ')\\n\\nWhat we know:\\n- Industry: ' + ($json.industry || 'unknown') + '\\n- Size: ' + ($json.size_hint || 'unknown') + '\\n- Recent change: ' + ($json.recent_trigger || 'none found') + '\\n- Visible pain: ' + ($json.visible_pain || 'none found') + '\\n- Fit reason: ' + ($json.fit_reason || '') + '\\n\\nWrite the email body.' }] }) }}",
+        "options": {"timeout": 300000, "batching": {"batch": {"batchSize": 5, "batchInterval": 1000}}}
+      },
+      "id": "write-email",
+      "name": "[cred] LLM - write the email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble. The unsubscribe line is appended here, not left to the sending tool, so\n// it survives anyone reconfiguring the campaign later.\nconst leads = $('allocate subjects and mailboxes').all();\nconst out = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const lead = Object.assign({}, leads[i].json);\n  const res = $input.all()[i].json || {};\n  const body = String(((((res.choices || [])[0]) || {}).message || {}).content || '').trim();\n\n  if (!body) {\n    const why = ((((res.choices || [])[0]) || {}).finish_reason) || (res.error && res.error.message) || 'none';\n    throw new Error('Empty draft for ' + lead.lead_id + ' (finish_reason: ' + why + ')');\n  }\n\n  const words = body.split(' ').filter(Boolean).length;\n  const subject = String(lead.subject_template)\n    .split('{company}').join(lead.company || 'your team')\n    .split('{first_name}').join(lead.first_name || 'there');\n\n  const unsubscribe = '\\n\\n--\\n' + ($env.SENDER_SIGNATURE || 'Sent by a person, not a list.') +\n    '\\nNot relevant? Reply \"stop\" and I will not contact you again.';\n\n  out.push({ json: Object.assign({}, lead, {\n    subject: subject,\n    body: body + unsubscribe,\n    word_count: words,\n    needs_human_look: words > 110 || body.toLowerCase().indexOf('i hope this') !== -1 || body.indexOf('Mr.') !== -1 || body.indexOf('Mrs.') !== -1,\n    drafted_at: new Date().toISOString()\n  })});\n}\n\nreturn out;"
+      },
+      "id": "assemble",
+      "name": "assemble message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {"id": "c1", "leftValue": "={{ $json.approval_mode }}", "rightValue": "auto", "operator": {"type": "string", "operation": "equals"}}
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "approval-gate",
+      "name": "send without review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1020, 300],
+      "notes": "APPROVAL_MODE=review for the first two weeks on every new client."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.instantly.ai/api/v2/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "Authorization", "value": "=Bearer {{ $env.INSTANTLY_API_KEY }}"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ campaign: $json.sequence_id, email: $json.email, first_name: $json.first_name, last_name: $json.last_name, company_name: $json.company, personalization: $json.body, custom_variables: { lead_id: $json.lead_id, subject: $json.subject, subject_id: $json.subject_id, mailbox: $json.mailbox, ab_variant: $json.ab_variant, confidence: $json.confidence } }) }}",
+        "options": {"timeout": 30000, "batching": {"batch": {"batchSize": 10, "batchInterval": 1000}}}
+      },
+      "id": "push-instantly",
+      "name": "[cred] Instantly - queue on the assigned mailbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, 180],
+      "onError": "continueRegularOutput",
+      "notes": "campaign = sequence_id, so each of the 3-5 sequences is its own Instantly campaign. Smartlead swap: POST https://server.smartlead.ai/api/v1/campaigns/{id}/leads?api_key=KEY"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Drafts", "mode": "name"},
+        "columns": {"mappingMode": "autoMapInputData", "matchingColumns": ["lead_id"], "value": {}, "schema": []},
+        "options": {}
+      },
+      "id": "write-drafts",
+      "name": "[cred] Sheets - park drafts for review",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1240, 420]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 2, "options": {}},
+      "id": "merge-paths",
+      "name": "merge paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Roll the counters forward. This runs whether the emails were queued or parked,\n// because a parked draft still consumed a subject slot the moment it was written -\n// double-counting is safer here than under-counting against a statutory ceiling.\nconst cfg = $('preflight and ramp').first().json;\nconst sent = $('assemble message').all().map((i) => i.json);\nconst prior = {};\n\nfor (const item of $('[cred] Sheets - read send ledger').all()) {\n  const r = item.json;\n  if (!r.subject_id) continue;\n  prior[r.subject_id] = r;\n}\n\nconst bump = {};\nfor (const s of sent) {\n  if (!bump[s.subject_id]) bump[s.subject_id] = { subject: s.subject_template, n: 0 };\n  bump[s.subject_id].n++;\n}\n\nreturn Object.keys(bump).map((id) => {\n  const p = prior[id] || {};\n  const sameDay = String(p.day_key) === cfg.day_key;\n  const sameMonth = String(p.month_key) === cfg.month_key;\n  const sameYear = String(p.year_key) === cfg.year_key;\n\n  return { json: {\n    subject_id: id,\n    subject: bump[id].subject,\n    day_key: cfg.day_key,\n    sent_today: (sameDay ? Number(p.sent_today || 0) : 0) + bump[id].n,\n    month_key: cfg.month_key,\n    sent_month: (sameMonth ? Number(p.sent_month || 0) : 0) + bump[id].n,\n    year_key: cfg.year_key,\n    sent_year: (sameYear ? Number(p.sent_year || 0) : 0) + bump[id].n,\n    last_sent: new Date().toISOString()\n  }};\n});"
+      },
+      "id": "update-ledger",
+      "name": "roll the subject ledger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "SendLedger", "mode": "name"},
+        "columns": {"mappingMode": "autoMapInputData", "matchingColumns": ["subject_id"], "value": {}, "schema": []},
+        "options": {}
+      },
+      "id": "write-ledger",
+      "name": "[cred] Sheets - write subject ledger",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mailbox counters, same rollover logic.\nconst cfg = $('preflight and ramp').first().json;\nconst sent = $('assemble message').all().map((i) => i.json);\nconst prior = {};\nfor (const item of $('[cred] Sheets - read mailboxes').all()) {\n  const r = item.json;\n  if (r.mailbox_email) prior[r.mailbox_email] = r;\n}\n\nconst bump = {};\nfor (const s of sent) bump[s.mailbox] = (bump[s.mailbox] || 0) + 1;\n\nreturn Object.keys(bump).map((mb) => {\n  const p = prior[mb] || {};\n  const sameDay = String(p.day_key) === cfg.day_key;\n  return { json: {\n    mailbox_email: mb,\n    domain: p.domain || '',\n    daily_cap: p.daily_cap || cfg.per_mailbox_cap,\n    warmed: p.warmed || 'true',\n    active: p.active || 'true',\n    day_key: cfg.day_key,\n    sent_today: (sameDay ? Number(p.sent_today || 0) : 0) + bump[mb]\n  }};\n});"
+      },
+      "id": "update-mailboxes",
+      "name": "roll the mailbox counters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2120, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Mailboxes", "mode": "name"},
+        "columns": {"mappingMode": "autoMapInputData", "matchingColumns": ["mailbox_email"], "value": {}, "schema": []},
+        "options": {}
+      },
+      "id": "write-mailboxes",
+      "name": "[cred] Sheets - write mailbox counters",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark what we touched, so the next slot cannot pick the same lead up again.\nreturn $('assemble message').all().map((item) => ({ json: {\n  lead_id: item.json.lead_id,\n  email: item.json.email,\n  stage: 'queued',\n  sequence_id: item.json.sequence_id,\n  sequence_step: Number(item.json.sequence_step || 0) + 1,\n  ab_variant: item.json.ab_variant,\n  subject_id: item.json.subject_id,\n  mailbox: item.json.mailbox,\n  queued_at: new Date().toISOString(),\n  updated_at: new Date().toISOString()\n}}));"
+      },
+      "id": "mark-queued",
+      "name": "mark leads queued",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2560, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {"mappingMode": "autoMapInputData", "matchingColumns": ["lead_id"], "value": {}, "schema": []},
+        "options": {}
+      },
+      "id": "update-leads",
+      "name": "[cred] Sheets - update lead stage",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2780, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Post only when something needs a decision. Nine slots a day of 'all good' is how\n// a channel gets muted, and a muted channel hides the slot that mattered.\nconst sent = $('assemble message').all();\nif (!sent.length) return [];\n\nconst first = sent[0].json;\nconst st = first.run_stats || {};\nconst d = st.dropped || {};\nconst mode = first.approval_mode === 'auto' ? 'queued' : 'parked for review';\n\nconst problems = [];\nif (st.mailbox_shortfall) problems.push(':warning: *' + st.mailbox_shortfall + ' mailboxes short* of the daily target. Add mailboxes or the monthly number will not land.');\nif (d.no_subject_headroom) problems.push(':warning: ' + d.no_subject_headroom + ' leads held: every subject in their sequence is at a statutory ceiling. Add subject variants.');\nif (d.no_mailbox_headroom) problems.push(':warning: ' + d.no_mailbox_headroom + ' leads held: every mailbox is at its daily cap.');\nif (sent.filter((s) => s.json.needs_human_look).length) problems.push(':mag: ' + sent.filter((s) => s.json.needs_human_look).length + ' drafts flagged for a human look.');\n\nif (!problems.length && String($env.QUIET_SLOTS || 'true') === 'true') return [];\n\nconst lines = [\n  ':outbox_tray: *Outbound slot* - ' + sent.length + ' ' + mode + ' (hourly target ' + st.hourly_target + ', daily ' + st.daily_target + ' at ramp ' + Math.round((st.ramp_factor || 1) * 100) + '%)',\n  '_' + st.subject_variants + ' subject variants live, ' + st.eligible + ' leads eligible._'\n];\nproblems.forEach((p) => lines.push(p));\nlines.push('_Skipped: ' + (d.already_contacted || 0) + ' already contacted, ' + (d.suppressed || 0) + ' suppressed, ' + (d.low_confidence || 0) + ' low confidence, ' + (d.held_by_cap || 0) + ' held for a later slot._');\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "summary",
+      "name": "slot summary (quiet unless it matters)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3000, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "notify",
+      "name": "[cred] Notify Slack or Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3220, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "paused",
+      "name": "STOP: seasonal pause",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-520, 460]
+    },
+    {
+      "parameters": {
+        "content": "## 12 Cold Email Sequencer - GCC volume\n\nBuilt to a 14,000/month, 20-calls/month brief.\n\n**Three ceilings, enforced together in `allocate subjects and mailboxes`:**\n1. **Statute, per SUBJECT LINE** - not per campaign. 100/24h, 1,000/30d, 10,000/year each. At 14k/month that needs **17+ rotating subjects**; the node refuses to run below the number the maths requires.\n2. **Deliverability, per MAILBOX** - 35/day each. 636/day needs ~18 warmed mailboxes across ~6 domains.\n3. **Target** - monthly number spread over 22 working days and 9 hourly slots, scaled by the warmup ramp.\n\n**GCC calendar:** cron is `0 0 8-16 * * 0-4` - Sunday to Thursday. Friday and Saturday are the weekend here. Set `SEASONAL_PAUSE=true` over Ramadan and Eid.\n\n**Copy rules:** no honorifics, no gender guessed from a name, no reference to religion, politics or the weekend.\n\n**Sheet tabs:** `Leads`, `Suppression`, `Drafts`, `Mailboxes`, `SendLedger`.\n\n**Env:** see .env.example - `SEQUENCES_JSON` is the one that matters.",
+        "height": 620,
+        "width": 480,
+        "color": 3
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-1180, -420]
+    }
+  ],
+  "connections": {
+    "Hourly 08-16, Sun-Thu": {"main": [[{"node": "preflight and ramp", "type": "main", "index": 0}]]},
+    "preflight and ramp": {"main": [[{"node": "sending this hour?", "type": "main", "index": 0}]]},
+    "sending this hour?": {
+      "main": [
+        [{"node": "[cred] Sheets - read leads", "type": "main", "index": 0}],
+        [{"node": "STOP: seasonal pause", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Sheets - read leads": {"main": [[{"node": "[cred] Sheets - read suppression", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read suppression": {"main": [[{"node": "[cred] Sheets - read mailboxes", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read mailboxes": {"main": [[{"node": "[cred] Sheets - read send ledger", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read send ledger": {"main": [[{"node": "allocate subjects and mailboxes", "type": "main", "index": 0}]]},
+    "allocate subjects and mailboxes": {"main": [[{"node": "[cred] LLM - write the email", "type": "main", "index": 0}]]},
+    "[cred] LLM - write the email": {"main": [[{"node": "assemble message", "type": "main", "index": 0}]]},
+    "assemble message": {"main": [[{"node": "send without review?", "type": "main", "index": 0}]]},
+    "send without review?": {
+      "main": [
+        [{"node": "[cred] Instantly - queue on the assigned mailbox", "type": "main", "index": 0}],
+        [{"node": "[cred] Sheets - park drafts for review", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Instantly - queue on the assigned mailbox": {"main": [[{"node": "merge paths", "type": "main", "index": 0}]]},
+    "[cred] Sheets - park drafts for review": {"main": [[{"node": "merge paths", "type": "main", "index": 1}]]},
+    "merge paths": {"main": [[{"node": "roll the subject ledger", "type": "main", "index": 0}]]},
+    "roll the subject ledger": {"main": [[{"node": "[cred] Sheets - write subject ledger", "type": "main", "index": 0}]]},
+    "[cred] Sheets - write subject ledger": {"main": [[{"node": "roll the mailbox counters", "type": "main", "index": 0}]]},
+    "roll the mailbox counters": {"main": [[{"node": "[cred] Sheets - write mailbox counters", "type": "main", "index": 0}]]},
+    "[cred] Sheets - write mailbox counters": {"main": [[{"node": "mark leads queued", "type": "main", "index": 0}]]},
+    "mark leads queued": {"main": [[{"node": "[cred] Sheets - update lead stage", "type": "main", "index": 0}]]},
+    "[cred] Sheets - update lead stage": {"main": [[{"node": "slot summary (quiet unless it matters)", "type": "main", "index": 0}]]},
+    "slot summary (quiet unless it matters)": {"main": [[{"node": "[cred] Notify Slack or Discord", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "outbound", "gcc"]
+}

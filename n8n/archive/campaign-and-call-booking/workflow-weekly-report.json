@@ -1,0 +1,395 @@
+{
+  "name": "09 Weekly Performance Report (open, reply, calls booked, recommendations)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 7 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "weekly-trigger",
+      "name": "Weekly Sunday 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// config - the only node you edit.\n//\n// Nothing in this workflow reads $env, so it behaves identically on self-hosted\n// n8n and on n8n Cloud, needs no N8N_BLOCK_ENV_ACCESS_IN_NODE, and a threshold\n// change costs a save rather than a host restart.\n//\n// The numbers agreed on the call live here, in one visible place - the\n// threshold in the contract and the threshold in the workflow are the same\n// threshold.\n//\n// Blank keys degrade instead of 401-ing:\n//   INSTANTLY_API_KEY  blank -> the report goes out with the rates reported\n//                               as missing rather than zero\n//   LLM_API_KEY        blank -> the two-sentence prose is replaced by a\n//                               computed opening\n//   REPORT_WEBHOOK_URL blank -> falls back to ALERT_WEBHOOK_URL\n//\n// LEADS_SHEET_ID is the only required value - fill in your Google Sheet ID.\n// ---------------------------------------------------------------------------\n\nconst LEADS_SHEET_ID = 'YOUR_GOOGLE_SHEET_ID';\n\nconst INSTANTLY_API_KEY = '';\nconst INSTANTLY_BASE_URL = 'https://api.instantly.ai';\n\nconst LLM_BASE_URL = 'https://llm.acme.example';\nconst LLM_API_KEY = '';\nconst LLM_MODEL = 'modelark/seed-2-0-pro-260328';\nconst LLM_MODEL_WRITER = 'modelark/seed-2-0-pro-260328';\n\n// The brief's numbers. Everything in the report is measured against these.\nconst MONTHLY_TARGET = 14000;\nconst CALLS_TARGET = 20;\n\n// The reply rate the 20-call target depends on. Put this in the SOW as a shared\n// assumption - 14,000 sends does not guarantee 20 calls, 2% reply does.\nconst TARGET_REPLY_RATE = 2.0;\n\n// Below this many sends in the week, rates are noise and the report says so\n// instead of grading them.\nconst MIN_SAMPLE = 100;\n\n// Thresholds that trigger a recommendation.\nconst BOUNCE_CEILING = 3.0;\nconst NOSHOW_CEILING = 30.0;\n\n// Where the weekly report is posted. Falls back to ALERT_WEBHOOK_URL if unset.\nconst REPORT_WEBHOOK_URL = '';\n\n// Where booking events and the daily calls desk get posted.\nconst ALERT_WEBHOOK_URL = '';\n\n// ---------------------------------------------------------------------------\n// derived - nothing below here needs editing\n// ---------------------------------------------------------------------------\n\nconst leadsSheetId = String(LEADS_SHEET_ID || '').trim();\nconst instantlyApiKey = String(INSTANTLY_API_KEY || '').trim();\nconst llmApiKey = String(LLM_API_KEY || '').trim();\nconst reportWebhookUrl = String(REPORT_WEBHOOK_URL || '').trim();\nconst alertWebhookUrl = String(ALERT_WEBHOOK_URL || '').trim();\nconst llmModelWriter = String(LLM_MODEL_WRITER || '').trim() || String(LLM_MODEL || '').trim();\n\nreturn [{\n  json: {\n    leads_sheet_id: leadsSheetId,\n\n    instantly_api_key: instantlyApiKey,\n    instantly_base_url: String(INSTANTLY_BASE_URL || 'https://api.instantly.ai').trim().replace(/\\/+$/, ''),\n\n    llm_base_url: String(LLM_BASE_URL || '').trim().replace(/\\/+$/, ''),\n    llm_api_key: llmApiKey,\n    llm_model: String(LLM_MODEL || '').trim(),\n    llm_model_writer: llmModelWriter,\n\n    monthly_target: Number(MONTHLY_TARGET) || 14000,\n    calls_target: Number(CALLS_TARGET) || 20,\n    target_reply_rate: Number(TARGET_REPLY_RATE) || 2.0,\n    min_sample: Number(MIN_SAMPLE) || 100,\n    bounce_ceiling: Number(BOUNCE_CEILING) || 3.0,\n    noshow_ceiling: Number(NOSHOW_CEILING) || 30.0,\n\n    report_webhook_url: reportWebhookUrl || alertWebhookUrl,\n\n    sheets_enabled: leadsSheetId !== '' && leadsSheetId !== 'YOUR_GOOGLE_SHEET_ID',\n    instantly_enabled: instantlyApiKey !== '',\n    llm_enabled: llmApiKey !== ''\n  }\n}];"
+      },
+      "id": "config",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        320
+      ],
+      "notes": "The only node you edit. Blank key = that step is skipped, not failed. LEADS_SHEET_ID is the one required value."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-bookings",
+      "name": "[cred] Sheets - read bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -900,
+        320
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "SendLedger",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-ledger",
+      "name": "[cred] Sheets - read send ledger",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -680,
+        320
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('config').first().json.instantly_base_url }}/api/v2/campaigns/analytics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.instantly_api_key }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start_date",
+              "value": "={{ new Date(Date.now() - 7*864e5).toISOString().slice(0,10) }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ new Date().toISOString().slice(0,10) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "esp-analytics",
+      "name": "[cred] Instantly - campaign analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -460,
+        320
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Everything the report asserts is computed here, deterministically, from three\n// sources. The LLM downstream writes prose over these numbers and is never allowed to\n// produce one of its own.\n//\n//   Bookings    (this template)  -> calls booked, held, no-showed, re-booked\n//   SendLedger  (template 12)    -> what WE believe we sent, per subject variant\n//   ESP         (Instantly)      -> what the ESP believes was sent, opened, replied, bounced\n//\n// Two send counts on purpose. When they diverge materially, something is wrong with the\n// pipeline and that is worth more to the client than either number alone.\n\nconst num = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.\\-]/g, '')); return Number.isFinite(n) ? n : 0; };\nconst pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);\nconst r1 = (n) => Math.round(n * 10) / 10;\n\nconst MONTHLY_TARGET = num($('config').first().json.monthly_target) || 14000;\nconst CALLS_TARGET = num($('config').first().json.calls_target) || 20;\nconst TARGET_REPLY_RATE = num($('config').first().json.target_reply_rate) || 2.0;\nconst MIN_SAMPLE = num($('config').first().json.min_sample) || 100;\nconst BOUNCE_CEILING = num($('config').first().json.bounce_ceiling) || 3.0;\nconst NOSHOW_CEILING = num($('config').first().json.noshow_ceiling) || 30.0;\n\n// The GCC working week is Sunday-Thursday. Every rate below is per working day, not per\n// calendar day - dividing by 7 understates daily pace by 29% and makes a healthy week\n// look behind.\nconst WORKING_DAYS_PER_WEEK = 5;\nconst WORKING_DAYS_PER_MONTH = 22;\nconst DAILY_TARGET = Math.round(MONTHLY_TARGET / WORKING_DAYS_PER_MONTH);\nconst WEEKLY_TARGET = DAILY_TARGET * WORKING_DAYS_PER_WEEK;\n\n// Subject-variant floor. Singapore's Spam Control Act thresholds are per SUBJECT LINE,\n// not per campaign, and the annual ceiling (10,000/yr) is the one that binds at this\n// volume. Same arithmetic as template 12 - if the two ever disagree, 12 is the sender\n// and wins.\nconst REQUIRED_VARIANTS = Math.ceil((MONTHLY_TARGET * 12) / 10000);\n\nconst now = new Date();\nconst weekEnd = new Date(now); weekEnd.setUTCHours(0, 0, 0, 0);\nconst weekStart = new Date(weekEnd.getTime() - 7 * 864e5);\nconst inWeek = (v) => { if (!v) return false; const d = new Date(v); return !isNaN(d) && d >= weekStart && d < weekEnd; };\nconst dayKey = (d) => d.toISOString().slice(0, 10);\n\n// ---------------------------------------------------------------------------\n// Source 1 - bookings. This is the deliverable the client actually bought.\n// ---------------------------------------------------------------------------\nlet bookings = [];\ntry { bookings = $('[cred] Sheets - read bookings').all().map((i) => i.json).filter((b) => b && b.booking_id); } catch (e) { bookings = []; }\n\nconst weekBookings = bookings.filter((b) => inWeek(b.starts_at));\nconst booked = weekBookings.length;\nconst held = weekBookings.filter((b) => String(b.outcome || '').toLowerCase() === 'held').length;\nconst noShow = weekBookings.filter((b) => String(b.outcome || '').toLowerCase() === 'no_show').length;\nconst cancelled = weekBookings.filter((b) => String(b.stage || '').toLowerCase() === 'cancelled').length;\nconst rebookQueued = weekBookings.filter((b) => b.rebook_due).length;\n// Anything in the past with no outcome is still open, not a success. The daily chain\n// closes these out after NOSHOW_GRACE_HOURS; a pile-up here means that chain is not running.\nconst unmarked = weekBookings.filter((b) => new Date(b.starts_at) < now && !b.outcome).length;\nconst noShowRate = pct(noShow, held + noShow);\n\n// ---------------------------------------------------------------------------\n// Source 2 - our own send ledger, per subject variant.\n// ---------------------------------------------------------------------------\nlet ledger = [];\ntry { ledger = $('[cred] Sheets - read send ledger').all().map((i) => i.json).filter((r) => r && r.subject_id); } catch (e) { ledger = []; }\n\nconst weekDayKeys = new Set();\nfor (let i = 0; i < 7; i++) weekDayKeys.add(dayKey(new Date(weekStart.getTime() + i * 864e5)));\n// sent_today is a rolling counter stamped with day_key, so it only counts toward this\n// week when its day_key falls inside the window.\nconst ledgerSends = ledger.reduce((sum, r) => sum + (weekDayKeys.has(String(r.day_key)) ? num(r.sent_today) : 0), 0);\nconst variantsInUse = new Set(ledger.filter((r) => num(r.sent_year) > 0).map((r) => String(r.subject_id))).size;\n\n// Variants approaching a statutory ceiling. Reported before they bind, not after.\nconst variantsAtRisk = ledger\n  .filter((r) => num(r.sent_year) >= 9000 * 0.85 || num(r.sent_month) >= 900 * 0.85)\n  .map((r) => ({ subject: String(r.subject || r.subject_id), year: num(r.sent_year), month: num(r.sent_month) }));\n\n// ---------------------------------------------------------------------------\n// Source 3 - the ESP. Template 12 creates one campaign per sequence id, so a campaign\n// row is a sequence row.\n// ---------------------------------------------------------------------------\nlet espRows = [];\ntry {\n  const raw = $('[cred] Instantly - campaign analytics').all().map((i) => i.json);\n  for (const r of raw) {\n    if (Array.isArray(r)) espRows.push(...r);\n    else if (Array.isArray(r.items)) espRows.push(...r.items);\n    else if (Array.isArray(r.data)) espRows.push(...r.data);\n    else if (r && (r.campaign_name || r.campaign_id)) espRows.push(r);\n  }\n} catch (e) { espRows = []; }\nconst espReachable = espRows.length > 0;\n\nconst sequences = espRows.map((r) => {\n  const sent = num(r.emails_sent_count ?? r.sent ?? r.total_sent);\n  const opens = num(r.open_count ?? r.opened ?? r.unique_opens);\n  const replies = num(r.reply_count ?? r.replied ?? r.total_replies);\n  const bounces = num(r.bounced_count ?? r.bounced ?? r.total_bounces);\n  return {\n    sequence: String(r.campaign_name || r.campaign_id || 'unnamed'),\n    sent, opens, replies, bounces,\n    open_rate: r1(pct(opens, sent)),\n    reply_rate: r1(pct(replies, sent)),\n    bounce_rate: r1(pct(bounces, sent)),\n    graded: sent >= MIN_SAMPLE,\n  };\n}).sort((a, b) => b.reply_rate - a.reply_rate);\n\nconst espSends = sequences.reduce((s, x) => s + x.sent, 0);\nconst replies = sequences.reduce((s, x) => s + x.replies, 0);\nconst opens = sequences.reduce((s, x) => s + x.opens, 0);\nconst bounces = sequences.reduce((s, x) => s + x.bounces, 0);\n\n// The ESP is authoritative for sends when reachable - it is the thing that actually\n// handed the message to a mail server. The ledger is our intent.\nconst sent = espReachable ? espSends : ledgerSends;\nconst replyRate = r1(pct(replies, sent));\nconst openRate = r1(pct(opens, sent));\nconst bounceRate = r1(pct(bounces, sent));\n\n// Divergence between intent and delivery. Under 5% is timing at the window edges.\nconst sendGap = ledgerSends > 0 && espReachable\n  ? r1((Math.abs(espSends - ledgerSends) / Math.max(espSends, ledgerSends)) * 100)\n  : 0;\n\n// ---------------------------------------------------------------------------\n// Pace. The month-to-date view, because the deliverable is monthly.\n// ---------------------------------------------------------------------------\nconst monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));\nlet workingDaysElapsed = 0;\nfor (let d = new Date(monthStart); d <= now; d = new Date(d.getTime() + 864e5)) {\n  const wd = d.getUTCDay();\n  if (wd >= 0 && wd <= 4) workingDaysElapsed++; // Sun(0) .. Thu(4)\n}\nconst monthBookings = bookings.filter((b) => { const d = new Date(b.starts_at); return !isNaN(d) && d >= monthStart && d <= now; }).length;\nconst callsPaceTarget = Math.round((CALLS_TARGET / WORKING_DAYS_PER_MONTH) * workingDaysElapsed);\nconst sendPaceTarget = DAILY_TARGET * workingDaysElapsed;\n\n// ---------------------------------------------------------------------------\n// Recommendations. Rule-derived, ordered by what would cost the most to ignore.\n// Each carries the number that triggered it so the client can check the reasoning.\n// ---------------------------------------------------------------------------\nconst recs = [];\nconst tooEarly = sent < MIN_SAMPLE;\n\nif (tooEarly) {\n  recs.push(`Too early to grade: ${sent} sends this week is under the ${MIN_SAMPLE} sample floor. Rates below are noise - read them next week.`);\n}\n\nif (!espReachable) {\n  recs.push('ESP analytics did not return. Open, reply and bounce rates are missing, not zero - send volume below is our own ledger. Check the API key before reading anything into this report.');\n}\n\nif (!tooEarly && espReachable && bounceRate > BOUNCE_CEILING) {\n  const worst = sequences.filter((s) => s.graded).sort((a, b) => b.bounce_rate - a.bounce_rate)[0];\n  recs.push(`Bounce rate ${bounceRate}% is over the ${BOUNCE_CEILING}% ceiling${worst ? ` (worst: ${worst.sequence} at ${worst.bounce_rate}%)` : ''}. Stop scaling and re-verify the list before the next batch - bounces burn domain reputation for every sequence, not just this one.`);\n}\n\nif (!tooEarly && espReachable && replyRate < TARGET_REPLY_RATE) {\n  const severity = replyRate < TARGET_REPLY_RATE / 2 ? 'far under' : 'under';\n  recs.push(`Reply rate ${replyRate}% is ${severity} the ${TARGET_REPLY_RATE}% the ${CALLS_TARGET}-call target depends on. The fix is targeting and copy, not volume - at this rate ${MONTHLY_TARGET.toLocaleString()} sends/month lands around ${Math.round(sent > 0 ? (MONTHLY_TARGET * replyRate / 100) * 0.25 * 0.30 : 0)} calls, not ${CALLS_TARGET}.`);\n}\n\nif (!tooEarly && espReachable && replyRate >= TARGET_REPLY_RATE) {\n  recs.push(`Reply rate ${replyRate}% is at or above the ${TARGET_REPLY_RATE}% assumption. Volume is the lever this month, not copy.`);\n}\n\nconst graded = sequences.filter((s) => s.graded);\nif (graded.length >= 2) {\n  const best = graded[0];\n  const worst = graded[graded.length - 1];\n  if (worst.reply_rate < best.reply_rate / 2) {\n    recs.push(`Retire or rewrite '${worst.sequence}' - ${worst.reply_rate}% reply against ${best.reply_rate}% on '${best.sequence}' over ${worst.sent} sends. Moving its volume to the winning angle is the cheapest gain available this week.`);\n  }\n}\n\nif (held + noShow >= 3 && noShowRate > NOSHOW_CEILING) {\n  recs.push(`No-show rate ${r1(noShowRate)}% is over the ${NOSHOW_CEILING}% ceiling. Cold-email bookings decay with distance from the reply - shorten the booking-to-call gap before adding leads to the top.`);\n}\n\nif (unmarked > 0) {\n  recs.push(`${unmarked} past booking${unmarked === 1 ? '' : 's'} still unmarked. The daily 07:00 chain closes these out - if they are piling up, that workflow is not running.`);\n}\n\nif (variantsInUse > 0 && variantsInUse < REQUIRED_VARIANTS) {\n  recs.push(`COMPLIANCE: ${variantsInUse} subject variants in rotation, ${REQUIRED_VARIANTS} needed at ${MONTHLY_TARGET.toLocaleString()}/month. Singapore's thresholds are per subject line and the annual ceiling binds first. Add variants before raising volume.`);\n}\nfor (const v of variantsAtRisk) {\n  recs.push(`COMPLIANCE: subject '${v.subject}' is at ${v.year}/yr and ${v.month}/30d, inside 15% of its ceiling. Rotate it out now rather than when it blocks.`);\n}\n\nif (sendGap > 5) {\n  recs.push(`Our ledger says ${ledgerSends.toLocaleString()} sends, the ESP says ${espSends.toLocaleString()} - ${sendGap}% apart. Reconcile before quoting either number to the client.`);\n}\n\nif (monthBookings < callsPaceTarget) {\n  recs.push(`Behind on calls: ${monthBookings} booked against ${callsPaceTarget} expected by working day ${workingDaysElapsed}. Monthly target is ${CALLS_TARGET}.`);\n} else {\n  recs.push(`On pace for calls: ${monthBookings} booked against ${callsPaceTarget} expected by working day ${workingDaysElapsed}.`);\n}\n\nif (!recs.length) recs.push('No exceptions this week. Everything is inside its threshold.');\n\n// ---------------------------------------------------------------------------\n// Report text.\n// ---------------------------------------------------------------------------\nconst range = `${dayKey(weekStart)} to ${dayKey(new Date(weekEnd.getTime() - 864e5))}`;\nconst na = (v, suffix) => (espReachable && !tooEarly ? `${v}${suffix}` : 'n/a');\n\nconst lines = [];\nlines.push(`Weekly performance - ${range}`);\nlines.push('');\nlines.push('CALLS  (the deliverable)');\nlines.push(`  Booked this week       ${booked}`);\nlines.push(`  Held                   ${held}`);\nlines.push(`  No-showed              ${noShow}${held + noShow > 0 ? `  (${r1(noShowRate)}%)` : ''}`);\nlines.push(`  Cancelled              ${cancelled}`);\nlines.push(`  Re-books queued        ${rebookQueued}`);\nlines.push(`  Month to date          ${monthBookings} of ${CALLS_TARGET}   (pace: ${callsPaceTarget} by working day ${workingDaysElapsed})`);\nlines.push('');\nlines.push('SENDING');\nlines.push(`  Sent this week         ${sent.toLocaleString()} of ${WEEKLY_TARGET.toLocaleString()} target`);\nlines.push(`  Pace target to date    ${sendPaceTarget.toLocaleString()}  (working day ${workingDaysElapsed} of ${WORKING_DAYS_PER_MONTH})`);\nlines.push(`  Reply rate             ${na(replyRate, '%')}   (target ${TARGET_REPLY_RATE}%)`);\nlines.push(`  Bounce rate            ${na(bounceRate, '%')}   (ceiling ${BOUNCE_CEILING}%)`);\nlines.push(`  Open rate              ${na(openRate, '%')}   - see note`);\nlines.push('');\nif (sequences.length) {\n  lines.push('BY SEQUENCE');\n  for (const s of sequences) {\n    const tag = s.graded ? '' : '  (under sample)';\n    lines.push(`  ${s.sequence.padEnd(22).slice(0, 22)} ${String(s.sent).padStart(6)} sent   ${String(s.reply_rate).padStart(5)}% reply   ${String(s.bounce_rate).padStart(5)}% bounce${tag}`);\n  }\n  lines.push('');\n}\nlines.push('RECOMMENDATIONS');\nfor (const r of recs) lines.push(`  - ${r}`);\nlines.push('');\nlines.push('Note on open rate: Apple Mail Privacy Protection pre-fetches images for a large');\nlines.push('share of recipients, so opens are inflated by a proxy server rather than a person.');\nlines.push('It is reported because it was asked for. Reply rate and calls booked are the two');\nlines.push('numbers that move with anything we actually control.');\n\nreturn [{\n  json: {\n    week_start: dayKey(weekStart),\n    week_end: dayKey(new Date(weekEnd.getTime() - 864e5)),\n    range,\n    booked, held, no_show: noShow, cancelled, rebook_queued: rebookQueued, unmarked,\n    no_show_rate: r1(noShowRate),\n    month_bookings: monthBookings, calls_target: CALLS_TARGET, calls_pace_target: callsPaceTarget,\n    sent, ledger_sends: ledgerSends, esp_sends: espSends, send_gap_pct: sendGap,\n    replies, opens, bounces,\n    reply_rate: replyRate, open_rate: openRate, bounce_rate: bounceRate,\n    weekly_send_target: WEEKLY_TARGET, working_days_elapsed: workingDaysElapsed,\n    variants_in_use: variantsInUse, variants_required: REQUIRED_VARIANTS,\n    esp_reachable: espReachable, too_early: tooEarly, min_sample: MIN_SAMPLE,\n    sequences, recommendations: recs,\n    text: lines.join('\\n'),\n  },\n}];"
+      },
+      "id": "compute-week",
+      "name": "compute the week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.llm_base_url }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.llm_api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.llm_model_writer, max_tokens: 500, stream: false, messages: [{ role: 'system', content: 'You write the two-sentence opening of a weekly cold-email performance report for a B2B client. Sentence one: what happened this week, in plain language. Sentence two: the single most consequential thing to do about it. Use only the numbers given to you - never introduce, estimate, round differently, or infer a figure that is not in the input. No greeting, no sign-off, no bullet points, no adjectives like strong, excellent or disappointing. Under 55 words. Return only the two sentences.' }, { role: 'user', content: JSON.stringify({ calls_booked_this_week: $json.booked, calls_month_to_date: $json.month_bookings, calls_target: $json.calls_target, calls_pace_target: $json.calls_pace_target, no_show_rate_pct: $json.no_show_rate, emails_sent: $json.sent, weekly_send_target: $json.weekly_send_target, reply_rate_pct: $json.reply_rate, bounce_rate_pct: $json.bounce_rate, too_early_to_grade: $json.too_early, top_recommendation: $json.recommendations[0] }) }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "llm-summary",
+      "name": "[cred] LLM - write the summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The report must go out with or without the model. A week with no report reads as a\n// week with nothing to report, which is the opposite of true when the model call is what\n// failed. Same fallback pattern as the booking confirmation in the main workflow.\nconst report = $('compute the week').first().json;\n\nlet summary = '';\ntry {\n  summary = String($json?.choices?.[0]?.message?.content || '').trim();\n} catch (e) {\n  summary = '';\n}\n\n// Guard against the model inventing a figure. If it emits a number that is not one of\n// ours, drop the prose entirely rather than shipping a plausible wrong number to a\n// client - a fabricated metric in a performance report is unrecoverable.\nif (summary) {\n  const known = new Set([\n    report.booked, report.month_bookings, report.calls_target, report.calls_pace_target,\n    report.no_show_rate, report.sent, report.weekly_send_target, report.reply_rate,\n    report.bounce_rate, report.open_rate, report.held, report.no_show,\n  ].map((n) => String(n)));\n  const emitted = summary.match(/\\d+(?:\\.\\d+)?/g) || [];\n  const invented = emitted.filter((n) => !known.has(n) && !known.has(String(Number(n))));\n  if (invented.length) {\n    summary = '';\n    report.summary_dropped = `model emitted ${invented.length} figure(s) not in the input: ${invented.join(', ')}`;\n  }\n}\n\nconst headline = summary\n  || `${report.booked} call${report.booked === 1 ? '' : 's'} booked this week, ${report.month_bookings} month to date against a target of ${report.calls_target}. ${report.recommendations[0]}`;\n\nreport.summary = headline;\nreport.summary_source = summary ? 'model' : 'computed';\nreport.text = `${headline}\\n\\n${report.text}`;\n\nreturn [{ json: report }];"
+      },
+      "id": "attach-summary",
+      "name": "attach summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "WeeklyReports",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "week_start"
+          ],
+          "value": {
+            "week_start": "={{ $json.week_start }}",
+            "week_end": "={{ $json.week_end }}",
+            "sent": "={{ $json.sent }}",
+            "open_rate": "={{ $json.open_rate }}",
+            "reply_rate": "={{ $json.reply_rate }}",
+            "bounce_rate": "={{ $json.bounce_rate }}",
+            "booked": "={{ $json.booked }}",
+            "held": "={{ $json.held }}",
+            "no_show": "={{ $json.no_show }}",
+            "no_show_rate": "={{ $json.no_show_rate }}",
+            "month_bookings": "={{ $json.month_bookings }}",
+            "calls_target": "={{ $json.calls_target }}",
+            "esp_reachable": "={{ $json.esp_reachable }}",
+            "too_early": "={{ $json.too_early }}",
+            "summary_source": "={{ $json.summary_source }}",
+            "recommendations": "={{ $json.recommendations.join(' | ') }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-week",
+      "name": "[cred] Sheets - log the week",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        420,
+        320
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.report_webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('attach summary').first().json.text, content: $('attach summary').first().json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "post-report",
+      "name": "[cred] Post the weekly report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 09 Weekly Performance Report\n\nThe fourth deliverable in the post 9 brief: *\"weekly performance reports with recommendations\"*. Runs **Sunday 07:00**, covering the previous GCC working week (Sun-Thu).\n\n**Every number is computed in `compute the week`.** The model writes two sentences of prose over those numbers and is checked afterwards: if it emits a figure that is not in the input, the prose is dropped and a computed opening is used instead. A fabricated metric in a client performance report is unrecoverable, so the model is never the source of one.\n\n**Two send counts, on purpose.** The ESP knows what it handed to a mail server; our SendLedger knows what we intended to send. When they diverge more than 5% the report says so, because that gap is usually the real finding.\n\n**Open rate is reported and caveated.** The brief asks for it. Post-MPP it is largely a proxy server, so it sits below reply rate and calls booked, with the caveat printed under every report rather than argued about once.\n\n**Under 100 sends it reports `too early` rather than grading noise** - same floor as template 10.\n\n### Needs\n\n- `Bookings` tab (main workflow in this folder)\n- `SendLedger` tab (template 12) - degrades to ESP-only if absent\n- `WeeklyReports` tab: `week_start`, `week_end`, `sent`, `open_rate`, `reply_rate`, `bounce_rate`, `booked`, `held`, `no_show`, `no_show_rate`, `month_bookings`, `calls_target`, `esp_reachable`, `too_early`, `summary_source`, `recommendations`\n- **Config:** edit the `config` node at the head of the workflow - it holds the Instantly key, LLM endpoint/key, Sheet ID, targets and thresholds. No env vars, no host setup. Blank keys degrade gracefully.\n\nSee `README.md` in this folder."
+      },
+      "id": "sticky-report",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        -280
+      ],
+      "parametersUi": {}
+    }
+  ],
+  "connections": {
+    "Weekly Sunday 07:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read bookings": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read send ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read send ledger": {
+      "main": [
+        [
+          {
+            "node": "[cred] Instantly - campaign analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Instantly - campaign analytics": {
+      "main": [
+        [
+          {
+            "node": "compute the week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "compute the week": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - write the summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - write the summary": {
+      "main": [
+        [
+          {
+            "node": "attach summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attach summary": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - log the week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - log the week": {
+      "main": [
+        [
+          {
+            "node": "[cred] Post the weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

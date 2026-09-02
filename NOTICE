@@ -1,0 +1,44 @@
+Automation Workflows and Pipelines
+Copyright (c) 2026 Atharva Ashtekar
+
+Licensed under the MIT License. See LICENSE for the full terms.
+
+ORIGIN OF THE CONTENT
+---------------------
+Every workflow, script, prompt and document in this repository was written for
+this repository or rewritten for it. No file is a copy of a third-party
+template, gallery entry or tutorial.
+
+Several templates implement patterns that are widely documented in public
+material: the enrich-verify-suppress sequence used in outbound email, the
+config-at-the-head-of-the-graph convention in visual workflow tools, the
+invocable-method bridge between Salesforce Apex and Flow, the sensor-and-asset
+model in data orchestrators, and the structured-output-with-repair loop in LLM
+pipelines. Patterns are not copyrightable; the expression here is original. Where
+a template follows published guidance, its README cites the source under a
+"Prior art" heading so a reader can check the original.
+
+FIXTURE AND SAMPLE DATA
+-----------------------
+All organisations, people, addresses, phone numbers and domains in sample data
+are invented. Every fixture domain sits under the .example top-level domain,
+which RFC 2606 reserves and which therefore cannot resolve or receive mail.
+Phone numbers use the 555-01xx range reserved for fictional use. Any resemblance
+to a real organisation is coincidental and unintended; open an issue and it will
+be changed.
+
+TRADEMARKS
+----------
+n8n, Salesforce, Apex, Flow, HubSpot, GoHighLevel, Apollo, Clay, Instantly,
+Smartlead, Twilio, Retell, Bullhorn, Ceipal, Supabase, Slack, Discord, LinkedIn,
+Google Sheets, Apache Airflow, Dagster, Prefect, Temporal, Kestra, Windmill and
+GitHub are trademarks of their respective owners. They appear here only to name
+the service a template integrates with. No affiliation or endorsement is implied.
+
+NO WARRANTY, AND NOT LEGAL ADVICE
+---------------------------------
+These templates automate outbound contact, data modification and publication.
+Running them against real systems and real people carries legal obligations that
+vary by jurisdiction: consent, suppression, unsubscribe handling, retention and
+disclosure among them. docs/COMPLIANCE.md summarises the mechanisms the templates
+provide. It is not legal advice. Take your own before a first live run.

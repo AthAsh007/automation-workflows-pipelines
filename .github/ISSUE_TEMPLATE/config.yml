@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Something that could reach a real person
+    url: https://github.com/AthAsh007/automation-workflows-pipelines/security/advisories/new
+    about: A fixture with real contact details, or a template whose guards can be bypassed. Report this privately, not as an issue.

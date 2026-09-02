@@ -1,0 +1,52 @@
+{
+  "_comment": "MCP servers for a Hermes profile. Merge into config.yaml under mcp_servers, or keep as a separate file if the deployment loads one. Add servers ONE AT A TIME and test tool selection after each - see README.md for why.",
+
+  "mcp_servers": {
+    "clickup": {
+      "command": "npx",
+      "args": ["-y", "@clickup/mcp-server"],
+      "env": {
+        "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}",
+        "CLICKUP_TEAM_ID": "${CLICKUP_TEAM_ID}"
+      },
+      "enabled": true,
+      "_allow": ["search_tasks", "get_task", "update_task", "create_task", "add_comment"],
+      "_deny": ["delete_task", "delete_list", "delete_space"],
+      "_note": "Deletes are removed rather than approval-gated. Nobody has ever needed an agent to delete a ticket, and the failure mode is unrecoverable."
+    },
+
+    "google_drive": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gdrive"],
+      "env": {
+        "GDRIVE_CREDENTIALS_PATH": "${GDRIVE_CREDENTIALS_PATH}"
+      },
+      "enabled": false,
+      "_allow": ["search", "read_file"],
+      "_deny": ["write_file", "delete_file", "share_file"],
+      "_note": "Read-only. Sharing in particular is a data-leak shaped tool - keep it out."
+    },
+
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"
+      },
+      "enabled": false,
+      "_allow": ["search_messages", "get_channel_history", "post_message"],
+      "_deny": ["delete_message", "invite_user"],
+      "_note": "post_message stays approval-gated by the tool-orchestration skill even though it is allowed here. Allowed means the tool exists; the skill decides when it fires."
+    },
+
+    "postgres_readonly": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_READONLY_URL}"],
+      "enabled": false,
+      "_allow": ["query"],
+      "_deny": [],
+      "_note": "Connect with a genuinely read-only database role. Do not rely on the agent choosing not to write - rely on the credential being unable to."
+    }
+  }
+}

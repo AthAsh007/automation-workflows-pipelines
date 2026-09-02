@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "contact_name":   { "type": "string", "nullable": true, "description": "the person writing, as written" },
+    "company":        { "type": "string", "nullable": true },
+    "email":          { "type": "string", "nullable": true, "description": "lowercased" },
+    "phone":          { "type": "string", "nullable": true, "description": "digits and a leading + only" },
+    "service":        { "type": "string", "nullable": true, "enum": ["cleaning", "maintenance", "removals", "grounds", "other", null], "description": "null unless the text names one" },
+    "property_type":  { "type": "string", "nullable": true, "enum": ["office", "retail", "residential", "industrial", "other", null] },
+    "postcode":       { "type": "string", "nullable": true, "description": "as written, uppercased" },
+    "size_sqft":      { "type": "integer", "nullable": true, "description": "only if a number of square feet is stated" },
+    "frequency":      { "type": "string", "nullable": true, "enum": ["one-off", "weekly", "fortnightly", "monthly", "other", null] },
+    "start_date":     { "type": "string", "nullable": true, "description": "ISO 8601 if an explicit date is given, otherwise the phrase as written" },
+    "budget_note":    { "type": "string", "nullable": true, "description": "any statement about money, quoted" },
+    "urgency":        { "type": "string", "nullable": true, "enum": ["low", "normal", "high", null] }
+  }
+}

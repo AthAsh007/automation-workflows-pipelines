@@ -1,0 +1,213 @@
+{
+  "name": "10 Deliverability Watchdog (bounce, reply, auto-pause)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 0 8 * * *"}]}
+      },
+      "id": "schedule",
+      "name": "Daily 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-880, 300],
+      "notes": "Before the sender runs, so a bad campaign is paused before it sends more."
+    },
+    {
+      "parameters": {
+        "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $env.SMARTLEAD_CAMPAIGN_ID }}/analytics",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{"name": "api_key", "value": "={{ $env.SMARTLEAD_API_KEY }}"}]
+        },
+        "options": {"timeout": 30000}
+      },
+      "id": "campaign-stats",
+      "name": "[cred] Smartlead - campaign analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-660, 300],
+      "notes": "Instantly swap: GET https://api.instantly.ai/api/v2/campaigns/analytics with a Bearer header."
+    },
+    {
+      "parameters": {
+        "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $env.SMARTLEAD_CAMPAIGN_ID }}/email-accounts",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{"name": "api_key", "value": "={{ $env.SMARTLEAD_API_KEY }}"}]
+        },
+        "options": {"timeout": 30000}
+      },
+      "id": "inbox-stats",
+      "name": "[cred] Smartlead - email accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-440, 300],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Grade on bounce and reply. Deliberately NOT on open rate: Apple Mail Privacy\n// Protection pre-fetches images, so a chunk of 'opens' are a proxy server, not a human.\n// Anyone still optimising open rate is optimising noise, and saying so is usually the\n// moment a client realises we have done this before.\nconst a = $('[cred] Smartlead - campaign analytics').first().json || {};\nconst accountsRes = $input.first().json;\nconst accounts = Array.isArray(accountsRes) ? accountsRes : (accountsRes && accountsRes.data) || [];\n\nconst num = (v) => Number(v || 0);\nconst sent = num(a.sent_count || a.sent);\nconst bounced = num(a.bounce_count || a.bounced);\nconst replied = num(a.reply_count || a.replied);\nconst unsubscribed = num(a.unsubscribed_count || a.unsubscribed);\nconst opened = num(a.open_count || a.opened);\n\nconst rate = (n) => (sent > 0 ? Math.round((n / sent) * 1000) / 10 : 0);\n\nconst bounceRate = rate(bounced);\nconst replyRate = rate(replied);\nconst unsubRate = rate(unsubscribed);\n\nconst BOUNCE_WARN = Number($env.BOUNCE_WARN_PCT || 3);\nconst BOUNCE_STOP = Number($env.BOUNCE_STOP_PCT || 5);\nconst REPLY_FLOOR = Number($env.REPLY_FLOOR_PCT || 1);\nconst UNSUB_WARN = Number($env.UNSUB_WARN_PCT || 1);\nconst MIN_SAMPLE = Number($env.MIN_SAMPLE || 100);\n\nconst reasons = [];\nlet verdict = 'healthy';\n\n// Below the sample floor, every rate is noise. Say 'too early' rather than guessing.\nif (sent < MIN_SAMPLE) {\n  verdict = 'too_early';\n  reasons.push('only ' + sent + ' sent - below the ' + MIN_SAMPLE + ' sample floor, rates are not meaningful yet');\n} else {\n  if (bounceRate >= BOUNCE_STOP) { verdict = 'stop'; reasons.push('bounce ' + bounceRate + '% at or above the ' + BOUNCE_STOP + '% stop line'); }\n  else if (bounceRate >= BOUNCE_WARN) { verdict = 'warn'; reasons.push('bounce ' + bounceRate + '% above the ' + BOUNCE_WARN + '% warning line'); }\n\n  if (unsubRate >= UNSUB_WARN) { if (verdict !== 'stop') verdict = 'warn'; reasons.push('unsubscribe ' + unsubRate + '% - the copy or the targeting is off'); }\n  if (replyRate < REPLY_FLOOR) { if (verdict === 'healthy') verdict = 'warn'; reasons.push('reply ' + replyRate + '% below the ' + REPLY_FLOOR + '% floor'); }\n}\n\n// Per-inbox view. One bad mailbox drags a whole campaign down and is invisible in the\n// campaign average.\nconst inboxes = accounts.map((acc) => {\n  const s = num(acc.sent_count);\n  const b = num(acc.bounce_count);\n  const r = s > 0 ? Math.round((b / s) * 1000) / 10 : 0;\n  return {\n    email: acc.from_email || acc.email || 'unknown',\n    sent: s,\n    bounce_pct: r,\n    warmup: acc.warmup_details ? (acc.warmup_details.status || '') : '',\n    hot: r >= BOUNCE_STOP && s >= 20\n  };\n});\n\nconst badInboxes = inboxes.filter((i) => i.hot);\nif (badInboxes.length) {\n  if (verdict !== 'stop') verdict = 'warn';\n  reasons.push(badInboxes.length + ' mailbox(es) bouncing at or above ' + BOUNCE_STOP + '%');\n}\n\nreturn [{ json: {\n  date: new Date().toISOString().slice(0, 10),\n  verdict: verdict,\n  should_pause: verdict === 'stop',\n  reasons: reasons,\n  sent: sent,\n  bounce_pct: bounceRate,\n  reply_pct: replyRate,\n  unsub_pct: unsubRate,\n  open_pct_unreliable: rate(opened),\n  inboxes: inboxes,\n  bad_inboxes: badInboxes\n}}];"
+      },
+      "id": "grade",
+      "name": "grade the campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.should_pause }}",
+              "rightValue": "true",
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "should-pause",
+      "name": "over the stop line?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://server.smartlead.ai/api/v1/campaigns/{{ $env.SMARTLEAD_CAMPAIGN_ID }}/status",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{"name": "api_key", "value": "={{ $env.SMARTLEAD_API_KEY }}"}]
+        },
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'PAUSED' }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "pause",
+      "name": "[cred] Smartlead - PAUSE the campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 180],
+      "onError": "continueRegularOutput",
+      "notes": "Set AUTO_PAUSE=false and disable this node if the client wants to make the call themselves."
+    },
+    {
+      "parameters": {},
+      "id": "keep-running",
+      "name": "leave it running",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [220, 420]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 2, "options": {}},
+      "id": "merge",
+      "name": "merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Deliverability", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $('grade the campaign').first().json.date }}",
+            "sent": "={{ $('grade the campaign').first().json.sent }}",
+            "bounce_pct": "={{ $('grade the campaign').first().json.bounce_pct }}",
+            "reply_pct": "={{ $('grade the campaign').first().json.reply_pct }}",
+            "unsub_pct": "={{ $('grade the campaign').first().json.unsub_pct }}",
+            "verdict": "={{ $('grade the campaign').first().json.verdict }}",
+            "paused": "={{ $('grade the campaign').first().json.should_pause }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log",
+      "name": "[cred] Sheets - log the day",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [660, 300],
+      "executeOnce": true,
+      "notes": "One row a day. The trend is what tells you whether a fix worked."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Report the two numbers that decide whether to keep sending, and name the mailboxes.\nconst g = $('grade the campaign').first().json;\n\nconst icon = { healthy: ':white_check_mark:', warn: ':warning:', stop: ':octagonal_sign:', too_early: ':hourglass:' }[g.verdict] || ':grey_question:';\nconst lines = [icon + ' *Deliverability ' + g.date + '* - ' + g.verdict.toUpperCase().split('_').join(' ')];\n\nlines.push('Sent ' + g.sent + '  |  bounce *' + g.bounce_pct + '%*  |  reply *' + g.reply_pct + '%*  |  unsub ' + g.unsub_pct + '%');\n\nif (g.reasons.length) {\n  lines.push('');\n  g.reasons.forEach((r) => lines.push('  - ' + r));\n}\n\nif (g.bad_inboxes.length) {\n  lines.push('');\n  lines.push('*Mailboxes to pull out:*');\n  g.bad_inboxes.forEach((i) => lines.push('  - ' + i.email + ' - ' + i.bounce_pct + '% over ' + i.sent + ' sends'));\n}\n\nif (g.should_pause && String($env.AUTO_PAUSE || 'true') === 'true') {\n  lines.push('');\n  lines.push(':octagonal_sign: *Campaign paused automatically.* Fix the list before restarting - sending through a bounce problem is how the domain goes.');\n}\n\nlines.push('');\nlines.push('_Open rate (' + g.open_pct_unreliable + '%) is logged but not graded - Apple Mail Privacy Protection pre-fetches images, so a share of those opens are a proxy, not a person._');\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "report",
+      "name": "build the report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "notify",
+      "name": "[cred] Post the report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 10 Deliverability Watchdog\n\nRuns at 08:00, before the sender, so a bad campaign is paused before it sends any more.\n\n**Graded on bounce and reply. Not on opens.** Apple Mail Privacy Protection pre-fetches images, so a share of every 'open' is a proxy server. Opens are logged and explicitly labelled unreliable.\n\n**Thresholds** (all env-tunable)\n- bounce 3% warn, 5% stop and auto-pause\n- unsubscribe 1% warn - that is a copy or targeting problem, not a deliverability one\n- reply under 1% warn\n- under 100 sends, it reports `too early` instead of grading noise\n\n**Per-mailbox view.** One bad inbox drags a campaign average down while hiding inside it. Bad mailboxes are named so they can be pulled out.\n\n**Env:** `SMARTLEAD_API_KEY`, `SMARTLEAD_CAMPAIGN_ID`, `LEADS_SHEET_ID`, `ALERT_WEBHOOK_URL`, `AUTO_PAUSE`, `BOUNCE_WARN_PCT`, `BOUNCE_STOP_PCT`, `REPLY_FLOOR_PCT`, `UNSUB_WARN_PCT`, `MIN_SAMPLE`.\n\n**Sheet tab:** `Deliverability`, one row a day.",
+        "height": 540,
+        "width": 460,
+        "color": 3
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-880, -360]
+    }
+  ],
+  "connections": {
+    "Daily 08:00": {"main": [[{"node": "[cred] Smartlead - campaign analytics", "type": "main", "index": 0}]]},
+    "[cred] Smartlead - campaign analytics": {"main": [[{"node": "[cred] Smartlead - email accounts", "type": "main", "index": 0}]]},
+    "[cred] Smartlead - email accounts": {"main": [[{"node": "grade the campaign", "type": "main", "index": 0}]]},
+    "grade the campaign": {"main": [[{"node": "over the stop line?", "type": "main", "index": 0}]]},
+    "over the stop line?": {
+      "main": [
+        [{"node": "[cred] Smartlead - PAUSE the campaign", "type": "main", "index": 0}],
+        [{"node": "leave it running", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Smartlead - PAUSE the campaign": {"main": [[{"node": "merge", "type": "main", "index": 0}]]},
+    "leave it running": {"main": [[{"node": "merge", "type": "main", "index": 1}]]},
+    "merge": {"main": [[{"node": "[cred] Sheets - log the day", "type": "main", "index": 0}]]},
+    "[cred] Sheets - log the day": {"main": [[{"node": "build the report", "type": "main", "index": 0}]]},
+    "build the report": {"main": [[{"node": "[cred] Post the report", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "deliverability"]
+}

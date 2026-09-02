@@ -1,0 +1,268 @@
+{
+  "name": "06 List Top-Up Keeper (hourly buffer and backlog assistant)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 5 9-18 * * 1-5"}]}
+      },
+      "id": "schedule",
+      "name": "Hourly, working hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-880, 300],
+      "notes": "Five past the hour, so it never collides with the on-the-hour workflows."
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-660, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// The assistant's one job: keep a buffer of sendable leads, and never let the\n// enrichment backlog sit. Everything else it reports and leaves alone.\nconst TARGET_DAYS = Number($env.BUFFER_DAYS || 7);\nconst CAP = Number($env.DAILY_SEND_CAP || 80);\nconst MIN_CONFIDENCE = Number($env.MIN_CONFIDENCE || 70);\nconst ENRICH_BATCH = Number($env.ENRICH_BATCH || 25);\n\nconst leads = $input.all().map((i) => i.json);\nconst target = TARGET_DAYS * CAP;\n\nconst sendable = leads.filter((l) =>\n  l.email &&\n  Number(l.confidence || 0) >= MIN_CONFIDENCE &&\n  ['new', 'researched', 'enriched'].indexOf(String(l.stage || '').trim()) !== -1\n);\n\n// Rows we already have a name and a domain for, but no usable address yet.\nconst backlog = leads.filter((l) =>\n  !l.email &&\n  l.domain &&\n  (l.first_name || l.last_name) &&\n  String(l.stage || '') !== 'suppressed' &&\n  String(l.enrich_attempts || '0') < '3'\n);\n\n// Rows a human should look at rather than a workflow.\nconst broken = leads.filter((l) => l.email && !String(l.email).includes('@'));\n\nconst deficit = Math.max(0, target - sendable.length);\n\nreturn [{ json: {\n  sendable: sendable.length,\n  target: target,\n  deficit: deficit,\n  days_of_runway: CAP > 0 ? Math.floor(sendable.length / CAP) : 0,\n  backlog_total: backlog.length,\n  backlog_batch: backlog.slice(0, ENRICH_BATCH),\n  broken_rows: broken.length,\n  build_needed: deficit > 0 && backlog.length < deficit,\n  hour: new Date().toISOString().slice(11, 16)\n}}];"
+      },
+      "id": "measure",
+      "name": "measure the buffer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.backlog_batch.length }}",
+              "rightValue": 0,
+              "operator": {"type": "number", "operation": "gt"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-backlog",
+      "name": "enrichment backlog?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per lead to enrich, so the HTTP node fans out naturally.\nreturn ($input.first().json.backlog_batch || []).map((lead) => ({ json: lead }));"
+      },
+      "id": "explode",
+      "name": "one item per backlog row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ENRICH_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_id: $json.lead_id, first_name: $json.first_name, last_name: $json.last_name, domain: $json.domain, company: $json.company, linkedin_url: $json.linkedin_url }) }}",
+        "options": {"timeout": 60000, "batching": {"batch": {"batchSize": 5, "batchInterval": 1000}}}
+      },
+      "id": "call-enrich",
+      "name": "[cred] Call template 14 - enrich",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 180],
+      "onError": "continueRegularOutput",
+      "notes": "The /enrich webhook from template 14. Batched 5 per second to stay inside provider limits."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Write results straight back, and count the attempt whether it worked or not -\n// three failed attempts and the row stops being retried forever.\nconst attempted = $('one item per backlog row').all();\nconst now = new Date().toISOString();\nconst out = [];\nlet found = 0;\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const res = $input.all()[i].json || {};\n  const original = (attempted[i] || { json: {} }).json;\n  const email = String(res.email || '');\n  if (email) found++;\n\n  out.push({ json: {\n    lead_id: original.lead_id,\n    email: email,\n    email_status: res.email_status || 'unknown',\n    email_source: res.email_source || '',\n    confidence: res.confidence || 0,\n    stage: email ? 'enriched' : String(original.stage || 'new'),\n    enrich_attempts: Number(original.enrich_attempts || 0) + 1,\n    updated_at: now,\n    _found: found\n  }});\n}\n\nreturn out;"
+      },
+      "id": "collect-enrich",
+      "name": "collect enrichment results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 180]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["lead_id"],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-enriched",
+      "name": "[cred] Sheets - write enriched rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [660, 180]
+    },
+    {
+      "parameters": {},
+      "id": "no-backlog",
+      "name": "backlog is clear",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [0, 420]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 2, "options": {}},
+      "id": "merge",
+      "name": "merge paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $('measure the buffer').first().json.build_needed && !!$env.LIST_BUILD_WEBHOOK_URL }}",
+              "rightValue": "true",
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "need-more-list",
+      "name": "buffer below target?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LIST_BUILD_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reason: 'buffer below target', needed: $('measure the buffer').first().json.deficit }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "trigger-build",
+      "name": "[cred] Trigger a list build",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 200],
+      "onError": "continueRegularOutput",
+      "notes": "Add a Webhook trigger to template 08 and put its URL in LIST_BUILD_WEBHOOK_URL. Leave the var empty and this stays a report-only alert."
+    },
+    {
+      "parameters": {},
+      "id": "buffer-ok",
+      "name": "buffer is fine",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1320, 420]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 2, "options": {}},
+      "id": "merge2",
+      "name": "merge again",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1540, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hourly workflows that always post get muted. This one speaks when it did something\n// or when it needs a human, and is silent otherwise.\nconst m = $('measure the buffer').first().json;\n\n// The enrichment branch may not have run at all this hour. Referencing a node that\n// did not execute throws, so ask for it defensively rather than assuming.\nlet enriched = [];\ntry { enriched = $('collect enrichment results').all(); } catch (e) { enriched = []; }\nconst found = enriched.length ? Number(enriched[enriched.length - 1].json._found || 0) : 0;\n\nconst didWork = enriched.length > 0;\nconst needsHuman = m.build_needed || m.broken_rows > 0 || m.days_of_runway < Number($env.MIN_RUNWAY_DAYS || 3);\n\nif (!didWork && !needsHuman) return [];\n\nconst lines = [':gear: *Lead desk ' + m.hour + '* - runway ' + m.days_of_runway + ' days (' + m.sendable + '/' + m.target + ' sendable)'];\n\nif (didWork) lines.push('Enriched ' + enriched.length + ' backlog rows, found ' + found + ' addresses. ' + Math.max(0, m.backlog_total - enriched.length) + ' still queued.');\nif (m.build_needed && $env.LIST_BUILD_WEBHOOK_URL) lines.push(':inbox_tray: Buffer short by ' + m.deficit + ' - list build triggered.');\nif (m.build_needed && !$env.LIST_BUILD_WEBHOOK_URL) lines.push(':inbox_tray: *Buffer short by ' + m.deficit + ' leads.* No build webhook configured - someone needs to run template 08.');\nif (m.broken_rows) lines.push(':wrench: ' + m.broken_rows + ' rows have a malformed email. A human should look.');\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "shift-note",
+      "name": "shift note (quiet by default)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "notify",
+      "name": "[cred] Post the shift note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 06 List Top-Up Keeper\n\nThe hourly assistant. Two jobs, done without being asked:\n\n1. **Clear the enrichment backlog** - rows with a name and a domain but no address get pushed through template 14, up to `ENRICH_BATCH` an hour. Three failed attempts and a row stops being retried.\n2. **Keep the buffer full** - if sendable leads drop below `BUFFER_DAYS x DAILY_SEND_CAP`, it triggers a list build (or says loudly that nobody can).\n\n**Quiet by default.** It posts when it did something or when it needs a human. An hourly workflow that always posts gets muted inside a week.\n\n**Env:** `LEADS_SHEET_ID`, `ENRICH_WEBHOOK_URL` (template 14), `LIST_BUILD_WEBHOOK_URL` (optional), `BUFFER_DAYS`, `DAILY_SEND_CAP`, `MIN_CONFIDENCE`, `ENRICH_BATCH`, `MIN_RUNWAY_DAYS`, `ALERT_WEBHOOK_URL`.\n\n**Sheet columns:** `enrich_attempts`, `updated_at`.",
+        "height": 500,
+        "width": 460,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-880, -320]
+    }
+  ],
+  "connections": {
+    "Hourly, working hours": {"main": [[{"node": "[cred] Sheets - read leads", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read leads": {"main": [[{"node": "measure the buffer", "type": "main", "index": 0}]]},
+    "measure the buffer": {"main": [[{"node": "enrichment backlog?", "type": "main", "index": 0}]]},
+    "enrichment backlog?": {
+      "main": [
+        [{"node": "one item per backlog row", "type": "main", "index": 0}],
+        [{"node": "backlog is clear", "type": "main", "index": 0}]
+      ]
+    },
+    "one item per backlog row": {"main": [[{"node": "[cred] Call template 14 - enrich", "type": "main", "index": 0}]]},
+    "[cred] Call template 14 - enrich": {"main": [[{"node": "collect enrichment results", "type": "main", "index": 0}]]},
+    "collect enrichment results": {"main": [[{"node": "[cred] Sheets - write enriched rows", "type": "main", "index": 0}]]},
+    "[cred] Sheets - write enriched rows": {"main": [[{"node": "merge paths", "type": "main", "index": 0}]]},
+    "backlog is clear": {"main": [[{"node": "merge paths", "type": "main", "index": 1}]]},
+    "merge paths": {"main": [[{"node": "buffer below target?", "type": "main", "index": 0}]]},
+    "buffer below target?": {
+      "main": [
+        [{"node": "[cred] Trigger a list build", "type": "main", "index": 0}],
+        [{"node": "buffer is fine", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Trigger a list build": {"main": [[{"node": "merge again", "type": "main", "index": 0}]]},
+    "buffer is fine": {"main": [[{"node": "merge again", "type": "main", "index": 1}]]},
+    "merge again": {"main": [[{"node": "shift note (quiet by default)", "type": "main", "index": 0}]]},
+    "shift note (quiet by default)": {"main": [[{"node": "[cred] Post the shift note", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "ops"]
+}

@@ -1,0 +1,15 @@
+﻿Org id,Organisation,Category,Website,County,City,State,Phone,Contact,Contact title,Contact email,Source,Status,Enriched at,Contacts found,Notes
+,Northgate East Hospital,,https://www.northgate-health.example/locations/east,Ashfield,Calder City,MW,614-555-0100,Delia Wexford,Director of Case Management,denise.whitfield@northgate-east.example,midstate hospital association directory,New,,,
+,MOUNT CARMEL EAST,,www.northgate-health.example,Ashfield,Calder City,MW,,,,,google maps scrape,New,,,"the same place, scraped twice"
+,Lakeshore County Job and Family Services,,jfs.lakeshore-county.example,Ashfield,Calder City,MW,614-555-0100,,Intake Coordinator,info@lakeshore-jfs.example,county directory,,,,"a shared mailbox - must be held, not emailed"
+,Harborview Recovery Addiction Recovery,,https://harborview-recovery.example/,Ashfield,Calder City,MW,614-555-0131,Dara Kellen,Intake Coordinator,dana.kirk@harborview-demo.example,SAMHSA treatment locator,New,,,
+,IMPACT Community Action,,community-action.example,Ashfield,Calder City,MW,614-555-0179,,,,united way partner list,New,,,"no contact on the row - reported as not found, never guessed at"
+,Southeast Healthcare,,southside-services.example,Ashfield,Calder City,MW,614-555-0190,Gareth Nolan,Director of Nursing,g.nash@southside-demo.example,google maps scrape,New,,,the name gives nothing away - this is the one the AI classifier earns its keep on
+,Bridgeway House,,,Halloway,Southbank,MW,513-555-0100,Leah Cortez,Director of Admissions,lisa.cordero@bridgeway-demo.example,manual research,New,,,no website on the row
+,Summit County ADAMHS Board,,adm-board.example,Summit,Ridgeway,MW,330-555-0100,Arlen Whitcastle,Clinical Director,awhitcomb@adm-board-demo.example,county directory,New,,,
+ORG-lakeviewbhorg,Lakeview Behavioral Health,Behavioral health provider,lakeview-behavioral-demo.example,Bayview,Port Alder,MW,216-555-0102,,,,manual research,Enriched,2026-08-28 07:04,2,done four days ago - must not be re-enriched
+ORG-stalefallsorg,Stale Falls Counseling,Behavioral health provider,stalefalls.example,Larkin,Westmoor,MW,,,,,manual research,Ready,2026-01-12 07:02,1,"enriched in January - past REENRICH_AFTER_DAYS, so it comes round again"
+,Riverbend Recovery Center,,riverbend-recovery.example,Wayne,Detroit,MI,313-555-0144,Noel Boyden,Program Director,nboyd@riverbend-recovery.example,google maps scrape,New,,,over the state line - Evergreen is licensed in Midstate only
+,Do Not Contact Test Org,,mentorship-alliance.example,Ashfield,Calder City,MW,,Zane Norwood,Executive Director,zak@mentorship-alliance.example,manual research,New,,,the client's own domain - on the suppression list
+,,,https://nameless.example,,,MW,,,,,bad scrape,New,,,an empty row a scraper left behind
+,Hocking Valley Community Hospital,,hollow-valley-hospital.example,Hocking,Logan,MW,740-555-0100,,,,midstate hospital association directory,Do not contact,,,asked to be left alone - status is not in READY_STATUSES

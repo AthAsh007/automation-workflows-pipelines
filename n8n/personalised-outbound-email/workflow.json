@@ -1,0 +1,1397 @@
+{
+  "name": "Acme - redesign deliverables outreach",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "When clicking Test workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1180,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Weekdays 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1180,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ACME EMAIL OUTREACH — CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n//\n// TEST_RUN true         -> nothing reaches a lead. Ships true; see the block below.\n// GITHUB_TOKEN blank    -> the run stops at \"GitHub configured?\" and touches nothing.\n// LLM_API_KEY blank     -> the copy is used exactly as built, no AI pass.\n// REPORT_WEBHOOK_URL '' -> no run report is posted.\n\n// ---------------------------------------------------------------- Google Sheet\n// The lead tracker. Copy the id out of the sheet URL:\n// docs.google.com/spreadsheets/d/<THIS BIT>/edit\nconst LEAD_SHEET_ID  = '';\nconst LEAD_SHEET_TAB = 'Lead Tracker';\n\n// Header names as they appear in row 1. Rename here if the sheet is renamed.\nconst COLUMNS = {\n  row_id:        '#',\n  business:      'Business Name',\n  type:          'Type',\n  website:       'Website / Link',\n  task_progress: 'Task Progress',\n  dev:           'Dev on task',\n  segment:       'Segment / Positioning',\n  specialty:     'Specialty Focus',\n  email:         'Email',\n  priority:      'Priority',\n  diagnosis:     'Facelift / CRO Diagnosis',\n  pitch_angle:   'Best Pitch Angle',\n  status:        'Contact Status',\n  method:        'Method of Contact',\n  next_action:   'Next Action',\n  notes:         'Notes',\n  redesign_link: 'Link to the redesign website',\n  email_title:   'Email Title',\n  email_content: 'Email Content'\n};\n\n// ---------------------------------------------------------------- Which rows go out\n// A row is emailed when Task Progress matches. Either gate can be left blank to skip\n// that column entirely, so you can key off Task Progress, off Status, or off both.\nconst SEND_WHEN_TASK_PROGRESS = 'Ready for outreach';\nconst SEND_WHEN_STATUS        = '';   // '' = ignore Contact Status when picking rows\n// Both are trimmed and compared case-insensitively.\n\n// The redesign-link column is internal: it points at the deliverables for our own\n// reference and never appears in a client's email. Nothing depends on it being filled.\nconst REQUIRE_REDESIGN_LINK   = false;\nconst REQUIRE_EMAIL_CHANNEL   = true;   // \"Method of Contact\" must mention Email\nconst ONLY_DEV                = '';     // e.g. 'Acme' to send one dev's batch only\n\n// Written back after a successful send. Blank leaves that column alone.\n// Contact Status is a dropdown in the sheet, so STATUS_AFTER_SEND must match one of its\n// options exactly - same spelling, same capitalisation, no stray space. Anything else\n// gets flagged by the sheet's data validation, or rejected outright if it is set to\n// \"Reject input\".\nconst TASK_PROGRESS_AFTER_SEND = 'Completed';\nconst STATUS_AFTER_SEND        = 'Contacted';\n\n// Written back when the repo has nothing for that domain. Blank leaves it alone, so\n// the row keeps its place in the pipeline and simply gets a note and a next action.\nconst TASK_PROGRESS_NO_DELIVERABLES = '';\nconst STATUS_NO_DELIVERABLES        = '';\n\n// ---------------------------------------------------------------- GitHub deliverables\nconst GITHUB_OWNER   = 'acmetechnology';\nconst GITHUB_REPO    = 'website-growth-services';\nconst GITHUB_BRANCH  = 'main';\nconst GITHUB_PATH    = 'client-deliverables';\n// Fine-grained PAT, Contents: Read-only, on this repo. Required — the repo is private.\nconst GITHUB_TOKEN   = '';\n\n// ---------------------------------------------------------------- Sending\nconst FROM_EMAIL   = '';\nconst FROM_NAME    = 'Acme';\nconst REPLY_TO     = '';\nconst BCC_EMAIL    = '';          // your own address, so every send is filed\n// Contact block, printed at the foot of every email.\nconst SITE_URL     = 'https://www.acme.example/';\nconst BOOKING_URL  = 'https://cal.com/technology-acme-5xrlv1/15min';\nconst WHATSAPP     = '+65 9851 1711';\nconst SIGNOFF_NAME = 'Operator';\nconst SIGNOFF_ROLE = 'Acme';\nconst SUBJECT_TEMPLATE = '{business} — two sample redesigns, attached';\n\n// One safety switch, and the address decides how far a test run goes.\n//\n//   TEST_RUN true,  TEST_EMAIL blank  -> PREVIEW. Nothing is sent and nothing is\n//                                        written. Every lead stops carrying the\n//                                        finished subject, html and text to read.\n//   TEST_RUN true,  TEST_EMAIL set    -> TEST. The emails really send, but every one\n//                                        goes to TEST_EMAIL instead of the lead, with\n//                                        the intended recipient named in the subject.\n//                                        The sheet is still left alone.\n//   TEST_RUN false                    -> LIVE. Real recipients, and the row is\n//                                        written back.\n//\n// Filling in TEST_EMAIL can therefore only ever redirect a send, never cause one:\n// going live is always the separate, deliberate act of setting TEST_RUN to false.\nconst TEST_RUN   = true;\nconst TEST_EMAIL = '';\n\n// How many leads a TEST run actually mails. A test is for reading the email, not\n// for filling your inbox, so this defaults to 1 - the highest-priority eligible row.\n// It applies only in test mode; a preview builds the whole batch and a live run\n// uses DAILY_CAP.\nconst TEST_BATCH = 1;\n\nconst DAILY_CAP  = 10;    // hard ceiling on sends per execution\n\n// ---------------------------------------------------------------- Attachments\n// There is no website to link to, so the designs travel with the email.\n//\n// Set MAILBOX_LIMIT_MB to the recipient's message limit as their provider states it:\n// Gmail and Microsoft 365 are 25 MB, Outlook.com is 20 MB, plenty of corporate gateways\n// are 10 MB. It is NOT the file budget - attachments are base64-encoded on the way out,\n// which adds about 37%, so a 25 MB mailbox only takes ~18 MB of actual files. The raw\n// budget is derived from this, with a little room left for the message body.\n//\n// PDFs are planned first, so a client whose PDFs fit but whose PDFs plus previews do\n// not still gets the PDFs. Measured over the 43 client folders at a 25 MB limit:\n// 31 get the PDFs (22 with previews too), and the other 12 have PDF sets of 17-45 MB\n// that no mailbox will accept.\nconst MAILBOX_LIMIT_MB = 25;\nconst ATTACH_PDFS      = true;    // print-quality, the real deliverable\nconst ATTACH_PNGS      = true;    // full-page previews, added if there is room left\n\n// ---------------------------------------------------------------- Optional AI polish\n// Rewrites the subject line and opening paragraph only. Every fact, link and tip\n// in the email is built in code and is never handed to the model.\nconst LLM_BASE_URL = 'https://llm.acme.example';\nconst LLM_API_KEY  = '';\nconst LLM_MODEL    = 'modelark/seed-2-0-pro-260328';\n\n// ---------------------------------------------------------------- Optional report\nconst REPORT_WEBHOOK_URL = '';\n\nconst MODE = TEST_RUN !== true ? 'live'\n  : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    lead_sheet_id:  LEAD_SHEET_ID,\n    lead_sheet_tab: LEAD_SHEET_TAB,\n    columns:        COLUMNS,\n\n    send_when_task_progress: SEND_WHEN_TASK_PROGRESS.trim(),\n    send_when_status:        SEND_WHEN_STATUS.trim(),\n    require_redesign_link:   REQUIRE_REDESIGN_LINK,\n    require_email_channel:   REQUIRE_EMAIL_CHANNEL,\n    only_dev:                ONLY_DEV.trim(),\n\n    task_progress_after_send:      TASK_PROGRESS_AFTER_SEND.trim(),\n    status_after_send:             STATUS_AFTER_SEND.trim(),\n    task_progress_no_deliverables: TASK_PROGRESS_NO_DELIVERABLES.trim(),\n    status_no_deliverables:        STATUS_NO_DELIVERABLES.trim(),\n\n    github_owner:  GITHUB_OWNER,\n    github_repo:   GITHUB_REPO,\n    github_branch: GITHUB_BRANCH,\n    github_path:   GITHUB_PATH.replace(/^\\/+|\\/+$/g, ''),\n    github_auth:   'Bearer ' + GITHUB_TOKEN.trim(),\n\n    from_email:       FROM_EMAIL.trim(),\n    from_name:        FROM_NAME,\n    from_header:      FROM_NAME ? FROM_NAME + ' <' + FROM_EMAIL.trim() + '>' : FROM_EMAIL.trim(),\n    reply_to:         REPLY_TO.trim(),\n    bcc_email:        BCC_EMAIL.trim(),\n    site_url:         SITE_URL,\n    booking_url:      BOOKING_URL,\n    whatsapp:         WHATSAPP.trim(),\n    whatsapp_link:    'https://wa.me/' + WHATSAPP.replace(/[^0-9]/g, ''),\n    signoff_name:     SIGNOFF_NAME,\n    signoff_role:     SIGNOFF_ROLE,\n    subject_template: SUBJECT_TEMPLATE,\n\n    daily_cap:  Number(DAILY_CAP) || 0,\n    attach_pngs:      ATTACH_PNGS === true,\n    attach_pdfs:      ATTACH_PDFS === true,\n    mailbox_limit_mb: Number(MAILBOX_LIMIT_MB) || 0,\n    // raw bytes: strip the ~37% base64 inflation and reserve 256 KB for the message itself\n    attach_budget: Math.max(0,\n      Math.floor(((Number(MAILBOX_LIMIT_MB) || 0) * 1048576 - 262144) / 1.37)),\n    test_email: TEST_EMAIL.trim(),\n    test_batch: Number(TEST_BATCH) || 1,\n\n    llm_base_url: LLM_BASE_URL.replace(/\\/+$/, ''),\n    llm_api_key:  LLM_API_KEY.trim(),\n    llm_model:    LLM_MODEL,\n\n    report_webhook_url: REPORT_WEBHOOK_URL.trim(),\n\n    // derived flags - gates read these, never the raw constants\n    github_enabled: GITHUB_TOKEN.trim() !== '',\n    llm_enabled:    LLM_API_KEY.trim() !== '',\n    report_enabled: REPORT_WEBHOOK_URL.trim() !== '',\n\n    mode:         MODE,               // 'preview' | 'test' | 'live'\n    preview_only: MODE === 'preview', // built, shown, never sent\n    test_send:    MODE === 'test',    // sent, but redirected to TEST_EMAIL\n    live_send:    MODE === 'live',    // the only mode that writes to the sheet\n    send_enabled: MODE !== 'preview'\n  }\n}];"
+      },
+      "id": "cfg",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.lead_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.lead_sheet_tab }}"
+        },
+        "options": {}
+      },
+      "id": "sheets-read",
+      "name": "[cred] Sheets - read lead tracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -740,
+        280
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide who gets an email this run, and stop there.\n// Every reason a row is skipped is counted, because \"0 sent\" with no explanation is\n// the single most common support question this workflow will generate.\nconst cfg = $('config').first().json;\nconst C = cfg.columns;\n\nconst rows = $input.all().map((i) => i.json);\n\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/;\nconst PLACEHOLDER = new Set(['', 'tbd', 'n/a', 'na', 'none', '-', 'unknown', 'pending']);\n\nconst val = (row, key) => String(row[C[key]] ?? '').trim();\n// Status and Task Progress are typed by hand into the sheet, so compare loosely.\nconst same = (a, b) => a.toLowerCase() === String(b || '').trim().toLowerCase();\n\nconst domainOf = (url) => String(url || '')\n  .trim()\n  .toLowerCase()\n  .replace(/^https?:\\/\\//, '')\n  .replace(/^www\\./, '')\n  .split(/[/?#]/)[0]\n  .replace(/\\.$/, '');\n\n// \"David Ho (Insurance Broker)\" -> a person. \"Acclaim Insurance Brokers\" -> a firm.\n// Wrong guesses here are visible to the client, so the test is deliberately strict.\nconst FIRM_WORDS = /\\b(law|llc|llp|lp|pte|ltd|limited|corporation|corp|chambers|associates|partners|advisory|advisers|advisors|capital|management|financial|insurance|brokers?|group|holdings|consultancy|services|company|co|firm|practice|wealth|asset|trust|planners?|solutions)\\b/i;\n\nconst greetingFor = (business) => {\n  const cleaned = String(business || '')\n    .replace(/\\([^)]*\\)/g, ' ')           // drop \"(Insurance Broker)\"\n    .replace(/,\\s*(cfp|cfa|afc|chfc|clu|mba|llb|jd|phd|esq)\\.?\\b/gi, ' ')\n    .replace(/[&]/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n  const parts = cleaned.split(' ').filter(Boolean);\n  if (parts.length === 2 && !FIRM_WORDS.test(cleaned) && parts.every((p) => /^[A-Z][a-z'-]+$/.test(p))) {\n    return { greeting: 'Hi ' + parts[0] + ',', person: cleaned };\n  }\n  return { greeting: 'Hi there,', person: '' };\n};\n\nconst PRIORITY_RANK = { high: 0, medium: 1, low: 2 };\n\nconst skipped = {\n  wrong_task_progress: 0,\n  wrong_status: 0,\n  no_valid_email: 0,\n  no_redesign_link: 0,\n  not_an_email_channel: 0,\n  other_dev: 0,\n  duplicate_email: 0,\n  over_cap: 0\n};\n\nconst seenEmail = new Set();\nconst candidates = [];\n\nfor (let i = 0; i < rows.length; i++) {\n  const row = rows[i];\n  const sourceRow = i + 2;                 // header is row 1\n\n  // A blank gate in config means \"do not look at that column at all\".\n  if (cfg.send_when_task_progress && !same(val(row, 'task_progress'), cfg.send_when_task_progress)) {\n    skipped.wrong_task_progress++; continue;\n  }\n  if (cfg.send_when_status && !same(val(row, 'status'), cfg.send_when_status)) {\n    skipped.wrong_status++; continue;\n  }\n  if (cfg.only_dev && val(row, 'dev') !== cfg.only_dev) { skipped.other_dev++; continue; }\n\n  const email = val(row, 'email').toLowerCase();\n  if (PLACEHOLDER.has(email) || !EMAIL_RE.test(email)) { skipped.no_valid_email++; continue; }\n\n  // A generated email is built around this link, so without one there is nothing to\n  // send. A row carrying its own Email Content is exempt: whoever wrote it decided\n  // what it points at.\n  const redesignLink = val(row, 'redesign_link');\n  const hasOwnCopy = val(row, 'email_content').length > 40;\n  const linkLooksReal = !PLACEHOLDER.has(redesignLink.toLowerCase()) &&\n                        /^https?:\\/\\//i.test(redesignLink);\n  if (cfg.require_redesign_link && !linkLooksReal && !hasOwnCopy) {\n    skipped.no_redesign_link++; continue;\n  }\n\n  if (cfg.require_email_channel && !/email/i.test(val(row, 'method'))) { skipped.not_an_email_channel++; continue; }\n\n  if (seenEmail.has(email)) { skipped.duplicate_email++; continue; }\n  seenEmail.add(email);\n\n  const business = val(row, 'business');\n  const who = greetingFor(business);\n\n  candidates.push({\n    row_id:          val(row, 'row_id'),\n    _source_row:     sourceRow,\n    business,\n    business_display: business.replace(/\\s*\\([^)]*\\)\\s*/g, ' ').replace(/\\s+/g, ' ').trim() || business,\n    greeting:        who.greeting,\n    contact_person:  who.person,\n    email,\n    website:         val(row, 'website'),\n    domain:          domainOf(val(row, 'website')),\n    type:            val(row, 'type'),\n    segment:         val(row, 'segment'),\n    specialty:       val(row, 'specialty'),\n    priority:        val(row, 'priority'),\n    task_progress:   val(row, 'task_progress'),\n    status:          val(row, 'status'),\n    diagnosis:       val(row, 'diagnosis'),\n    pitch_angle:     val(row, 'pitch_angle'),\n    redesign_link:   redesignLink,\n    existing_notes:  val(row, 'notes'),\n    existing_title:  val(row, 'email_title'),\n    existing_body:   val(row, 'email_content'),\n    // Copy already written into the sheet by a human wins over anything we build.\n    _has_custom_subject: val(row, 'email_title') !== '',\n    _has_custom_body:    val(row, 'email_content').length > 40,\n    _priority_rank:  PRIORITY_RANK[val(row, 'priority').toLowerCase()] ?? 3\n  });\n}\n\ncandidates.sort((a, b) =>\n  (a._priority_rank - b._priority_rank) || (Number(a.row_id) - Number(b.row_id))\n);\n\n// A test run mails TEST_BATCH leads (1 by default) - enough to read the email, not\n// enough to fill an inbox. A preview builds the whole batch because it sends nothing.\nconst testing = cfg.test_send === true;\nconst cap = testing\n  ? (cfg.test_batch > 0 ? cfg.test_batch : 1)\n  : (cfg.daily_cap > 0 ? cfg.daily_cap : candidates.length);\n\nskipped.over_cap = Math.max(0, candidates.length - cap);\nconst selected = candidates.slice(0, cap);\n\nconst summary = {\n  rows_read: rows.length,\n  eligible: candidates.length,\n  selected: selected.length,\n  cap,\n  cap_reason: testing ? 'TEST_BATCH, because this is a test run' : 'DAILY_CAP',\n  skipped\n};\n\nif (!selected.length) {\n  return [{ json: { _nothing_to_send: true, _summary: summary } }];\n}\n\nreturn selected.map((lead) => ({ json: Object.assign({ _summary: summary }, lead) }));"
+      },
+      "id": "pick-rows",
+      "name": "pick sendable rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -520,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "any-to-send-c",
+              "leftValue": "={{ $json._nothing_to_send !== true }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "any-to-send",
+      "name": "anything to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -300,
+        280
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "stop-nothing",
+      "name": "STOP: nothing to send",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "gh-configured-c",
+              "leftValue": "={{ $('config').first().json.github_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "gh-configured",
+      "name": "GitHub configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -80,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "stop-no-gh",
+      "name": "STOP: GitHub not configured",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        140,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "loop",
+      "name": "Loop over leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        160,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $('config').first().json.github_owner + '/' + $('config').first().json.github_repo + '/contents/' + $('config').first().json.github_path + '/' + encodeURIComponent($json.domain) + '?ref=' + encodeURIComponent($('config').first().json.github_branch) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('config').first().json.github_auth }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "acme-n8n-outreach"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "gh-list",
+      "name": "[cred] GitHub - list deliverable files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn a GitHub directory listing into the exact URLs this email needs.\n// A missing folder is normal, not an error: not every redesigned row has been\n// pushed to this branch yet. It routes to \"STOP: no deliverables in repo\".\nconst cfg = $('config').first().json;\nconst lead = $('Loop over leads').first().json;\n\nconst api = 'https://api.github.com/repos/' + cfg.github_owner + '/' + cfg.github_repo + '/contents/';\nconst rawUrl = (path) => api + path.split('/').map(encodeURIComponent).join('/') + '?ref=' + encodeURIComponent(cfg.github_branch);\n\n// The HTTP node splits a JSON array into items; a 404 body arrives as one item\n// with a `message`. Both shapes land here, so normalise before reading.\nconst files = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  if (Array.isArray(j)) { files.push(...j); continue; }\n  if (Array.isArray(j.data)) { files.push(...j.data); continue; }\n  if (j.name && j.path) files.push(j);\n}\n\nconst flat = files.filter((f) => f && f.type === 'file' && typeof f.name === 'string');\nconst named = (n) => flat.find((f) => f.name.toLowerCase() === n);\n\nconst notes = named('facelift-cro-and-pitch-notes.txt');\nconst seo   = named('seo-geo-tip.txt');\n\n// \"establishment-modern.pdf\" -> \"establishment-modern\". The PDF is the canonical\n// per-direction artefact; the .desktop/.mobile PNGs are previews of the same thing.\nconst directions = flat\n  .filter((f) => /\\.pdf$/i.test(f.name))\n  .map((f) => f.name.replace(/\\.pdf$/i, ''))\n  .filter((d) => !/^(facelift|seo)/i.test(d))\n  .sort();\n\nconst previews = {};\nfor (const d of directions) {\n  const desktop = named(d.toLowerCase() + '.desktop.png');\n  const pdf = named(d.toLowerCase() + '.pdf');\n  previews[d] = {\n    desktop_png:       desktop ? rawUrl(desktop.path) : '',\n    desktop_png_name:  desktop ? desktop.name : '',\n    desktop_png_bytes: desktop ? Number(desktop.size || 0) : 0,\n    pdf:               pdf ? rawUrl(pdf.path) : '',\n    pdf_name:          pdf ? pdf.name : '',\n    pdf_bytes:         pdf ? Number(pdf.size || 0) : 0\n  };\n}\n\nconst hasDeliverables = Boolean(notes) && directions.length > 0;\n\nreturn [{\n  json: Object.assign({}, lead, {\n    _has_deliverables: hasDeliverables,\n    _deliverable_path: cfg.github_path + '/' + lead.domain,\n    _file_count: flat.length,\n    notes_url: notes ? rawUrl(notes.path) : '',\n    seo_url:   seo ? rawUrl(seo.path) : '',\n    directions,\n    previews,\n    _skip_reason: hasDeliverables\n      ? ''\n      : (flat.length === 0\n          ? 'no folder for ' + lead.domain + ' on branch ' + cfg.github_branch\n          : 'folder exists but has no pitch notes or no design directions')\n  })\n}];"
+      },
+      "id": "pick-files",
+      "name": "pick deliverable files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-deliverables-c",
+              "leftValue": "={{ $json._has_deliverables || $json._has_custom_body }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-deliverables",
+      "name": "deliverables found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.notes_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('config').first().json.github_auth }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "acme-n8n-outreach"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "gh-notes",
+      "name": "[cred] GitHub - get pitch notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        60
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('pick deliverable files').first().json.seo_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('config').first().json.github_auth }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "acme-n8n-outreach"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "gh-seo",
+      "name": "[cred] GitHub - get seo geo tip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        60
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the email from the two .txt files in the client's deliverable folder.\n// Everything here is extraction and formatting — no facts are invented. If a section\n// cannot be parsed it is dropped, never guessed at, because this goes to a stranger.\nconst cfg  = $('config').first().json;\nconst base = $('pick deliverable files').first().json;\n\nconst readText = (nodeName) => {\n  try {\n    const j = $(nodeName).first().json || {};\n    const raw = typeof j.data === 'string' ? j.data : (typeof j === 'string' ? j : '');\n    return raw.replace(/\\r\\n/g, '\\n');\n  } catch (e) {\n    return '';\n  }\n};\n\nconst notesRaw = readText('[cred] GitHub - get pitch notes');\nconst seoRaw   = readText('[cred] GitHub - get seo geo tip');\n\n// ---------------------------------------------------------------- small helpers\nconst esc = (s) => String(s ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\n\nconst tidy = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();\n\n// These files quote page titles and headings, so a naive split on \".\" lands inside\n// a quotation and hands the client half a sentence. Track quote and paren depth.\nconst splitSentences = (s) => {\n  const out = [];\n  let buf = '', paren = 0, quoted = false;\n  for (let i = 0; i < s.length; i++) {\n    const c = s[i];\n    buf += c;\n    if (c === '(') paren++;\n    else if (c === ')') paren = Math.max(0, paren - 1);\n    else if (c === '\"') quoted = !quoted;\n    else if (c === '\\u201C') quoted = true;\n    else if (c === '\\u201D') quoted = false;\n    else if (c === '.' || c === '!' || c === '?') {\n      let j = i + 1;\n      while (j < s.length && '\")\\u201D'.indexOf(s[j]) !== -1) {   // closer belongs to this sentence\n        if (s[j] === ')') paren = Math.max(0, paren - 1); else quoted = false;\n        buf += s[j];\n        j++;\n      }\n      i = j - 1;\n      // A '?' inside a quoted page heading is not the end of the sentence, so only\n      // break when what follows actually starts a new one.\n      const rest = s.slice(j).replace(/^\\s+/, '');\n      if (paren === 0 && !quoted && (rest === '' || /^[A-Z\\u201C\"(]/.test(rest))) {\n        out.push(buf.trim());\n        buf = '';\n      }\n    }\n  }\n  if (buf.trim()) out.push(buf.trim());\n  return out;\n};\n\n// Whole sentences up to a budget. Drops the second sentence rather than cutting it,\n// and only ever ellipsis-truncates when a single sentence is longer than the budget.\nconst firstSentences = (s, n, maxChars) => {\n  const clean = tidy(s);\n  if (!clean) return '';\n  const parts = splitSentences(clean);\n  let out = '';\n  for (const part of parts.slice(0, n)) {\n    const next = out ? out + ' ' + part : part;\n    if (out && maxChars && next.length > maxChars) break;\n    out = next;\n  }\n  if (!out) out = parts[0] || clean;\n  if (maxChars && out.length > maxChars) {\n    out = out.slice(0, maxChars).replace(/[\\s,;:.\\u2014-]+\\S*$/, '') + '\\u2026';\n  }\n  return out;\n};\n\n// Plain-text bodies go out at a readable width; long unwrapped lines look broken\n// in a lot of mail clients.\nconst wrap = (s, width) => {\n  const cols = width || 78;\n  const out = [];\n  for (const para of String(s ?? '').split('\\n')) {\n    if (!para.trim()) { out.push(''); continue; }\n    const m = para.match(/^(\\s*)((?:\\d+\\.|[*-])\\s+)?/);\n    const indent = m[1] || '';\n    const hang = indent + ' '.repeat((m[2] || '').length);   // list items get a hanging indent\n    const words = para.trim().split(/\\s+/);\n    let line = indent + words[0];\n    for (let i = 1; i < words.length; i++) {\n      if ((line + ' ' + words[i]).length > cols) { out.push(line); line = hang + words[i]; }\n      else line += ' ' + words[i];\n    }\n    out.push(line);\n  }\n  return out.join('\\n');\n};\n\nconst titleCase = (slug) => String(slug || '')\n  .split(/[-_]/).filter(Boolean)\n  .map((w) => w.charAt(0).toUpperCase() + w.slice(1))\n  .join(' ');\n\nconst unquote = (s) => tidy(s).replace(/^[\"“”']+|[\"“”']+$/g, '');\n\n// ---------------------------------------------------------------- pitch notes\n// Labels in these files carry slashes and brackets, so match a plain line prefix\n// instead of escaping them into a pattern.\nconst afterLabel = (text, label) => {\n  const needle = (label + ':').toLowerCase();\n  for (const line of text.split('\\n')) {\n    const t = line.trim();\n    if (t.toLowerCase().startsWith(needle)) return tidy(t.slice(needle.length));\n  }\n  return '';\n};\n\n// A heading in these files is a line in ALL CAPS on its own.\nconst sectionBody = (text, headingRe) => {\n  const lines = text.split('\\n');\n  const start = lines.findIndex((l) => headingRe.test(l.trim()));\n  if (start === -1) return '';\n  const body = [];\n  for (let i = start + 1; i < lines.length; i++) {\n    const t = lines[i].trim();\n    if (t && t === t.toUpperCase() && /[A-Z]{4}/.test(t) && !/^\\d/.test(t)) break;\n    body.push(lines[i]);\n  }\n  return body.join('\\n').trim();\n};\n\nconst diagnosis  = unquote(afterLabel(notesRaw, 'Facelift / CRO Diagnosis (CSV column)')) || unquote(base.diagnosis);\nconst pitchAngle = unquote(afterLabel(notesRaw, 'Best Pitch Angle (CSV column)')) || unquote(base.pitch_angle);\n\nconst declaredDirections = afterLabel(notesRaw, 'Design directions delivered')\n  .split(',').map((s) => tidy(s)).filter(Boolean);\n\nconst directions = (declaredDirections.length ? declaredDirections : base.directions) || [];\n\n// Inside \"THE TWO DIRECTIONS\", each paragraph opens \"<slug>: <description>\".\nconst directionsSection = sectionBody(notesRaw, /^THE (TWO )?DIRECTIONS/i);\nconst describeDirection = (slug) => {\n  const needle = (slug + ':').toLowerCase();\n  for (const para of directionsSection.split(/\\n\\s*\\n/)) {\n    const t = tidy(para);\n    if (t.toLowerCase().startsWith(needle)) return firstSentences(t.slice(needle.length), 2, 300);\n  }\n  return '';\n};\n\nconst directionCards = directions\n  .map((slug) => ({\n    slug,\n    name: titleCase(slug),\n    blurb: describeDirection(slug),\n    preview: (base.previews && base.previews[slug]) || {}\n  }))\n  .filter((d) => d.name);\n\nconst whyParagraph =\n  firstSentences(sectionBody(notesRaw, /^HOW THE PITCH ANGLE IS EXECUTED/i), 2, 320) ||\n  firstSentences(sectionBody(notesRaw, /^HOW THE DIAGNOSIS IS ADDRESSED/i), 2, 320);\n\n// ---------------------------------------------------------------- SEO / GEO scan\nconst parseTips = (block) => {\n  const out = [];\n  let current = null;\n  for (const line of block.split('\\n')) {\n    const m = line.match(/^\\s*\\d+\\.\\s+(.*)$/);\n    if (m) {\n      if (current) out.push(current);\n      current = { headline: tidy(m[1]).replace(/\\.$/, ''), body: [] };\n    } else if (current && line.trim()) {\n      current.body.push(line.trim());\n    } else if (current && !line.trim() && current.body.length) {\n      // blank line inside an item is fine; a numbered line ends it\n    }\n  }\n  if (current) out.push(current);\n  return out.map((t) => ({ headline: t.headline, body: firstSentences(t.body.join(' '), 2, 320) }))\n            .filter((t) => t.headline);\n};\n\nconst sliceBetween = (text, startRe, endRe) => {\n  const lines = text.split('\\n');\n  const s = lines.findIndex((l) => startRe.test(l.trim()));\n  if (s === -1) return '';\n  let e = lines.length;\n  for (let i = s + 1; i < lines.length; i++) {\n    if (endRe.test(lines[i].trim())) { e = i; break; }\n  }\n  return lines.slice(s + 1, e).join('\\n');\n};\n\nconst seoTips = parseTips(sliceBetween(seoRaw, /^SEO\\b/i, /^GEO\\b/i)).slice(0, 2);\nconst geoTips = parseTips(sliceBetween(seoRaw, /^GEO\\b/i, /^(These are the quick wins|A full SEO)/i)).slice(0, 2);\n\n// ---------------------------------------------------------------- copy\nconst business = base.business_display || base.business;\n// The sheet's Email Title / Email Content win over anything we build. A human who\n// wrote copy into those cells meant it, and this workflow must not overwrite them.\n// There is no live site and no client-facing link. The designs travel as attachments,\n// so the copy points at the attachments and at how to reach us, nothing else.\n// Plan the attachments here, because the copy has to describe what is actually going\n// to be in the email. PNGs first - measured across the 43 client folders they are 2.3 MB\n// median and 4.6 MB at worst, so they always fit - then PDFs while the budget allows.\n// The budget is on the raw bytes; base64 adds about 37% on the wire.\nconst previews = base.previews || {};\n\n// Each format is all-or-nothing. Sending a preview of both directions but a PDF of\n// only one reads as carelessness, so a group that does not fit whole is left out whole.\nconst groupFor = (key, nameKey, bytesKey) => (base.directions || [])\n  .map((d) => previews[d] || {})\n  .filter((pv) => pv[key] && pv[nameKey])\n  .map((pv) => ({ url: pv[key], filename: pv[nameKey], bytes: Number(pv[bytesKey]) || 0 }));\n\nconst attachments = [];\nlet attachBytes = 0;\n\nconst planGroup = (group, wanted) => {\n  if (!wanted || !group.length) return false;\n  if (group.length !== (base.directions || []).length) return false;   // incomplete set\n  const size = group.reduce((n, f) => n + f.bytes, 0);\n  if (attachBytes + size > cfg.attach_budget) return false;\n  for (const f of group) {\n    attachments.push({ url: f.url, filename: f.filename, bytes: f.bytes,\n                       prop: 'attachment_' + attachments.length });\n  }\n  attachBytes += size;\n  return true;\n};\n\n// PDFs first - they are the actual deliverable, and claiming the budget for them means\n// a client whose PDFs fit but whose PDFs plus previews do not still gets the PDFs.\n// The previews then take whatever is left; they are 2.3 MB median, 4.6 MB at worst.\nconst pdfsAttached = planGroup(groupFor('pdf', 'pdf_name', 'pdf_bytes'), cfg.attach_pdfs);\nconst pngsAttached = planGroup(\n  groupFor('desktop_png', 'desktop_png_name', 'desktop_png_bytes'), cfg.attach_pngs);\n\nconst attachNames = attachments.map((a) => a.filename);\n\nconst whatsYouGot =\n  pdfsAttached && pngsAttached\n    ? 'Attached: the print-quality PDF of each direction, plus a full-page preview.'\n  : pdfsAttached\n    ? 'Attached: the print-quality PDF of each direction.'\n  : pngsAttached\n    ? 'Attached: a full-page preview of each direction. The print-quality PDFs are too '\n      + 'large to email - say the word and we will get them to you.'\n    : 'Both directions are described below. The files are too large to email - say the '\n      + 'word and we will get them to you.';\n\nconst nextSteps = 'Nothing to sign and nothing owed - these are sample redesigns, built '\n  + 'from your public site on our own time, not a commissioned job. If one of the two '\n  + 'directions is close, tell us which and we will take it from there. And the two scans '\n  + 'above are a few minutes of what a full SEO and GEO review covers, so if you want the '\n  + 'whole picture of where the site stands, just ask.';\n\nconst builtSubject = tidy(cfg.subject_template.replace('{business}', business)).slice(0, 120);\nconst subject = base._has_custom_subject ? tidy(base.existing_title).slice(0, 200) : builtSubject;\n\nconst intro = diagnosis\n  ? 'We redesigned ' + base.domain + ' as a sample - unasked, on our own time, to show what '\n    + 'it could look like. What stood out on the current site: ' + diagnosis.replace(/\\.$/, '')\n    + '. Both directions set out to fix that.'\n  : 'We redesigned ' + base.domain + ' as a sample - unasked, on our own time, to show what '\n    + 'it could look like. Two directions, both below.';\n\n// ---------------------------------------------------------------- HTML\nconst INK = '#16181d', MUTED = '#5b6472', LINE = '#e3e6ea', ACCENT = '#0b5fff', BG = '#f5f6f8';\nconst FONT = \"-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif\";\n\nconst p = (html, extra) =>\n  '<p style=\"margin:0 0 16px;font:400 15px/1.6 ' + FONT + ';color:' + INK + ';' + (extra || '') + '\">' + html + '</p>';\n\nconst h = (text) =>\n  '<p style=\"margin:28px 0 12px;font:600 12px/1.4 ' + FONT + ';letter-spacing:.08em;text-transform:uppercase;color:' + MUTED + '\">' + esc(text) + '</p>';\n\nconst rule = '<div style=\"height:1px;background:' + LINE + ';margin:24px 0\"></div>';\n\nconst button = (href, label) =>\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:4px 0 8px\"><tr><td bgcolor=\"' + ACCENT + '\" style=\"border-radius:6px\">' +\n  '<a href=\"' + esc(href) + '\" style=\"display:inline-block;padding:13px 26px;font:600 15px/1 ' + FONT + ';color:#ffffff;text-decoration:none;border-radius:6px\">' + esc(label) + '</a>' +\n  '</td></tr></table>';\n\nconst card = (inner) =>\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"margin:0 0 12px;border:1px solid ' + LINE + ';border-radius:8px\"><tr><td style=\"padding:16px 18px\">' + inner + '</td></tr></table>';\n\nconst directionsHtml = directionCards.map((d) => card(\n  '<p style=\"margin:0 0 6px;font:600 15px/1.4 ' + FONT + ';color:' + INK + '\">' + esc(d.name) + '</p>' +\n  (d.blurb ? '<p style=\"margin:0;font:400 14px/1.6 ' + FONT + ';color:' + MUTED + '\">' + esc(d.blurb) + '</p>' : '')\n)).join('');\n\nconst tipsHtml = (tips) => tips.map((t) =>\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"margin:0 0 14px\"><tr>' +\n  '<td width=\"16\" valign=\"top\" style=\"font:600 15px/1.6 ' + FONT + ';color:' + ACCENT + '\">&bull;</td>' +\n  '<td valign=\"top\">' +\n  '<p style=\"margin:0 0 4px;font:600 14px/1.5 ' + FONT + ';color:' + INK + '\">' + esc(t.headline) + '</p>' +\n  (t.body ? '<p style=\"margin:0;font:400 14px/1.6 ' + FONT + ';color:' + MUTED + '\">' + esc(t.body) + '</p>' : '') +\n  '</td></tr></table>'\n).join('');\n\nconst contactRow = (label, href, text) =>\n  '<tr><td style=\"padding:2px 0;font:400 14px/1.7 ' + FONT + ';color:' + MUTED + '\">' +\n  '<span style=\"display:inline-block;min-width:88px;color:' + MUTED + '\">' + esc(label) + '</span>' +\n  '<a href=\"' + esc(href) + '\" style=\"color:' + ACCENT + ';text-decoration:none\">' + esc(text) + '</a>' +\n  '</td></tr>';\n\nconst contactBlock =\n  h('Reach us') +\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">' +\n  contactRow('WhatsApp', cfg.whatsapp_link, cfg.whatsapp) +\n  contactRow('Book a call', cfg.booking_url, '15 minutes, pick a slot') +\n  contactRow('Website', cfg.site_url, cfg.site_url.replace(/^https?:\\/\\//, '').replace(/\\/$/, '')) +\n  '</table>';\n\nconst preheader = 'Two sample redesigns of ' + base.domain + ', plus a quick SEO and AI-answer scan.';\n\nconst body =\n  '<p style=\"margin:0 0 24px;font:700 16px/1 ' + FONT + ';letter-spacing:.02em;color:' + INK + '\">Acme<span style=\"font-weight:400;color:' + MUTED + '\"> &middot; website growth</span></p>' +\n  p(esc(base.greeting)) +\n  p(esc(intro)) +\n  p(esc(whatsYouGot), 'color:' + MUTED) +\n  rule +\n  h('The two directions') +\n  directionsHtml +\n  (whyParagraph ? p(esc(whyParagraph), 'color:' + MUTED) : '') +\n  (seoTips.length ? h('Two SEO fixes we noticed') + tipsHtml(seoTips) : '') +\n  (geoTips.length ? h('Two AI-answer (GEO) fixes') + tipsHtml(geoTips) : '') +\n  rule +\n  h('What happens next') +\n  p(esc(nextSteps)) +\n  button(cfg.booking_url, 'Book 15 minutes') +\n  p('If neither direction is right, replying &quot;not for us&quot; is a perfectly good answer and we will not follow up.', 'color:' + MUTED + ';font-size:13px') +\n  contactBlock;\n\nconst footer =\n  '<div style=\"height:1px;background:' + LINE + ';margin:8px 0 18px\"></div>' +\n  '<p style=\"margin:0;font:400 14px/1.6 ' + FONT + ';color:' + INK + '\">' + esc(cfg.signoff_name) + '<br>' +\n  '<span style=\"color:' + MUTED + '\">' + esc(cfg.signoff_role) + '</span></p>';\n\nconst shell = (inner) =>\n  '<div style=\"display:none;max-height:0;overflow:hidden;opacity:0\">' + esc(preheader) + '</div>' +\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"background:' + BG + ';margin:0;padding:24px 12px\"><tr><td align=\"center\">' +\n  '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"600\" style=\"max-width:600px;width:100%;background:#ffffff;border:1px solid ' + LINE + ';border-radius:10px\">' +\n  '<tr><td style=\"padding:28px 32px 8px\">' + inner + '</td></tr>' +\n  '<tr><td style=\"padding:0 32px 28px\">' + footer + '</td></tr>' +\n  '</table></td></tr></table>';\n\nconst html = shell(body);\n\n// ---------------------------------------------------------------- plain text\nconst textParts = [\n  base.greeting, '',\n  intro, '',\n  whatsYouGot, '',\n  'THE TWO DIRECTIONS', ''\n];\nfor (const d of directionCards) {\n  textParts.push('* ' + d.name + (d.blurb ? ' - ' + d.blurb : ''));\n}\ntextParts.push('');\nif (whyParagraph) textParts.push(whyParagraph, '');\nif (seoTips.length) {\n  textParts.push('TWO SEO FIXES WE NOTICED', '');\n  seoTips.forEach((t, i) => textParts.push((i + 1) + '. ' + t.headline, t.body ? '   ' + t.body : '', ''));\n}\nif (geoTips.length) {\n  textParts.push('TWO AI-ANSWER (GEO) FIXES', '');\n  geoTips.forEach((t, i) => textParts.push((i + 1) + '. ' + t.headline, t.body ? '   ' + t.body : '', ''));\n}\ntextParts.push(\n  'WHAT HAPPENS NEXT', '',\n  nextSteps, '',\n  'If neither direction is right, replying \"not for us\" is a perfectly good answer and '\n    + 'we will not follow up.', '',\n  'REACH US', '',\n  'WhatsApp: ' + cfg.whatsapp,\n  'Book a call: ' + cfg.booking_url,\n  'Website: ' + cfg.site_url, '',\n  cfg.signoff_name,\n  cfg.signoff_role\n);\nconst text = wrap(textParts.join('\\n'), 78)\n  .replace(/(?:\\r?\\n){3,}/g, '\\n\\n');\n\n// ---------------------------------------------------------------- sheet-authored copy\n// If someone typed a body into the sheet's Email Content cell, that is the email.\n// It goes out in the same wrapper so it still looks like everything else we send,\n// but not one word of it is rewritten.\nconst wordmark = '<p style=\"margin:0 0 24px;font:700 16px/1 ' + FONT +\n  ';letter-spacing:.02em;color:' + INK + '\">Acme<span style=\"font-weight:400;color:' +\n  MUTED + '\"> &middot; website growth</span></p>';\n\nconst linkify = (t) => esc(t).replace(\n  /(https?:\\/\\/[^\\s<]+)/g,\n  '<a href=\"$1\" style=\"color:' + ACCENT + '\">$1</a>');\n\nconst customBody = base._has_custom_body ? String(base.existing_body).replace(/\\r\\n/g, '\\n') : '';\n\nconst customHtml = customBody\n  ? shell(wordmark + customBody.split(/\\n\\s*\\n/)\n      .filter((para) => para.trim())\n      .map((para) => p(linkify(para.trim()).replace(/\\n/g, '<br>')))\n      .join(''))\n  : '';\n\nconst copySource = customBody\n  ? (base._has_custom_subject ? 'sheet' : 'sheet-body')\n  : (base._has_custom_subject ? 'sheet-subject' : 'built');\n\nreturn [{\n  json: Object.assign({}, base, {\n    subject,\n    intro,\n    html: customHtml || html,\n    text: customBody ? wrap(customBody, 78) : text,\n    // 'built' is the only source the AI polish step is allowed to touch.\n    _copy_source: copySource,\n    _attachment_names: attachNames,\n    _attachments: attachments,\n    _attachment_bytes: attachBytes,\n    _parsed: {\n      diagnosis,\n      pitch_angle: pitchAngle,\n      directions: directionCards.map((d) => d.name),\n      seo_tips: seoTips.length,\n      geo_tips: geoTips.length,\n      notes_bytes: notesRaw.length,\n      seo_bytes: seoRaw.length\n    }\n  })\n}];"
+      },
+      "id": "build-email",
+      "name": "build email content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The row is marked redesigned but the branch has nothing for this domain.\n// Not an error: it means the work has not been pushed yet. Flag it for the dev.\nreturn $input.all().map((i) => ({\n  json: Object.assign({}, i.json, { _outcome: 'no_deliverables' })\n}));"
+      },
+      "id": "stop-nodeliv",
+      "name": "STOP: no deliverables in repo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "llm-configured-c",
+              "leftValue": "={{ $('config').first().json.llm_enabled && $json._copy_source === 'built' }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "llm-configured",
+      "name": "AI polish configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.llm_base_url }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.llm_api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.llm_model, stream: false, max_tokens: 2000, temperature: 0.4, response_format: { type: 'json_schema', json_schema: { name: 'email_opening', strict: true, schema: { type: 'object', additionalProperties: false, required: ['subject','intro'], properties: { subject: { type: 'string' }, intro: { type: 'string' } } } } }, messages: [{ role: 'system', content: 'You rewrite the subject line and opening paragraph of an outreach email from a web design studio to a business whose site the studio has already redesigned on spec. Keep every fact exactly as given. Invent nothing. No links, no emoji, no exclamation marks, no superlatives. Subject under 70 characters and lower-key than a marketing headline. Intro is two or three plain sentences. Return JSON only.' }, { role: 'user', content: 'Business: ' + $json.business + String.fromCharCode(10) + 'Domain: ' + $json.domain + String.fromCharCode(10) + 'Sector: ' + $json.type + String.fromCharCode(10) + 'Our note on their current site: ' + $json._parsed.diagnosis + String.fromCharCode(10) + 'Our pitch angle: ' + $json._parsed.pitch_angle + String.fromCharCode(10) + 'Current subject: ' + $json.subject + String.fromCharCode(10) + 'Current intro: ' + $json.intro } ] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "llm-polish",
+      "name": "[cred] LLM - polish subject and intro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        -60
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Take the model's subject + opening paragraph, or keep ours.\n// The model never sees or writes a link, a tip or a direction name, so a bad\n// response can only ever cost us the intro, never a fact.\nconst built = $('build email content').first().json;\n\nlet polished = {};\ntry {\n  const raw = $input.first().json;\n  const content = raw?.choices?.[0]?.message?.content ?? '';\n  const stripped = String(content).replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  polished = stripped ? JSON.parse(stripped) : {};\n} catch (e) {\n  polished = {};\n}\n\nconst subject = typeof polished.subject === 'string' && polished.subject.trim().length > 8\n  ? polished.subject.trim().slice(0, 120)\n  : built.subject;\n\nconst intro = typeof polished.intro === 'string' && polished.intro.trim().length > 40\n  ? polished.intro.trim()\n  : built.intro;\n\nconst used = subject !== built.subject || intro !== built.intro;\n\n// Swap the intro inside both bodies rather than rebuilding them.\nconst esc = (s) => String(s ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\n\nconst html = built.html.split(esc(built.intro)).join(esc(intro));\nconst text = built.text.split(built.intro).join(intro);\n\nreturn [{ json: Object.assign({}, built, { subject, intro, html, text, _llm_applied: used }) }];"
+      },
+      "id": "apply-polish",
+      "name": "apply polish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "any-attachments-c",
+              "leftValue": "={{ ($json._attachments || []).length > 0 }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "any-attachments",
+      "name": "any attachments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per file to download. The plan was made in \"build email content\" so the\n// copy and the attachments can never disagree about what is in the email.\nconst email = $input.first().json;\nreturn (email._attachments || []).map((a) => ({ json: a }));"
+      },
+      "id": "split-attachments",
+      "name": "split attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('config').first().json.github_auth }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "acme-n8n-outreach"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "gh-download",
+      "name": "[cred] GitHub - download deliverable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2780,
+        -40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fold the downloaded files back onto the single email item as binary properties.\n// n8n's email node takes a comma-separated list of those property names.\nconst email = $('any attachments?').first().json;\nconst plan = email._attachments || [];\n\nconst binary = {};\nconst attached = [];\nconst failed = [];\n\n$input.all().forEach((item, i) => {\n  const source = item.binary || {};\n  const data = source.data || Object.values(source)[0];\n  const planned = plan[i] || {};\n  if (!data) {\n    failed.push(planned.filename || ('file ' + i));\n    return;\n  }\n  const prop = 'attachment_' + attached.length;\n  // Name it after the file in the repo, not after whatever the URL happened to end in.\n  binary[prop] = Object.assign({}, data, {\n    fileName: planned.filename || data.fileName,\n    mimeType: data.mimeType || (/\\.pdf$/i.test(planned.filename || '') ? 'application/pdf' : 'image/png')\n  });\n  attached.push(planned.filename || prop);\n});\n\nreturn [{\n  json: Object.assign({}, email, {\n    _attachment_props: Object.keys(binary).join(','),\n    _attached: attached,\n    _attachments_failed: failed\n  }),\n  binary\n}];"
+      },
+      "id": "collect-attachments",
+      "name": "collect attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nothing to attach - either the repo had no previews for this domain, or every file\n// was over the budget. The email still goes, describing the two directions in text.\nreturn $input.all().map((i) => ({\n  json: Object.assign({}, i.json, { _attachment_props: '', _attached: [] })\n}));"
+      },
+      "id": "stop-no-attach",
+      "name": "STOP: no attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "send-gate-c",
+              "leftValue": "={{ $('config').first().json.send_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "send-gate",
+      "name": "send this one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3220,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// PREVIEW mode: TEST_RUN is on and TEST_EMAIL is blank, so nothing goes out.\n// The full subject, html and text are still on the item - open this node's output in\n// the execution view to read the exact email that would have been sent.\nreturn $input.all().map((i) => ({\n  json: Object.assign({}, i.json, { _outcome: 'preview', _would_send_to: i.json.email })\n}));"
+      },
+      "id": "stop-preview",
+      "name": "STOP: preview - not sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3440,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('config').first().json.from_header }}",
+        "toEmail": "={{ $('config').first().json.test_send ? $('config').first().json.test_email : $json.email }}",
+        "subject": "={{ $('config').first().json.test_send ? ('[TEST -> ' + $json.email + '] ' + $json.subject) : $json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $json.text }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "={{ $json._attachment_props }}",
+          "replyTo": "={{ $('config').first().json.reply_to }}",
+          "bccEmail": "={{ $('config').first().json.test_send ? '' : $('config').first().json.bcc_email }}"
+        }
+      },
+      "id": "smtp-send",
+      "name": "[cred] SMTP - send deliverables",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The SMTP node replaces the item with its own send result, so re-attach the lead.\n// \"send this one?\" is the last node the full lead passed through untouched.\nconst cfg = $('config').first().json;\nconst lead = $('send this one?').first().json;\nconst result = $input.first().json || {};\n\nreturn [{\n  json: Object.assign({}, lead, {\n    _outcome: cfg.test_send ? 'test_send' : 'sent',\n    _sent_to: cfg.test_send ? cfg.test_email : lead.email,\n    _message_id: result.messageId || '',\n    _accepted: Array.isArray(result.accepted) ? result.accepted.length : null,\n    _rejected: Array.isArray(result.rejected) ? result.rejected.length : null\n  })\n}];"
+      },
+      "id": "mark-sent",
+      "name": "mark sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One row's worth of write-back, for both outcomes: sent, or no deliverables in the\n// repo. Columns we are not deliberately changing are written back with the value we\n// read, so a partial mapping can never blank a cell.\nconst cfg = $('config').first().json;\nconst C = cfg.columns;\nconst j = $input.first().json;\n\n// 'preview' and 'test' compute exactly what a live run would write, so the operator can read\n// it in the execution view. It is the 'write back?' gate that stops it reaching the sheet.\nconst sent = j._outcome === 'sent' || j._outcome === 'preview' || j._outcome === 'test_send';\nconst stamp = new Date().toISOString().slice(0, 10);\n\nconst noteLine = j._outcome === 'sent'\n  ? stamp + ': deliverables emailed to ' + j.email\n  : j._outcome === 'test_send'\n  ? stamp + ': TEST - sent to ' + (j._sent_to || '') + ' instead of ' + j.email\n  : j._outcome === 'preview'\n  ? stamp + ': PREVIEW - would have emailed ' + j.email\n  : stamp + ': skipped - ' + (j._skip_reason || 'no deliverables in repo');\n\nconst notes = [j.existing_notes, noteLine].filter(Boolean).join(' | ').slice(0, 900);\n\n// A blank target in config means \"leave that column exactly as it was\".\nconst settle = (target, current) => (target ? target : current);\n\nconst row = {};\nrow[C.row_id]        = j.row_id;\nrow[C.task_progress] = sent\n  ? settle(cfg.task_progress_after_send, j.task_progress)\n  : settle(cfg.task_progress_no_deliverables, j.task_progress);\nrow[C.status]        = sent\n  ? settle(cfg.status_after_send, j.status)\n  : settle(cfg.status_no_deliverables, j.status);\nrow[C.next_action] = sent\n  ? 'Follow up in 3 days if no reply'\n  : 'Build deliverables for ' + j.domain + ' and push to ' + cfg.github_branch;\nrow[C.email_title]   = sent ? j.subject : (j.existing_title || '');\nrow[C.email_content] = sent ? j.text : (j.existing_body || '');\nrow[C.notes]         = notes;\n\nreturn [{\n  json: Object.assign({}, row, {\n    _outcome: j._outcome,\n    _row_id: j.row_id,\n    _business: j.business,\n    _email: j.email,\n    _domain: j.domain,\n    _subject: sent ? j.subject : '',\n    _sent_to: j._sent_to || '',\n    _copy_source: j._copy_source || '',\n    _skip_reason: j._skip_reason || ''\n  })\n}];"
+      },
+      "id": "prep-update",
+      "name": "prepare sheet update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3880,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "write-back-c",
+              "leftValue": "={{ $('config').first().json.live_send }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "write-back",
+      "name": "write back?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4100,
+        280
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "stop-nowrite",
+      "name": "STOP: not live - no write",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4320,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.lead_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.lead_sheet_tab }}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "#"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-update",
+      "name": "[cred] Sheets - update lead row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4320,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Sheets node replaces the item with its own write result, so without this the\n// run summary would have nothing left to name a row by. Re-attach the record and\n// hand a small item back to the loop.\nconst cfg = $('config').first().json;\nconst rec = $('prepare sheet update').first().json;\n\nreturn [{\n  json: {\n    _outcome:     rec._outcome,\n    _row_id:      rec._row_id,\n    _business:    rec._business,\n    _email:       rec._email,\n    _domain:      rec._domain,\n    _subject:     rec._subject,\n    _sent_to:     rec._sent_to,\n    _copy_source: rec._copy_source,\n    _skip_reason: rec._skip_reason,\n    _written:     cfg.live_send === true\n  }\n}];"
+      },
+      "id": "record-outcome",
+      "name": "record outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4540,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The loop's done output carries every item that went back into it, so this is the\n// only place with a whole-run view. Counts first, then the per-row detail.\nconst cfg = $('config').first().json;\nconst items = $input.all().map((i) => i.json);\n\nconst selection = (() => {\n  try { return $('pick sendable rows').first().json._summary || {}; } catch (e) { return {}; }\n})();\n\nconst sent = items.filter((i) => i._outcome === 'sent');\nconst tested = items.filter((i) => i._outcome === 'test_send');\nconst previewed = items.filter((i) => i._outcome === 'preview');\nconst missing = items.filter((i) => i._outcome === 'no_deliverables');\n\nconst lines = [];\nlines.push('Acme outreach - ' + new Date().toISOString().slice(0, 16).replace('T', ' '));\nlines.push(\n  cfg.mode === 'live' ? 'MODE: LIVE - real recipients, and the sheet is written'\n  : cfg.mode === 'test' ? 'MODE: TEST RUN - every email redirected to ' + cfg.test_email + ', sheet untouched'\n  : 'MODE: PREVIEW - nothing sent, nothing written. Set TEST_EMAIL to actually send.');\nlines.push('');\nlines.push('Rows read: ' + (selection.rows_read ?? '?') +\n           '  eligible: ' + (selection.eligible ?? '?') +\n           '  picked: ' + (selection.selected ?? items.length) +\n           (selection.cap ? '  (cap ' + selection.cap + ' - ' + selection.cap_reason + ')' : ''));\nlines.push('Sent: ' + sent.length + '   Test-sent: ' + tested.length +\n           '   Previewed: ' + previewed.length + '   No deliverables: ' + missing.length);\n\nif (selection.skipped) {\n  const skips = Object.entries(selection.skipped).filter(([, n]) => n > 0);\n  if (skips.length) {\n    lines.push('');\n    lines.push('Not picked:');\n    for (const [reason, n] of skips) lines.push('  ' + reason.replace(/_/g, ' ') + ': ' + n);\n  }\n}\n\nif (sent.length) {\n  lines.push('');\n  lines.push('Emailed:');\n  for (const s of sent) lines.push('  #' + s._row_id + ' ' + s._business + ' <' + s._email + '>');\n}\nif (tested.length) {\n  lines.push('');\n  lines.push('Test-sent to ' + cfg.test_email + ', meant for:');\n  for (const s2 of tested) lines.push('  #' + s2._row_id + ' ' + s2._business + ' <' + s2._email + '>');\n}\nif (previewed.length) {\n  lines.push('');\n  lines.push('Would have emailed:');\n  for (const s of previewed) lines.push('  #' + s._row_id + ' ' + s._business + ' <' + s._email + '>');\n}\nif (missing.length) {\n  lines.push('');\n  lines.push('Nothing in the repo for:');\n  for (const s of missing) lines.push('  #' + s._row_id + ' ' + s._domain + ' - ' + s._skip_reason);\n}\n\nreturn [{\n  json: {\n    text: lines.join('\\n'),\n    mode: cfg.mode,\n    counts: { sent: sent.length, test_send: tested.length, preview: previewed.length,\n              no_deliverables: missing.length },\n    selection\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "build run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "report-configured-c",
+              "leftValue": "={{ $('config').first().json.report_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "report-configured",
+      "name": "Report configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        620,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.report_webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "report-post",
+      "name": "[cred] Post the run report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        -220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "end",
+      "name": "End",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Start here\n\n**Everything you edit lives in the `config` node.** There are no environment\nvariables in this workflow, so it runs on n8n Cloud unchanged.\n\n1. Open `config`. Fill in the sheet id, the GitHub token, and the from / reply-to\n   addresses.\n2. Attach credentials to the `[cred]` nodes: Google Sheets OAuth2 (read + update)\n   and SMTP.\n3. Run once with `DRY_RUN = true` and read **build run summary**.\n4. Only then set `DRY_RUN = false`.\n\nThe config-node rule is written up in `GUIDELINES.md`.",
+        "height": 400,
+        "width": 440,
+        "color": 4
+      },
+      "id": "s1",
+      "name": "Sticky Note s1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Deliverables come from GitHub\n\nLooks up `client-deliverables/<domain>` on the configured branch, where `<domain>`\nis derived from the sheet's **Website / Link** column.\n\nThe email is built from two files in that folder:\n\n- `facelift-cro-and-pitch-notes.txt` - the design directions, the CRO diagnosis and\n  the pitch angle\n- `seo-geo-tip.txt` - the SEO and GEO findings\n\nNo folder on that branch means no send; the row is flagged for the dev instead.",
+        "height": 280,
+        "width": 440,
+        "color": 7
+      },
+      "id": "s2",
+      "name": "Sticky Note s2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        380,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## One switch: `TEST_RUN`\n\nBoth live in `config`. `TEST_EMAIL` decides how far a test run goes.\n\n**`TEST_RUN = true`, `TEST_EMAIL` blank** (shipped) - PREVIEW. Nothing is sent\nand nothing is written. Every lead stops at **STOP: preview - not sent**\ncarrying the finished `subject`, `html` and `text`. Open one and read it.\n\n**`TEST_RUN = true`, `TEST_EMAIL = you@...`** - TEST. The emails really send,\nbut every one lands in your inbox instead of the lead's, subject-prefixed\n`[TEST -> the.real@address]`. BCC suppressed, sheet untouched, and only\n`TEST_BATCH` leads are mailed - 1 by default.\n\n**`TEST_RUN = false`** - LIVE. Real recipients, and the row is written back.\n\nFilling in `TEST_EMAIL` can only redirect a send, never cause one.",
+        "height": 320,
+        "width": 440,
+        "color": 3
+      },
+      "id": "s3",
+      "name": "Sticky Note s3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3180,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Write-back\n\nMatched on the **`#`** column. Rename that header and you must change it in two\nplaces: `config.COLUMNS.row_id` **and** this node's *Column to match on*.\n\nA sent row becomes **Task Progress = Completed**, **Contact Status = Contacted**.\n\n`Contact Status` is a dropdown, so `STATUS_AFTER_SEND` in `config` has to match one\nof its options exactly - same spelling and capitalisation, no stray space - or the\nsheet's data validation flags it, or refuses it outright.\n\nColumns this workflow is not deliberately changing are written back with the value\nthat was read, so a partial mapping can never blank a cell.",
+        "height": 300,
+        "width": 460,
+        "color": 5
+      },
+      "id": "s4",
+      "name": "Sticky Note s4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3860,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking Test workflow": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekdays 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read lead tracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read lead tracker": {
+      "main": [
+        [
+          {
+            "node": "pick sendable rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pick sendable rows": {
+      "main": [
+        [
+          {
+            "node": "anything to send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything to send?": {
+      "main": [
+        [
+          {
+            "node": "GitHub configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing to send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub configured?": {
+      "main": [
+        [
+          {
+            "node": "Loop over leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: GitHub not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop over leads": {
+      "main": [
+        [
+          {
+            "node": "build run summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "[cred] GitHub - list deliverable files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GitHub - list deliverable files": {
+      "main": [
+        [
+          {
+            "node": "pick deliverable files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pick deliverable files": {
+      "main": [
+        [
+          {
+            "node": "deliverables found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deliverables found?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GitHub - get pitch notes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no deliverables in repo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GitHub - get pitch notes": {
+      "main": [
+        [
+          {
+            "node": "[cred] GitHub - get seo geo tip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GitHub - get seo geo tip": {
+      "main": [
+        [
+          {
+            "node": "build email content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build email content": {
+      "main": [
+        [
+          {
+            "node": "AI polish configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI polish configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - polish subject and intro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "any attachments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - polish subject and intro": {
+      "main": [
+        [
+          {
+            "node": "apply polish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply polish": {
+      "main": [
+        [
+          {
+            "node": "any attachments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "any attachments?": {
+      "main": [
+        [
+          {
+            "node": "split attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split attachments": {
+      "main": [
+        [
+          {
+            "node": "[cred] GitHub - download deliverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GitHub - download deliverable": {
+      "main": [
+        [
+          {
+            "node": "collect attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect attachments": {
+      "main": [
+        [
+          {
+            "node": "send this one?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no attachments": {
+      "main": [
+        [
+          {
+            "node": "send this one?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send this one?": {
+      "main": [
+        [
+          {
+            "node": "[cred] SMTP - send deliverables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: preview - not sent": {
+      "main": [
+        [
+          {
+            "node": "prepare sheet update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] SMTP - send deliverables": {
+      "main": [
+        [
+          {
+            "node": "mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mark sent": {
+      "main": [
+        [
+          {
+            "node": "prepare sheet update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no deliverables in repo": {
+      "main": [
+        [
+          {
+            "node": "prepare sheet update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare sheet update": {
+      "main": [
+        [
+          {
+            "node": "write back?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "write back?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - update lead row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - no write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - update lead row": {
+      "main": [
+        [
+          {
+            "node": "record outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not live - no write": {
+      "main": [
+        [
+          {
+            "node": "record outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record outcome": {
+      "main": [
+        [
+          {
+            "node": "Loop over leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build run summary": {
+      "main": [
+        [
+          {
+            "node": "Report configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Post the run report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Post the run report": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "acme",
+    "outreach"
+  ]
+}

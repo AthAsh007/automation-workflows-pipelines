@@ -1,0 +1,37 @@
+# credentials, always
+.env
+*.env
+!.env.example
+!*.env.example
+*token*.env
+.secrets/
+credentials.json
+service-account*.json
+
+# run artefacts
+runs/
+out/
+dist/
+build/preview/
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# node
+node_modules/
+.npm/
+
+# editors and os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# prompt-pipeline run artefacts
+prompts/optimise/report.json
+prompts/optimise/candidate-*.txt

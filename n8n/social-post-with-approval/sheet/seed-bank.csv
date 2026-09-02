@@ -1,0 +1,331 @@
+Slot,Slug,Pillar,Category,Headline,Headline size,Subhead,Layout,Items,Band,Stat big,Stat sub,Footer,Caption,State
+1,01-github-outage-single-point-of-failure,Engineering insight,RESILIENCE,ONE OUTAGE.<br>HOW MANY<br><em>BLOCKED TEAMS</em>?,94,GitHub degraded ~7.5 hours on 17 Aug 2026. Root cause not yet published.,timeline,"[[""Ship a hotfix"",""Without Actions, what is your deploy path?""],[""Authenticate"",""If SAML is down, who can still get in?""],[""Build artifacts"",""Do they exist anywhere other than there?""],[""Your assistant"",""Copilot down: work stopped, or just slower?""]]",,,,Map the failure mode first.,"On Monday, GitHub was degraded for most of the working day. A lot of teams found out how much of their delivery pipeline lives in one place.
+
+The status updates listed the web experience, API requests, Actions, Webhooks, Issues, Pull Requests, archive and raw downloads, SAML/OIDC authentication, SCIM, Team Sync and Copilot. Roughly 20% error rates on web and API traffic, roughly 50% on archive and raw downloads. First update at 9:40am ET, declared resolved at 5:15pm ET.
+
+The root cause has not been published. GitHub said it will share a detailed explanation once it has one, so anything attributing a cause today is speculation.
+
+Which makes the useful question not ""what broke at GitHub"" but ""what could your team still do"":
+
+• Could you ship a hotfix without Actions?
+• Could anyone authenticate if SAML was down?
+• Do your build artifacts exist anywhere other than there?
+• Does your AI coding assistant going down stop the work, or just slow it?
+
+Most teams have never tested those paths, because the dependency was invisible until it wasn't.
+
+We treat delivery dependencies like any production system: map the failure mode, decide the fallback, then automate. The mapping is the part people skip.
+
+Which of those four could your team answer today?
+
+#DevOps #EngineeringLeadership #Resilience #CICD #Acme",posted
+2,03-never-approve-your-own-work,Production AI guardrails,AI GUARDRAILS,NEVER APPROVE<br><em>YOUR OWN WORK</em>.,90,Four things an agent must never read as a human saying yes.,grid,"[[""Its own message"",""The draft it just posted for review""],[""Another bot"",""A second agent is not a second opinion""],[""Silence"",""Nobody objected is not anybody approved""],[""A reaction"",""A thumbs-up is not a signature""]]","APPROVAL IS A HUMAN, IN THE RIGHT CHANNEL.",,,Everything else is the system agreeing with itself.,"Our content automation has twenty-five written guardrails. One of them does most of the work.
+
+""Never approve your own work.""
+
+It sounds obvious until you write the code. An agent that drafts a post, delivers it for review, then watches a channel for the word ""post"" is one loose string match away from approving itself.
+
+So the rule is explicit. Approval must come from a human, in the correct channel. Not the agent's own message. Not another bot's. Not silence. Not a reaction. Not an unrelated reply that happens to contain the word.
+
+The other guardrails follow the same instinct:
+
+• Never blind-retry a publish — check whether it already went out
+• Never edit the log to unblock a run
+• Never fall back to a cheaper path just to make a run complete
+• Never mix two brands' channels, tokens or assets
+
+Every one of those exists because the failure it prevents is expensive and quiet. Not a crash — a wrong thing, done confidently, that nobody notices for a week.
+
+Guardrails are not the boring part of building AI systems. They are the part that decides whether you can leave the system running unattended.
+
+What is the one action your automation should never be able to take alone?
+
+#AIAgents #AISafety #Automation #EngineeringLeadership #Acme",posted
+3,06-lead-followup-before-after,"AI workflow, before/after",WORKFLOW,IT DOESN’T FAIL<br>ON <em>EFFORT</em>.,100,It fails on whoever was supposed to remember.,split,"[[""BEFORE"",[""Whoever notices first"",""Judged in the moment"",""CRM, or a chat message"",""Escalated by whoever is awake""]],[""AFTER"",[""Every enquiry logged on arrival"",""Written qualification rules"",""One record, timestamped"",""Ambiguity routed, not guessed""]]]",,,,The judgement stays human.,"Most lead follow-up does not fail because nobody cares. It fails because it depends on someone remembering.
+
+The usual shape: an enquiry lands in a shared inbox or a WhatsApp group. Someone sees it. Someone else assumes it was handled. Three days later a founder asks about it and nobody can reconstruct what happened.
+
+Before, the workflow lives in people's heads:
+
+• Trigger — whoever notices first
+• Rules — whatever that person judges in the moment
+• Record — sometimes the CRM, sometimes a chat message
+• Exception — escalated by whoever happens to be awake
+
+After, the same workflow has an owner that never forgets:
+
+• Every enquiry creates a record before anyone touches it
+• Qualification runs against written rules, not instinct
+• A reply is drafted and waits for a human to send it
+• Anything ambiguous is routed to a person, not guessed at
+• Every action is logged with a timestamp
+
+Notice what did not change. A person still decides what goes out. The automation removes the remembering, not the judgement.
+
+That is usually the entire gap. Not intelligence — continuity.
+
+What does your team's follow-up currently depend on someone remembering to do?
+
+#SalesOps #WorkflowAutomation #AIAutomation #Operations #Acme",posted
+4,12-reporting-costs-a-day,"AI workflow, reporting",REPORTING,IT ISN’T ANALYSIS.<br>IT’S <em>COLLECTION</em>.,92,A day of assembling. Four minutes of reading.,cards,"[[""STEP 01 · COLLECT"",""Numbers<br>assemble"",""Exports, sheets and systems pulled on a schedule.""],[""STEP 02 · RECONCILE"",""Conflicts<br>surface"",""Sources that disagree get flagged, never quietly averaged.""],[""STEP 03 · DECIDE"",""Stays<br>human"",""Someone still decides which system is right.""]]",,,,The judgement stays. The copying goes.,"Somebody on your team spends most of a day each week assembling a report that takes four minutes to read.
+
+It is rarely one big task. It is fifteen small ones: export from the CRM, pull the finance sheet, reconcile two systems that disagree, chase the person who has not updated their column, rebuild the chart, write the summary, send it.
+
+That work is not analysis. It is collection.
+
+The distinction matters, because collection is what software is good at and judgement is not:
+
+• The numbers assemble themselves on a schedule
+• Sources that disagree get flagged, not quietly averaged
+• Missing inputs are chased before the deadline, not after
+• A draft summary is written, then edited by whoever knows the context
+• The report goes out from a person, on time
+
+Nobody's judgement gets replaced. The day of copying and pasting in front of it does.
+
+The honest limitation: when two systems genuinely disagree about the same number, automation surfaces the conflict faster. It does not settle it. Someone still has to decide which system is right, and that is a conversation, not a script.
+
+What does your weekly reporting actually cost in hours?
+
+#AIAutomation #Reporting #Operations #WorkflowAutomation #Acme",posted
+5,07-no-new-tool-to-learn,"Product decision, adoption",ADOPTION,NO NEW TOOL<br>TO <em>LEARN</em>.,106,"We add the workflow, not another login.",stack,"[[""TRIGGER"",""An email or message that already exists""],[""RECORD"",""The CRM or sheet they already use""],[""APPROVAL"",""A reply in the chat tool already open""],[""OUTPUT"",""Wherever the next person already looks""],[""NEW UI"",""None""]]",,,,Adoption is the whole game.,"The best automation we build usually adds no new software for the client to learn.
+
+There is a reflex in this industry to answer every operational problem with a dashboard. A place to log in. A tool to adopt. Training to run. Six weeks later adoption has drifted, and the spreadsheet is quietly back.
+
+We start from the opposite constraint: the workflow should live where the team already works.
+
+In practice that means:
+
+• The trigger is an email, form or message that already exists
+• The record updates in the CRM or sheet they already open
+• The approval is a reply in the chat tool they already have open
+• The output lands where the next person already looks
+• The only new thing is that the boring middle now happens on its own
+
+It is a harder build. Integrating with what exists is messier than shipping a clean new interface, and far less satisfying to demo.
+
+But adoption is the whole game. A system nobody opens is not automation, it is a second job you introduced.
+
+What tool did your team adopt last year that everyone has quietly stopped using?
+
+#DigitalTransformation #WorkflowAutomation #ProductEngineering #Operations #Acme",posted
+6,14-exploration-bottleneck-moved,"Design process, exploration",DESIGN PROCESS,THE BOTTLENECK<br>MOVED. IT DIDN’T<br><em>DISAPPEAR</em>.,86,Producing options got cheap. Choosing between them did not.,timeline,"[[""Ask"",""As many directions as you want, in minutes""],[""Compare"",""Including approaches you would not have reached""],[""Discard"",""Nine of them, and they all look finished""],[""Judge"",""The same way as before, at the same speed as before""]]",,,,Cheap options make the choosing harder.,"Design exploration used to be limited by how fast you could produce. Now it is limited by how fast you can judge.
+
+The usual shape: you ask for directions and get ten in an afternoon. Three of them are genuinely interesting. Nobody has time to work out which three, so the one that looks most finished wins the review.
+
+Before:
+
+• Volume — as many directions as the deadline allowed, usually two or three
+• Cost per option — hours
+• What limited you — how fast you could produce
+• How you chose — by argument, over days
+
+After. Same axes, changed values:
+
+• Volume — as many as you ask for
+• Cost per option — minutes
+• What limits you — how fast you can judge
+• How you choose — the same way as before, at the same speed as before
+
+Notice what did not change. Knowing which direction is right, and being willing to throw away the other nine. Cheap options make that harder, not easier — it is far more difficult to discard something that already looks finished.
+
+Producing ten directions in ten minutes means nothing if your judgement still runs at one per hour.
+
+How do you decide which direction to kill, when all ten are cheap enough to keep?
+
+#ProductDesign #DesignProcess #AIWorkflow #DesignOps #Acme",posted
+7,15-exception-is-the-workflow,"AI workflow, exceptions",EXCEPTIONS,AUTOMATE THE PATH.<br>ROUTE THE <em>REST</em>.,82,Four things an exception has to arrive carrying.,grid,"[[""The input"",""Exactly what the system received, unedited""],[""The rule"",""Which check stopped it, named, not a code""],[""The options"",""What it would have done, either way""],[""The clock"",""How long it has waited, and whose it is""]]","AN EXCEPTION IS A ROUTE, NOT A DEAD END.",,,Design the hard path first.,"Most automation projects scope the happy path and leave everything else to ""a human will handle it"".
+
+Then the first odd order arrives — a discount nobody has seen, a customer name that matches two records, a quantity that reads as a typo — and the system stops. The message that reaches the person says ""manual review required"" and nothing else.
+
+That is not an exception queue. That is a dead end with a label.
+
+An exception has to arrive carrying four things:
+
+• The input, exactly as the system received it, unedited
+• The rule it hit, named, not an error code
+• What the system would have done, either way
+• How long it has been waiting, and whose it is
+
+Get those right and the person is deciding. Get them wrong and they are reconstructing, and the queue becomes a place work goes to be forgotten.
+
+Exceptions are not the leftovers of a workflow. On most real processes they are the part that decides whether anyone trusts it.
+
+Which exception in your process is the one nobody wants to pick up?
+
+#AIAutomation #Operations #WorkflowAutomation #ProcessDesign #Acme",posted
+8,16-map-before-you-build,"Buyer process, audit",AUDIT,MAP IT BEFORE<br>YOU <em>BUILD</em> IT.,100,The cheapest version of a workflow is the one on paper.,stat,"[[""SCOPE"",""One workflow, start to finish, as it actually runs.""],[""ESTIMATE"",""Where the time goes, and what automating it returns.""],[""DECIDE"",""A plan you can hand to anyone. Including not us.""]]",,S$500,for the audit — waived if you go ahead,A plan is the cheapest thing to change.,"The most expensive version of a workflow is the one you build before anyone has drawn it.
+
+We are usually asked to quote a system. The brief describes what it should do, and it is written from how the process is supposed to run — not how it actually runs on a Thursday when two people are out and the order arrived as a photo.
+
+So we start with an audit instead. One workflow, mapped end to end, as it really happens:
+
+• Scope — every step, including the ones nobody documents
+• Estimate — where the time actually goes, and what automating it would return
+• Decide — a plan specific enough to hand to anyone, including someone who is not us
+
+It runs at S$500, waived if you go ahead. That is deliberate. The audit has to be cheap enough that ""this is not worth automating yet"" is a good outcome rather than an awkward one.
+
+A plan is the cheapest artefact to change. Everything after it costs more.
+
+Which workflow in your business have you never actually written down?
+
+#AIAutomation #SME #Operations #DigitalTransformation #Acme",posted
+9,17-runs-on-one-persons-memory,"AI workflow, knowledge",KNOWLEDGE,IT RUNS ON ONE<br>PERSON’S <em>MEMORY</em>.,88,"Which is fine, until the week they are away.",split,"[[""BEFORE"",[""Asked in a chat thread"",""Answered from memory"",""Right until they are on leave"",""Learned by shadowing someone""]],[""AFTER"",[""Asked once, answered in place"",""Written where the work happens"",""The same answer at 2am"",""Learned by reading the record""]]]",,,,The expertise stays. The bottleneck goes.,"Every team has a process that works because one person remembers it.
+
+They know which supplier needs the PO number in the subject line. They know the customer who always pays late but always pays. None of it is written down, because it has never needed to be — they have always been there.
+
+Then they take two weeks off.
+
+Before:
+
+• Asked in a chat thread, whenever someone gets stuck
+• Answered from memory, slightly differently each time
+• Right, until they are on leave
+• Learned by shadowing them for a month
+
+After:
+
+• Asked once, answered in the place the work already happens
+• Written down as it is answered, not in a document nobody opens
+• The same answer at 2am as at 2pm
+• Learned by reading the record
+
+Notice what did not change. They are still the expert. Nothing here replaces the judgement they built over years — it stops that judgement being reachable only through them.
+
+The goal is not to make the person redundant. It is to stop the business being one holiday away from a bad week.
+
+Which process in your team has exactly one person who understands it?
+
+#Operations #KnowledgeManagement #AIAutomation #SME #Acme",ready
+10,18-prototype-is-not-a-preview,"Design process, prototyping",PROTOTYPING,A PROTOTYPE IS<br>NOT A <em>PREVIEW</em>.,100,A preview shows what the product will look like.,stack,"[[""COMPLETE"",""Let someone finish a real task, not walk a happy path""],[""FAIL"",""Break the way the real product would break""],[""EXPOSE"",""Empty, loading, error, far too much data""],[""ANSWER"",""A question written down before it was built""],[""DISCARD"",""Be cheap enough to throw away without an argument""]]",,,,Build it faster to be wrong sooner.,"A prototype is not a preview.
+
+A preview shows what the product will look like.
+
+A prototype has to do more than that:
+
+• Let someone complete an actual task, not walk a happy path
+• Fail the way the real product would fail
+• Show the states nobody discussed — empty, loading, error, too much data
+• Answer a question that was written down before it was built
+• Be cheap enough to throw away without an argument
+
+The trap is that building prototypes is now fast enough that the tempting move is to make them look finished. A finished-looking prototype collects approval instead of feedback. People nod at a screen that works; they interrogate a screen that is obviously unresolved.
+
+Notice what did not change. Someone still has to decide what question the prototype is answering. Building it faster does not supply the question — it just makes it cheaper to skip.
+
+The point of building it faster is not to show it sooner. It is to be wrong sooner.
+
+What is the last thing a prototype taught you that a mockup could not have?
+
+#ProductDesign #Prototyping #UserFeedback #ProductEngineering #Acme",ready
+11,19-what-a-log-must-answer,"Engineering insight, audit trail",AUDIT TRAIL,WHAT RAN.<br>WHAT IT DECIDED.<br>WHO <em>SAID YES</em>.,94,"Three records, or you are debugging a summary.",cards,"[[""RECORD 01 · INPUT"",""What<br>arrived"",""The raw message and payload, exactly as they arrived, before any parsing touched them.""],[""RECORD 02 · DECISION"",""Which rule<br>fired"",""Which branch fired, and the values it was given. Not the outcome it produced.""],[""RECORD 03 · APPROVAL"",""Which<br>human"",""A name and a channel, timestamped. Not a status field that says approved.""]]",,,,You cannot debug a summary.,"When an automated workflow does something wrong, the first question is never ""what happened"". It is ""what did it think was happening"".
+
+Most logs cannot answer that. They record outcomes — sent, failed, approved. Useful for a dashboard. Useless on the morning someone asks why a customer got the wrong quote.
+
+Three records make the difference:
+
+• The input, as it arrived — the raw message and payload, before any parsing touched them
+• The decision — which rule fired, and the values it was given, not just what came out
+• The approval — which human, in which channel, at what time
+
+That third one is the one most systems skip, and it is the one that matters when a client, an auditor, or your own finance team asks who signed off. A status field that says ""approved"" is not an answer to that question.
+
+None of this shows up in a demo. It shows up the first time something goes wrong in production, which is the only moment it was ever for.
+
+When something in your stack misbehaves, can you reconstruct what it was looking at?
+
+#ProductEngineering #Observability #AIAutomation #Reliability #Acme",ready
+12,20-retyping-breaks-orders,"AI workflow, order intake",ORDER INTAKE,ORDERS BREAK<br>WHERE THEY GET<br><em>RETYPED</em>.,86,Not at the supplier. At the keyboard in between.,timeline,"[[""Arrives"",""Email, PDF, a photo in WhatsApp — whatever they send""],[""Reads"",""Fields extracted, not retyped by whoever is free""],[""Checks"",""Price, stock and terms against your own records""],[""Asks"",""Anything ambiguous goes to a person, original attached""]]",,,,Nobody types it twice.,"Orders rarely go wrong at the supplier. They go wrong at the keyboard in between.
+
+An order arrives as an email, or a PDF, or a photo of a handwritten note in WhatsApp. Someone reads it and types it into the system. They are careful. They are also doing four other things, and the quantity column is the third field from the left.
+
+The fix is not a better form. It is removing the retyping:
+
+• Arrives — whatever format they already send, with no new portal for the customer to learn
+• Reads — fields extracted from the document itself
+• Checks — price, stock and terms compared against your own records before anything is committed
+• Asks — anything ambiguous goes to a person, with the original attached
+
+That last step is the whole design. The system does not guess when the handwriting is unclear, and it does not quietly pick the closest matching customer. It stops, and it shows someone the photo.
+
+Nobody types it twice, and nobody has to trust a machine's reading of bad handwriting.
+
+Where does data in your business get typed in for the second time?
+
+#AIAutomation #Operations #OrderManagement #SME #Acme",ready
+13,21-signing-blind,Web3 research / security,WEB3 SECURITY,SIGNING BLIND<br>IS THE <em>ATTACK</em>.,100,Four things the person approving a transaction usually cannot see.,grid,"[[""The target"",""An address is not a name anyone can check""],[""The amount"",""Encoded in calldata, not shown in the prompt""],[""The allowance"",""Unlimited, until somebody reads the hex""],[""The simulation"",""Run against a state that is already stale""]]","IF NOBODY CAN READ IT, NOBODY REVIEWED IT.",,,Make it legible before you make it fast.,"Most on-chain incidents are not clever. Someone approved a transaction they could not read.
+
+The signing prompt is where decentralisation meets a human being, and it is usually the least designed surface in the system. Four things the signer typically cannot see:
+
+• The target — a contract address is not a name anyone can verify at a glance
+• The amount — encoded in calldata, not shown in the prompt
+• The allowance — unlimited, unless somebody reads the hex
+• The simulation — run against a state that may already be stale by the time it is signed
+
+If nobody can read it, nobody reviewed it. A multisig whose five signers all see the same unreadable payload is one signer with extra steps.
+
+The engineering work here is unglamorous. Decode the call. Name the target. Show the change in units a person recognises. Refuse to render a transaction the tooling cannot explain. None of it is novel, and all of it gets cut under deadline.
+
+Make the transaction legible before you make it fast.
+
+What does your signing flow actually show the person approving it?
+
+#Web3 #SmartContractSecurity #BlockchainSecurity #ProtocolEngineering #Acme",ready
+14,22-deadline-not-estimate,"Buyer process, pilot",PILOT,IT’S A DEADLINE.<br>NOT AN <em>ESTIMATE</em>.,92,"A fixed window changes what gets built, not just when.",stat,"[[""CUTS"",""The second workflow. The dashboard. The nice-to-have.""],[""KEEPS"",""One path, its exceptions, and a human approval.""],[""PROVES"",""Whether it survives a real week, while you watch.""]]",,21,days from brief to one system running in production,A short window is a scoping tool.,"Three weeks is not how long we think it will take. It is the constraint we design against.
+
+An estimate flexes. A deadline forces the conversation about scope on day one, while it is still cheap to have. That is the reason our pilot is fixed at 21 days from brief to a system running in production.
+
+What a fixed window does:
+
+• Cuts — the second workflow, the dashboard, the integration someone mentioned in passing
+• Keeps — one path, its exceptions, and a human approval step
+• Proves — whether it survives a real week, while the person who paid for it is still paying attention
+
+The last one is the point. A six-month build produces its first honest signal somewhere around month five. By then the sponsor has moved on, the team has changed, and nobody can say whether it works, because nobody quite remembers what it was supposed to fix.
+
+A short window is a scoping tool, not a speed claim. It changes what gets built, not just when.
+
+What would you cut from your current project if the deadline were three weeks?
+
+#AIAutomation #ProductDelivery #SME #Operations #Acme",ready
+15,23-vagueness-got-expensive,"Design process, documentation",DESIGN INTENT,VAGUENESS GOT<br>MORE <em>EXPENSIVE</em>.,96,Handoffs fail on the decisions nobody wrote down.,split,"[[""BEFORE"",[""Decided in review, remembered by whoever was there"",""Edge cases found during the build"",""“The spacing looks off”""]],[""AFTER"",[""Recorded where the work happens, not in chat"",""Edge cases listed before the build starts"",""Component, state, expected behaviour""]]]",,,,"It removes the forgetting, not the judgement.","Most design handoffs do not fail because the design was unclear. They fail because the decisions behind it were never written down.
+
+A screen gets approved in a call. Someone builds it. Two weeks later a state nobody discussed turns up in staging, and the only record of what was agreed is a thread nobody can find.
+
+Before:
+
+• Decisions — made in review, remembered by whoever was in the room
+• Edge cases — discovered during build
+• Issues — described as ""the spacing looks off""
+
+After. Same axes, changed values:
+
+• Decisions — recorded where the work happens, not in chat
+• Edge cases — listed before build starts, not found during it
+• Issues — name the component, the state, and the expected behaviour
+
+Notice what did not change. Someone still has to decide what the right design is. Writing it down removes the forgetting, not the judgement.
+
+What changed is the cost of being vague. A loose issue used to become a wrong build in weeks. Now it becomes wrong code in minutes.
+
+Which part of your design intent currently exists only in someone's memory?
+
+#ProductDesign #DesignSystems #DesignOps #AIWorkflow #Acme",ready
+16,24-shipped-is-not-done,"Product decision, maintenance",MAINTENANCE,SHIPPED IS<br>NOT <em>DONE</em>.,106,Five things that happen to a working system after launch day.,stack,"[[""BREAKS"",""An API changes. Someone is told, or someone discovers it""],[""DRIFTS"",""The rule that was right in March is wrong in September""],[""GROWS"",""Volume doubles and the queue that never backed up does""],[""CHANGES"",""The person who approved things moves on""],[""OWNER"",""Named, or it is nobody""]]",,,,"It is a system you keep, not a project you finish.","Launch day is the cheapest day in an automation's life.
+
+Everything is fresh, someone is watching, and the awkward cases have not arrived yet. What happens over the following months is what decides whether the system is still running:
+
+• Breaks — an API changes its response, and someone should be told rather than discover it from a customer
+• Drifts — the rule that was right in March is quietly wrong by September
+• Grows — volume doubles, and the queue that never backed up starts backing up
+• Changes — the person who approved things moves to another team
+• Owner — named, or it is nobody
+
+That last line is the one that gets skipped. Plenty of automations never fail technically. They fail because nobody was responsible for noticing, and by the time anyone did, the team had gone back to doing it by hand.
+
+Ask who owns the workflow before you ask who is building it. An automation is a system you keep, not a project you finish.
+
+Which automation in your business would you notice was broken — and how long would that take?
+
+#AIAutomation #Operations #Maintenance #ProductEngineering #Acme",ready

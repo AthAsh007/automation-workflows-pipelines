@@ -1,0 +1,24 @@
+{
+  "_comment": "The mechanical rules are regexes run in code. The criteria are what needs judgement and go to the model. Keep the split: never ask a model to find an em dash.",
+  "mechanical": [
+    { "id": "em_dash",       "pattern": "\u2014", "message": "em dash in prose" },
+    { "id": "en_dash",       "pattern": "\\s\u2013\\s", "message": "en dash used as punctuation" },
+    { "id": "curly_quote",   "pattern": "[\u201c\u201d\u2018\u2019]", "message": "curly quote or apostrophe" },
+    { "id": "not_just",      "pattern": "\\b(it's |is )?not just\\b[^.]{0,40},|\\bnot only\\b[^.]{0,40}\\bbut\\b", "message": "the 'not just X, it's Y' construction" },
+    { "id": "whether_youre", "pattern": "\\bwhether you'?re\\b", "message": "the 'whether you're' construction" },
+    { "id": "buzzword",      "pattern": "\\b(seamless(ly)?|robust|cutting[- ]edge|leverage|elevate|unlock|empower(s|ing)?|supercharge|game[- ]changer|revolutionary|transformative|best[- ]in[- ]class|world[- ]class|industry[- ]leading|state[- ]of[- ]the[- ]art|comprehensive|intuitive)\\b", "message": "marketing buzzword" },
+    { "id": "ai_vocabulary", "pattern": "\\b(delve|utilize|underscore|foster|bolster|tapestry|testament|realm|landscape|synergy|pivotal|multifaceted|ever[- ]evolving)\\b", "message": "vocabulary that reads as generated" },
+    { "id": "filler",        "pattern": "\\b(it's worth noting|needless to say|that being said|in conclusion|at the end of the day)\\b", "message": "filler phrase" },
+    { "id": "helps_you",     "pattern": "\\bhelps (teams|businesses|developers|organi[sz]ations|you)\\b|\\b(enables|allows) (users|you) to\\b", "message": "'helps you' construction instead of a direct statement" },
+    { "id": "unsourced",     "pattern": "\\b(experts agree|studies show|research shows|industry reports indicate|users love|customers enjoy)\\b", "message": "claim with no named source" },
+    { "id": "saas_generic",  "pattern": "\\b(streamline workflows?|drive innovation|unlock value|maximi[sz]e efficiency|scale with confidence|digital transformation|built (with|for) the future|designed for the future|in mind)\\b", "message": "generic SaaS phrase" },
+    { "id": "ai_opening",    "pattern": "^\\s*(Certainly|Absolutely|Great question|Of course)[!,]|\\bin today's fast[- ]paced\\b|\\bin the ever[- ]evolving\\b|\\bin the realm of\\b", "message": "generated-sounding opening" }
+  ],
+  "criteria": [
+    { "id": "specificity", "rule": "Every claim carries a number, a name, a timeline or an example. A sentence that could appear on 500 other sites scores low." },
+    { "id": "audience",    "rule": "It is clear who this is for and what changes for them after using it." },
+    { "id": "structure",   "rule": "The most important information is first. No closing paragraph that restates the section." },
+    { "id": "cadence",     "rule": "Sentence length varies. A page where every sentence has the same shape scores low even if each one is fine." },
+    { "id": "honesty",     "rule": "No claim the draft cannot support: invented statistics, unnamed sources, opinions attributed to users." }
+  ]
+}

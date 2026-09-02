@@ -1,0 +1,1257 @@
+{
+  "name": "02 publish on approval",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual2",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "sched2",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1560,
+        160
+      ],
+      "notes": "Polling, not a watcher process. Most executions end at 'STOP: nothing awaiting' - that is the design. The alternative is a long-lived listener somebody has to keep alive across reboots, which is the open question the Hermes version never closed."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ACME LINKEDIN DAILY — CONFIG\n// Edit values only in this node. Nothing else in either workflow needs changing.\n// Both workflows carry an identical copy of this node; change one, change the other.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what\n// lets the whole pipeline be demonstrated on a screen-share before a single credential\n// exists — see LOOM.md.\n\n// ---------------------------------------------------------------- The content sheet\n// The id is the long code in the sheet's web address:\n// docs.google.com/spreadsheets/d/<THIS BIT>/edit\n//\n// Blank -> the DEMO_BANK posts below are used instead and nothing is logged. The draft is\n// still written, rendered and delivered, so the pipeline can be watched end to end with no\n// Google account attached at all.\nconst SHEET_ID = '';\nconst BANK_TAB = 'Bank';   // one row per post, in publish order. sheet/Bank.csv\nconst LOG_TAB  = 'Log';    // append-only outcome log. sheet/Log.csv\n\n// Column headings, exactly as they appear in row 1 of each tab.\nconst BANK_COLUMNS = {\n  slot:          'Slot',\n  slug:          'Slug',\n  pillar:        'Pillar',\n  category:      'Category',\n  headline:      'Headline',\n  headline_size: 'Headline size',\n  subhead:       'Subhead',\n  layout:        'Layout',\n  items:         'Items',        // JSON array — shape depends on Layout\n  band:          'Band',         // grid only\n  stat_big:      'Stat big',     // stat only\n  stat_sub:      'Stat sub',     // stat only\n  footer:        'Footer',\n  caption:       'Caption',      // blank -> written by the model, if one is configured\n  state:         'State'         // ready | posted | cancelled | holding\n};\n\nconst LOG_COLUMNS = {\n  date:       'Date',\n  slug:       'Slug',\n  slot:       'Slot',\n  status:     'Status',       // awaiting | posted | cancelled | expired | skipped | failed\n  channel_id: 'Channel id',\n  message_id: 'Message id',   // the Discord draft — how workflow 02 finds the reply\n  caption_fp: 'Caption fp',   // fingerprint of the delivered caption\n  urn:        'Post urn',\n  note:       'Note',\n  at:         'At'\n};\n\n// Only these bank states are drafted. Anything else is treated as already handled.\nconst READY_STATES = ['', 'ready'];\n\n// ---------------------------------------------------------------- When it runs\n// The schedule lives on the trigger node, not here — this is the guard that stops a manual\n// run at 11pm on a Sunday from putting a post out on a day it should not.\n// 1 = Monday ... 7 = Sunday.\nconst PUBLISH_DAYS = [1, 2, 3, 4, 5];\nconst TIMEZONE     = 'Asia/Singapore';\n\n// Design-side posts go out on Thursdays. build.js in the drafts repo enforces this at build\n// time; this is the same rule enforced again at publish time, because the bank can be\n// reordered in the sheet long after it was built.\nconst DESIGN_PILLAR_PREFIX     = 'Design process';\nconst ENFORCE_DESIGN_THURSDAY  = true;\nconst OFF_CADENCE_DESIGN_SLOTS = [6];   // slot 6 is a Friday, and went out that way on purpose\n\n// No two posts published within this many slots may share a layout or a pillar. Five is a\n// publishing week at the weekday cadence. Measured in slots, not dates.\nconst WINDOW_SLOTS = 5;\n\n// ---------------------------------------------------------------- Brand system\n// DESIGN.md is the source of record for all of this. Changing a colour here changes every\n// future render; it does not reflow anything already published.\nconst BRAND = {\n  bg:          '#050505',\n  accent:      '#DC2056',\n  white:       '#FFFFFF',\n  muted:       '#A8A8A8',\n  line:        '#303030',\n  card_border: '#262626',\n  card_bg:     '#0B0B0B',\n  font:        'Arial, Helvetica, sans-serif',\n  site:        'acme.example'\n};\n\nconst CANVAS_WIDTH  = 1080;\nconst CANVAS_HEIGHT = 1350;\nconst DEVICE_SCALE  = 2;      // 2 -> a 2160x2700 PNG from a 1080x1350 canvas\n\n// The wordmark, inlined into the template. The renderer loads the HTML with no network, so\n// nothing here may reference a file or a URL. Paste the contents of acme_logo_12.svg\n// (white wordmark, pink mark) between the quotes. Left blank the template falls back to a\n// plain text wordmark, which is visibly not the logo — on purpose. A missing logo must look\n// missing rather than quietly pass review.\nconst LOGO_SVG = '';\n\n// ---------------------------------------------------------------- The renderer\n// HTML -> PNG. n8n has no browser of its own, so this is one HTTP call out.\n//\n//   'browserless' — self-hosted, and the one to use. Add it to the same docker-compose file\n//                   n8n runs in and point RENDER_URL at http://browserless:3000. Returns\n//                   the PNG bytes directly.\n//   'hcti'        — htmlcsstoimage.com. RENDER_USER / RENDER_KEY are the API id and key.\n//                   Returns a JSON url, which the workflow then downloads.\n//   ''            -> no image. The run stops at \"STOP: renderer not configured\" and delivers\n//                    nothing, because a caption without its image is not a draft.\nconst RENDER_PROVIDER = 'browserless';\nconst RENDER_URL      = 'http://browserless:3000';\nconst RENDER_USER     = '';   // hcti only\nconst RENDER_KEY      = '';   // browserless token, or the hcti api key\n\n// A render that comes back under this many bytes is a blank or half-drawn canvas, not a\n// post. Measured against the live bank: the smallest real render is about 87 KB.\nconst MIN_PNG_BYTES = 40000;\n\n// ---------------------------------------------------------------- Discord approval\n// The channel the draft is delivered to, and the only place an approval is read from.\n//\n// ANYONE WHO CAN SEND A MESSAGE IN THIS CHANNEL CAN PUBLISH TO THE COMPANY PAGE. Use a\n// private channel created for this and nothing else — not a general channel, where one\n// person typing a common English word publishes a draft.\n//\n// The bot token goes in an n8n Discord credential, not here.\nconst DISCORD_CHANNEL_ID = '';\n\n// What a reviewer types. Matched case-insensitively against the whole message, trimmed.\n// Trailing text is NOT tolerated: \"post\" approves, \"post please\" does not, because the\n// looser the match the more ways an unrelated sentence becomes a publish.\nconst APPROVE_WORDS = ['post', 'approve', 'ship it'];\nconst CANCEL_WORDS  = ['cancel', 'reject', 'discard'];\n\n// How long a draft stays approvable. After this the day has moved on and the claims in it\n// may not have. Workflow 02 marks it expired rather than publishing it.\nconst APPROVAL_EXPIRES_HOURS = 20;\n\n// ---------------------------------------------------------------- LinkedIn\n// The organisation to post as, and the token that may post as it.\n// urn:li:organization:<id> — the id is in the page's admin URL.\nconst LINKEDIN_ORG_URN = 'urn:li:organization:96592857';\n\n// A w_organization_social token. Blank -> nothing is ever published, whatever a reviewer\n// replies; the run reaches \"STOP: not published\" and says why.\nconst LINKEDIN_ACCESS_TOKEN = '';\n\n// Probed 2026-08-18: 202512 and earlier are retired (HTTP 426 NONEXISTENT_VERSION).\n// 202601..202608 are active.\nconst LINKEDIN_VERSION = '202608';\n\n// ---------------------------------------------------------------- Writing the caption\n// Only used for a bank row whose Caption cell is empty. A row that already carries a caption\n// is delivered as written — the model never rewrites approved copy.\n//\n// Blank key -> a row with no caption is held back with a reason, never delivered bare.\nconst LLM_BASE_URL = 'https://llm.acme.example';\nconst LLM_API_KEY  = '';\nconst LLM_MODEL    = 'modelark/seed-2-0-pro-260328';\n\n// The caption rules, from the acme-linkedin-content skill. These are handed to the model\n// and are also checked in code afterwards, because a model asked for 220 words will\n// sometimes write 340 and say it wrote 220.\nconst CAPTION_MIN_WORDS = 120;\nconst CAPTION_MAX_WORDS = 220;\nconst HASHTAGS_MIN      = 4;\nconst HASHTAGS_MAX      = 6;\nconst MAX_EMOJI         = 1;\n\n// Rejected outright, in a written caption or a banked one. A caption that trips this is held\n// back with the phrase named, never quietly edited.\nconst BANNED_PHRASES = [\n  'game changer', 'game-changer', 'revolutionary', 'the future is here',\n  'cutting edge', 'cutting-edge', 'unlock the power', 'next level',\n  'fast-paced world', 'seamlessly', 'synergy', 'paradigm shift',\n  'thought leader', 'disrupt', 'skyrocket', 'supercharge',\n  'best-in-class', 'world-class', 'leverage our'\n];\n\n// Discord's hard limit on one message is 2000 characters. The caption travels in the message\n// body so the reviewer reads exactly what would be published.\nconst DISCORD_MESSAGE_LIMIT = 2000;\n\n// ---------------------------------------------------------------- Optional notification\nconst REPORT_WEBHOOK_URL = '';   // Slack incoming webhook. Blank = no notification.\n\n// ---------------------------------------------------------------- Demo bank\n// Used only when SHEET_ID is blank. Three posts, three layouts, so a screen-share shows the\n// renderer doing real work before any Google account is attached. While the demo bank is in\n// use the run is FORCED into preview: made-up content can never reach the company page.\nconst DEMO_BANK = [\n  {\n    slot: 1, slug: 'demo-map-the-failure-mode', pillar: 'Engineering insight',\n    category: 'RESILIENCE',\n    headline: 'ONE OUTAGE.<br>HOW MANY<br><em>BLOCKED TEAMS</em>?',\n    headline_size: 94,\n    subhead: 'A dependency you never wrote down is still a dependency.',\n    layout: 'timeline',\n    items: [\n      ['Ship a hotfix', 'Without the pipeline, what is your deploy path?'],\n      ['Authenticate', 'If SSO is down, who can still get in?'],\n      ['Build artifacts', 'Do they exist anywhere other than there?'],\n      ['Your assistant', 'Work stopped, or just slower?']\n    ],\n    footer: 'Map the failure mode first.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThis is what the pipeline delivers '\n      + 'for review every morning: a caption, and the image it would go out with.\\n\\nThe '\n      + 'layout, the palette and the one-accent rule come from the design system, applied '\n      + 'in code rather than retyped each time.\\n\\n#Demo #Acme'\n  },\n  {\n    slot: 2, slug: 'demo-never-approve-your-own-work',\n    pillar: 'Production AI guardrails', category: 'AI GUARDRAILS',\n    headline: 'NEVER APPROVE<br><em>YOUR OWN WORK</em>.',\n    headline_size: 90,\n    subhead: 'Four things a workflow must never read as a human saying yes.',\n    layout: 'grid',\n    items: [\n      ['Its own message', 'The draft it just posted for review'],\n      ['Another bot', 'A second agent is not a second opinion'],\n      ['Silence', 'Nobody objected is not anybody approved'],\n      ['A reaction', 'A thumbs-up is not a signature']\n    ],\n    band: 'APPROVAL IS A HUMAN, IN THE RIGHT CHANNEL.',\n    footer: 'Everything else is the system agreeing with itself.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThe approval gate in this pipeline '\n      + 'reads one channel and ignores its own messages. That is the whole guardrail.\\n\\n'\n      + '#Demo #Acme'\n  },\n  {\n    slot: 3, slug: 'demo-reporting-costs-a-day', pillar: 'AI workflow, reporting',\n    category: 'REPORTING',\n    headline: 'IT ISN’T ANALYSIS.<br>IT’S <em>COLLECTION</em>.',\n    headline_size: 92,\n    subhead: 'A day of assembling. Four minutes of reading.',\n    layout: 'cards',\n    items: [\n      ['STEP 01 · COLLECT', 'Numbers<br>assemble', 'Exports and systems pulled on a schedule.'],\n      ['STEP 02 · RECONCILE', 'Conflicts<br>surface', 'Sources that disagree get flagged, never averaged.'],\n      ['STEP 03 · DECIDE', 'Stays<br>human', 'Someone still decides which system is right.']\n    ],\n    footer: 'The judgement stays. The copying goes.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThird layout, same build node. The '\n      + 'bank row picks the layout; nothing downstream changes.\\n\\n#Demo #Acme'\n  }\n];\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_CHANNEL_ID blank -> PREVIEW. The draft is written and rendered so\n//                                            you can look at the PNG, but it is delivered\n//                                            nowhere and published nowhere. Ships this way.\n//   TEST_RUN true,  TEST_CHANNEL_ID set   -> TEST. The draft really is delivered, to that\n//                                            channel instead of the live one, and approvals\n//                                            are read there. LinkedIn is still never\n//                                            published to.\n//   TEST_RUN false                        -> LIVE. Delivered to DISCORD_CHANNEL_ID, and an\n//                                            approval there publishes to the company page.\n//\n// Filling in TEST_CHANNEL_ID can only ever redirect a delivery. It cannot cause a publish —\n// going live is the separate, deliberate act of setting TEST_RUN = false.\nconst TEST_RUN        = true;\nconst TEST_CHANNEL_ID = '';\n\n// Hard ceiling on posts published per run. One a day is the whole design; this exists so a\n// bad batch of rows cannot become a bad batch of posts.\nconst DAILY_CAP = 1;\n\n// ---------------------------------------------------------------- derived\nconst USING_DEMO_BANK = SHEET_ID.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (TEST_CHANNEL_ID.trim() !== '' ? 'test' : 'preview');\n\n// Demo content is not a post. It cannot open the publish gate, whatever TEST_RUN says.\nconst FORCED_PREVIEW = USING_DEMO_BANK && MODE === 'live';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst CHANNEL_ID = MODE === 'test' ? TEST_CHANNEL_ID.trim() : DISCORD_CHANNEL_ID.trim();\n\nconst lower = (a) => a.map((s) => String(s).trim().toLowerCase()).filter(Boolean);\n\nreturn [{\n  json: {\n    sheet_id: SHEET_ID.trim(),\n    bank_tab: BANK_TAB,\n    log_tab:  LOG_TAB,\n    bank_columns: BANK_COLUMNS,\n    log_columns:  LOG_COLUMNS,\n    ready_states: READY_STATES.map((s) => String(s).trim().toLowerCase()),\n\n    publish_days: PUBLISH_DAYS.map(Number),\n    timezone:     TIMEZONE,\n\n    design_pillar_prefix:     DESIGN_PILLAR_PREFIX,\n    enforce_design_thursday:  ENFORCE_DESIGN_THURSDAY !== false,\n    off_cadence_design_slots: OFF_CADENCE_DESIGN_SLOTS.map(Number),\n    window_slots:             Number(WINDOW_SLOTS) || 5,\n\n    brand:         BRAND,\n    canvas_width:  Number(CANVAS_WIDTH) || 1080,\n    canvas_height: Number(CANVAS_HEIGHT) || 1350,\n    device_scale:  Number(DEVICE_SCALE) || 1,\n    logo_svg:      LOGO_SVG,\n\n    render_provider: RENDER_PROVIDER.trim().toLowerCase(),\n    render_url:      RENDER_URL.replace(/\\/+$/, ''),\n    render_user:     RENDER_USER.trim(),\n    render_key:      RENDER_KEY.trim(),\n    min_png_bytes:   Number(MIN_PNG_BYTES) || 0,\n\n    channel_id:     CHANNEL_ID,\n    approve_words:  lower(APPROVE_WORDS),\n    cancel_words:   lower(CANCEL_WORDS),\n    approval_expires_hours: Number(APPROVAL_EXPIRES_HOURS) || 20,\n    discord_message_limit:  Number(DISCORD_MESSAGE_LIMIT) || 2000,\n\n    linkedin_org_urn: LINKEDIN_ORG_URN.trim(),\n    linkedin_token:   LINKEDIN_ACCESS_TOKEN.trim(),\n    linkedin_version: LINKEDIN_VERSION,\n\n    llm_base_url: LLM_BASE_URL.replace(/\\/+$/, ''),\n    llm_api_key:  LLM_API_KEY.trim(),\n    llm_model:    LLM_MODEL,\n\n    caption_min_words: Number(CAPTION_MIN_WORDS) || 0,\n    caption_max_words: Number(CAPTION_MAX_WORDS) || 400,\n    hashtags_min:      Number(HASHTAGS_MIN) || 0,\n    hashtags_max:      Number(HASHTAGS_MAX) || 6,\n    max_emoji:         Number(MAX_EMOJI) || 0,\n    banned_phrases:    lower(BANNED_PHRASES),\n\n    report_webhook_url: REPORT_WEBHOOK_URL.trim(),\n    demo_bank:          DEMO_BANK,\n    daily_cap:          Number(DAILY_CAP) || 1,\n\n    // derived flags — every gate reads these, never the raw constants\n    mode:            MODE,\n    preview_only:    MODE === 'preview',\n    test_delivery:   MODE === 'test',\n    live_publish:    MODE === 'live' && LINKEDIN_ACCESS_TOKEN.trim() !== '',\n    sheet_enabled:   SHEET_ID.trim() !== '',\n    using_demo_bank: USING_DEMO_BANK,\n    forced_preview:  FORCED_PREVIEW,\n    render_enabled:  RENDER_PROVIDER.trim() !== '' && RENDER_URL.trim() !== '',\n    deliver_enabled: MODE !== 'preview' && CHANNEL_ID !== '',\n    llm_enabled:     LLM_API_KEY.trim() !== '',\n    report_enabled:  REPORT_WEBHOOK_URL.trim() !== '',\n    logo_present:    LOGO_SVG.trim() !== ''\n  }\n}];"
+      },
+      "id": "cfg2",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1340,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.log_tab }}"
+        },
+        "options": {}
+      },
+      "id": "read-log2",
+      "name": "[cred] Sheets - read the log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1120,
+        260
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find the draft that is waiting on a human, if there is one.\n//\n// The log is the source of truth. Exactly one row may be `awaiting` at a time — workflow 01\n// refuses to draft while one is open — so this either finds one or finds nothing.\n//\n// It also decides whether that draft is still approvable. A draft goes stale: the day moves\n// on, the claims in it may not have, and an approval typed against yesterday's post at\n// lunchtime today publishes something nobody re-read. After APPROVAL_EXPIRES_HOURS it is\n// marked expired instead.\n//\n// Input: every row of the Log tab. Output: exactly one item, always.\n\nconst cfg = $('config').first().json;\nconst L = cfg.log_columns;\n\nconst norm = (v) => String(v === undefined || v === null ? '' : v).trim();\n\nconst rows = items.map((i) => i.json).filter((r) => r && (r[L.date] || r[L.slug]));\n\n// Rows are appended, so the last `awaiting` is the current one. A log that somehow holds two\n// is a real problem worth seeing rather than quietly picking one.\nconst awaiting = rows.filter((r) => norm(r[L.status]).toLowerCase() === 'awaiting');\n\nif (!awaiting.length) {\n  return [{\n    json: {\n      _has_pending: false,\n      _reason: 'no draft is awaiting approval — ' + rows.length + ' log row(s), none open'\n    }\n  }];\n}\n\nif (awaiting.length > 1) {\n  return [{\n    json: {\n      _has_pending: false,\n      _conflict: true,\n      _reason: awaiting.length + ' drafts are marked awaiting at once: '\n        + awaiting.map((r) => norm(r[L.date]) + ' ' + norm(r[L.slug])).join(', ')\n        + '. Workflow 01 only opens one at a time, so the log has been edited by hand or a '\n        + 'run was interrupted mid-write. Resolve it in the sheet — do not publish either.'\n    }\n  }];\n}\n\nconst row = awaiting[0];\nconst at = norm(row[L.at]);\nconst openedAt = at ? Date.parse(at) : NaN;\nconst ageHours = isNaN(openedAt) ? 0 : (Date.now() - openedAt) / 3600000;\nconst expired = !isNaN(openedAt) && ageHours > cfg.approval_expires_hours;\n\n// The message the draft went out in is the anchor. Without it there is nothing to scan\n// forward from, and a channel-wide search for the word \"post\" is exactly the ambiguity the\n// dedicated-channel rule exists to prevent.\nconst messageId = norm(row[L.message_id]);\nconst channelId = norm(row[L.channel_id]) || cfg.channel_id;\n\nreturn [{\n  json: {\n    _has_pending: !expired && messageId !== '',\n    _expired: expired,\n    _date: norm(row[L.date]),\n    _slug: norm(row[L.slug]),\n    _slot: Number(row[L.slot]) || 0,\n    _message_id: messageId,\n    _channel_id: channelId,\n    _caption_fp: norm(row[L.caption_fp]),\n    _age_hours: Math.round(ageHours * 10) / 10,\n    _reason: expired\n      ? 'the draft for ' + norm(row[L.slug]) + ' has been open ' + Math.round(ageHours)\n        + ' hours, past the ' + cfg.approval_expires_hours + ' hour limit. Marked expired '\n        + 'rather than published — re-run workflow 01 for a fresh one.'\n      : messageId === ''\n        ? 'the awaiting row for ' + norm(row[L.slug]) + ' has no message id, so there is no '\n          + 'Discord message to read a reply from'\n        : 'draft ' + norm(row[L.slug]) + ' has been awaiting approval for '\n          + Math.round(ageHours * 10) / 10 + ' hours'\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "pending",
+      "name": "find the pending draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-pending-c",
+              "leftValue": "={{ $json._has_pending }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-pending",
+      "name": "anything awaiting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -680,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nothing is waiting on a human, so there is nothing to do.\n//\n// This is the normal state for most of the day: workflow 01 drafts once each morning and\n// this workflow runs every few minutes, so the overwhelming majority of its executions end\n// here. That is the design, not a fault — the alternative is a watcher process somebody has\n// to keep alive across reboots.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, s, {\n    _stopped: 'nothing awaiting',\n    _mode: cfg.mode,\n    _reason: '[IDLE] ' + s._reason,\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-idle",
+      "name": "STOP: nothing awaiting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "guildId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json._channel_id }}"
+        },
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "discord-read",
+      "name": "[cred] Discord - read the channel",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        160
+      ],
+      "alwaysOutputData": true,
+      "notes": "Newest 50. The draft message is the anchor and everything before it is ignored, so 50 is ample for a channel used only for approvals - and if the draft has scrolled out of that window the next node waits rather than guessing."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read the channel and decide whether a human approved the draft.\n//\n// This is the gate. Everything downstream of it is irreversible, so the rules here are\n// deliberately narrow and every one of them is a refusal:\n//\n//   * Only messages AFTER the draft count. Anything already in the channel when the draft\n//     landed cannot be a reply to it.\n//   * The workflow's own messages never count. The bot posted the draft, so any message from\n//     that same author is the system agreeing with itself. This is checked against the\n//     draft's own author id rather than a configured bot id — there is nothing to get wrong.\n//   * Other bots never count. A second automation is not a second opinion.\n//   * The whole message must be the word. \"post\" approves; \"post please\", \"we should post\n//     this\" and \"do not post\" do not. Substring matching here would make \"do not post\"\n//     an approval, which is the worst available bug.\n//   * The FIRST decisive message wins. If someone says cancel and someone else says post a\n//     minute later, the draft was already cancelled — a later approval does not reopen it.\n//   * A cancel beats an approval in the same message. There is no such message, but if the\n//     word lists are ever edited to overlap, the safe reading wins.\n//\n// Input: messages from the channel, newest-first as Discord returns them.\n// Output: exactly one item, always, with _decision = post | cancel | wait.\n\nconst cfg = $('config').first().json;\nconst pending = $('find the pending draft').first().json;\n\nconst messages = items.map((i) => i.json).filter((m) => m && m.id);\n\n// Discord snowflake ids sort chronologically as numbers, and they are wider than a JS\n// integer — compare them as BigInt rather than as strings, because string comparison puts\n// a 19-digit id before a 20-digit one.\nconst anchor = BigInt(pending._message_id);\nconst draft = messages.find((m) => m.id === pending._message_id);\n\n// The author of the draft is the identity that must never be trusted as an approver. If the\n// draft message is no longer in the fetched window we cannot establish that identity, and\n// the safe answer is to wait rather than to guess.\nif (!draft) {\n  return [{\n    json: Object.assign({}, pending, {\n      _decision: 'wait',\n      _reason: 'the draft message ' + pending._message_id + ' was not in the messages read '\n        + 'back from the channel. It may have scrolled out of the fetch window or been '\n        + 'deleted. Nothing is published on an unverifiable draft.'\n    })\n  }];\n}\n\nconst botAuthorId = String((draft.author && draft.author.id) || '');\n\nconst after = messages\n  .filter((m) => {\n    try { return BigInt(m.id) > anchor; } catch (e) { return false; }\n  })\n  .sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));   // oldest first\n\nlet decision = 'wait';\nlet approver = '';\nlet approverId = '';\nlet said = '';\nconst ignored = [];\n\nfor (const m of after) {\n  const authorId = String((m.author && m.author.id) || '');\n  const isBot = Boolean(m.author && m.author.bot);\n  const content = String(m.content || '').trim().toLowerCase();\n\n  if (!content) continue;\n\n  if (authorId === botAuthorId) {\n    ignored.push('own message: \"' + content.slice(0, 40) + '\"');\n    continue;\n  }\n  if (isBot) {\n    ignored.push('another bot (' + ((m.author && m.author.username) || authorId) + '): \"'\n      + content.slice(0, 40) + '\"');\n    continue;\n  }\n\n  const isCancel = cfg.cancel_words.includes(content);\n  const isApprove = cfg.approve_words.includes(content);\n\n  if (isCancel) { decision = 'cancel'; }\n  else if (isApprove) { decision = 'post'; }\n  else { ignored.push('not a decision: \"' + content.slice(0, 40) + '\"'); continue; }\n\n  approver = (m.author && (m.author.global_name || m.author.username)) || authorId;\n  approverId = authorId;\n  said = content;\n  break;   // first decisive message wins\n}\n\nreturn [{\n  json: Object.assign({}, pending, {\n    _decision: decision,\n    _approver: approver,\n    _approver_id: approverId,\n    _said: said,\n    _messages_after: after.length,\n    _ignored: ignored,\n    _reason: decision === 'post'\n      ? approver + ' approved it (\"' + said + '\")'\n      : decision === 'cancel'\n        ? approver + ' cancelled it (\"' + said + '\")'\n        : 'no decision yet — ' + after.length + ' message(s) since the draft, '\n          + ignored.length + ' ignored'\n  })\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "read-reply",
+      "name": "read the approval reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        160
+      ],
+      "notes": "THE GATE. Only messages after the draft, never the bot's own, never another bot's, whole-message match only, first decision wins. Substring matching here would make 'do not post' an approval."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "decision-r0",
+                    "leftValue": "={{ $json._decision }}",
+                    "rightValue": "post",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "post"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "decision-r1",
+                    "leftValue": "={{ $json._decision }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "id": "decision",
+      "name": "what did they say?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -20,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The row that closes the day.\n//\n// One row per outcome, appended — the log is never rewritten in place. `posted` is what\n// silences tomorrow's duplicate check; `cancelled` is what lets workflow 01 draft again the\n// same day; `expired` closes a draft nobody answered without claiming it went out.\n//\n// The bank row's State is updated separately, and only on a real publish. A cancelled post\n// stays `ready` on purpose: cancelling means \"not this one, now\", not \"never\".\n\nconst cfg = $('config').first().json;\nconst L = cfg.log_columns;\nconst d = $json;\n\nconst status = d._outcome === 'POSTED' ? 'posted'\n  : d._decision === 'cancel' ? 'cancelled'\n  : d._expired ? 'expired'\n  : d._outcome === 'DUPLICATE' ? 'posted'\n  : 'failed';\n\nconst row = {};\nrow[L.date] = d._date || '';\nrow[L.slug] = d._slug || '';\nrow[L.slot] = d._slot || '';\nrow[L.status] = status;\nrow[L.channel_id] = d._channel_id || cfg.channel_id;\nrow[L.message_id] = d._message_id || '';\nrow[L.caption_fp] = d._caption_fp_now || d._caption_fp || '';\nrow[L.urn] = d._urn || '';\nrow[L.note] = [\n  d._approver ? 'by ' + d._approver : '',\n  d._said ? '\"' + d._said + '\"' : '',\n  d._reason || ''\n].filter(Boolean).join(' — ').slice(0, 900);\nrow[L.at] = new Date().toISOString();\n\nreturn [{ json: Object.assign(row, { _status: status, _reason: d._reason }) }];"
+      },
+      "id": "cancel-row",
+      "name": "row for the cancelled outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The draft is still open. Nobody has replied yet.\n//\n// Deliberately does nothing else — no reminder, no nudge, no escalation. A reviewer who has\n// not answered has not answered; pinging them from a workflow that publishes on the word\n// \"post\" trains people to type it quickly.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, s, {\n    _stopped: 'still awaiting approval',\n    _mode: cfg.mode,\n    _reason: '[WAITING] ' + s._reason,\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-wait",
+      "name": "STOP: still awaiting approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reconstruct exactly what was approved — and refuse if it is not what was delivered.\n//\n// The caption published is taken from the DISCORD MESSAGE, not from the bank. That is\n// deliberate: the message is what the human read, and the bank row could have been edited in\n// the spreadsheet in the hours since. Publishing the bank row would publish something nobody\n// approved.\n//\n// The fingerprint written at draft time then proves the message itself has not been edited.\n// Discord lets an author edit a message in place, and an edited draft carries an approval\n// that was given for different words. A mismatch stops the run rather than publishing\n// either version.\n//\n// The image is the attachment on that same message: the picture the reviewer actually saw,\n// fetched fresh so there is no expiring CDN link to keep.\n\nconst cfg = $('config').first().json;\nconst approval = $('read the approval reply').first().json;\n\nconst messages = items.map((i) => i.json).filter((m) => m && m.id);\nconst draft = messages.find((m) => m.id === approval._message_id);\n\nconst problems = [];\n\nif (!draft) {\n  return [{\n    json: Object.assign({}, approval, {\n      _publishable: false,\n      _problems: ['the draft message disappeared between reading the approval and reading '\n        + 'the draft'],\n      _reason: 'the draft message is gone — nothing to publish'\n    })\n  }];\n}\n\n// Strip the approval instruction back off. It was appended by \"build the approval message\"\n// and is the only thing in the message that is not the caption.\nconst INSTRUCTION = 'Reply **post** to publish, or **cancel** to discard.';\nlet caption = String(draft.content || '');\nif (caption.endsWith(INSTRUCTION)) {\n  caption = caption.slice(0, -INSTRUCTION.length);\n} else {\n  problems.push('the draft message does not end with the approval line, so it is not the '\n    + 'message this workflow delivered');\n}\ncaption = caption.trim();\n\n// Same FNV-1a as apply-the-caption.js. Both must change together if either does.\nfunction fingerprint(s) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) {\n    h ^= s.charCodeAt(i);\n    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;\n  }\n  return ('0000000' + h.toString(16)).slice(-8);\n}\n\nconst fp = fingerprint(caption);\nif (approval._caption_fp && fp !== approval._caption_fp) {\n  problems.push('the caption in the channel no longer matches what was delivered '\n    + '(logged ' + approval._caption_fp + ', now ' + fp + '). The message has been edited '\n    + 'since it was approved. Cancel it and run workflow 01 again.');\n}\nif (draft.edited_timestamp) {\n  problems.push('the draft message was edited at ' + draft.edited_timestamp);\n}\n\nconst attachments = draft.attachments || [];\nconst image = attachments.find((a) =>\n  String(a.content_type || '').startsWith('image/')\n  || /\\.png$/i.test(String(a.filename || '')));\n\nif (!image) {\n  problems.push('the draft message has no image attached. A caption is not a post — the '\n    + 'approval was given for a picture that is no longer there.');\n}\n\n// LinkedIn \"little text\" escaping, applied at publish time. '#' is deliberately not escaped\n// so hashtags keep working.\nconst RESERVED = '\\\\|{}@[]()<>*_~';\nconst escaped = caption.split('').map((c) => (RESERVED.includes(c) ? '\\\\' + c : c)).join('');\n\nreturn [{\n  json: Object.assign({}, approval, {\n    _publishable: problems.length === 0,\n    _caption: caption,\n    _caption_escaped: escaped,\n    _caption_fp_now: fp,\n    _image_url: image ? image.url : '',\n    _image_name: image ? image.filename : '',\n    _image_bytes: image ? image.size : 0,\n    _problems: problems,\n    _reason: problems.length ? problems[0]\n      : 'the approved draft is intact — ' + caption.length + ' characters, fingerprint '\n        + fp + ', image ' + (image.size || 0) + ' bytes'\n  })\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "approved",
+      "name": "the approved draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        60
+      ],
+      "notes": "Publishes the caption from the DISCORD MESSAGE, not from the bank - the message is what the human read. The fingerprint written at draft time then proves it has not been edited since."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "intact-c",
+              "leftValue": "={{ $json._publishable }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "intact",
+      "name": "still the approved draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        420,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// What is in the channel is not what was approved.\n//\n// The message was edited, its image is gone, or the caption no longer matches the\n// fingerprint written when it was delivered. An approval is given for specific words next\n// to a specific picture; once either changes, the approval does not carry over.\n//\n// Nothing is published and nothing is repaired automatically. Cancel the draft and run\n// workflow 01 again.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, s, {\n    _stopped: 'the approved draft changed',\n    _mode: cfg.mode,\n    _reason: '[BLOCKED] ' + (s._problems || []).join('; '),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-changed",
+      "name": "STOP: the approved draft changed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "publish-on-c",
+              "leftValue": "={{ $('config').first().json.live_publish }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "publish-on",
+      "name": "publish it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        -40
+      ],
+      "notes": "False unless TEST_RUN is false AND a token is set. The approval stays open either way, so setting the token and running again publishes the same approved draft - it never has to be approved twice."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Approved, but the publish gate is shut. Nothing was sent.\n//\n// Either TEST_RUN is still true, or LINKEDIN_ACCESS_TOKEN is blank. Both are the safe\n// default and both are visible here rather than failing inside an HTTP node with a 401.\n//\n// The approval itself stays open, so setting the token and running again publishes the\n// same approved draft. It does not have to be approved twice.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, s, {\n    _stopped: 'not published',\n    _mode: cfg.mode,\n    _reason: cfg.mode !== 'live'\n      ? '[BLOCKED] ' + s._approver + ' approved this, but the workflow is in ' + cfg.mode\n        + ' mode. Set TEST_RUN = false in config to publish. The approval stays open.'\n      : '[BLOCKED] ' + s._approver + ' approved this, but LINKEDIN_ACCESS_TOKEN is blank '\n        + 'in config. The approval stays open.',\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-not-pub",
+      "name": "STOP: not published",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/rest/images?action=initializeUpload",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.linkedin_token }}"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "={{ $('config').first().json.linkedin_version }}"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ initializeUploadRequest: { owner: $('config').first().json.linkedin_org_urn } }) }}"
+      },
+      "id": "li-init",
+      "name": "[cred] LinkedIn - register the upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        -140
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Step 1 of 3. Nothing is public until step 3."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('the approved draft').first().json._image_url }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "li-fetch",
+      "name": "download the approved image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        -140
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "The image the reviewer actually saw, off the approved message. Fetched fresh rather than kept from yesterday, so there is no expiring CDN link."
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('[cred] LinkedIn - register the upload').first().json.value.uploadUrl }}",
+        "options": {
+          "timeout": 120000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.linkedin_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data"
+      },
+      "id": "li-upload",
+      "name": "[cred] LinkedIn - upload the image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -140
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Step 2 of 3. Raw bytes, not multipart. Still not public."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/rest/posts",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.linkedin_token }}"
+            },
+            {
+              "name": "LinkedIn-Version",
+              "value": "={{ $('config').first().json.linkedin_version }}"
+            },
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ author: $('config').first().json.linkedin_org_urn, commentary: $('the approved draft').first().json._caption_escaped, visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, content: { media: { id: $('[cred] LinkedIn - register the upload').first().json.value.image } }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false }) }}"
+      },
+      "id": "li-post",
+      "name": "[cred] LinkedIn - publish the post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        -140
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "STEP 3 OF 3 - THE IRREVERSIBLE ONE. retryOnFail is deliberately OFF. A publish that times out may well have succeeded, and a retry double-posts. neverError is on so the next node can read the status rather than the run dying inside an HTTP node."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read what LinkedIn said, and decide whether anything is now on the page.\n//\n// This runs after the irreversible step. The one rule that matters: an UNKNOWN outcome is\n// never retried. A publish that timed out may well have succeeded, and a retry puts the same\n// post up twice — which cannot be undone from here and looks worse than a missing post.\n//\n// The three outcomes:\n//\n//   POSTED     a share URN came back. Log it, notify, done.\n//   DUPLICATE  LinkedIn rejected it as already posted. Stop. Not an error to fix.\n//   FAILED     a 4xx with a reason. Stop, read the reason, fix the cause. A 4xx does not\n//              become a 2xx by being sent again.\n//   UNKNOWN    no status, no urn, no error. Check the page by eye before doing anything.\n\nconst draft = $('the approved draft').first().json;\n\nconst res = $json || {};\nconst headers = res.headers || {};\nconst body = res.body !== undefined ? res.body : res;\nconst status = Number(res.statusCode || res.status || 0);\n\n// The share URN comes back in a header, not the body. n8n lowercases header names on some\n// versions and not others.\nconst urn = String(\n  headers['x-restli-id'] || headers['X-RestLi-Id'] || headers['x-linkedin-id']\n  || (body && body.id) || ''\n);\n\nlet outcome;\nlet reason;\n\nif (urn) {\n  outcome = 'POSTED';\n  reason = 'published as ' + urn;\n} else if (status === 409 || /duplicate/i.test(JSON.stringify(body || ''))) {\n  outcome = 'DUPLICATE';\n  reason = 'LinkedIn rejected this as a duplicate — it is already on the page. Not retried.';\n} else if (status >= 400) {\n  const msg = (body && (body.message || body.error_description || body.error)) || '';\n  outcome = 'FAILED';\n  reason = 'HTTP ' + status + (msg ? ': ' + JSON.stringify(msg) : '')\n    + '. Not retried — a 4xx does not fix itself. '\n    + (status === 401 || status === 403\n        ? 'That status is almost always the token: expired, or missing w_organization_social.'\n        : status === 426\n          ? 'HTTP 426 is a retired LinkedIn-Version. Raise LINKEDIN_VERSION in config.'\n          : '');\n} else {\n  outcome = 'UNKNOWN';\n  reason = 'no URN and no error came back (HTTP ' + status + '). The post may or may not '\n    + 'have gone up. LOOK AT THE PAGE before running this again — this is the one case '\n    + 'where a retry can double-post.';\n}\n\nreturn [{\n  json: Object.assign({}, draft, {\n    _outcome: outcome,\n    _urn: urn,\n    _status: status,\n    _posted: outcome === 'POSTED',\n    _reason: reason,\n    _post_url: urn ? 'https://www.linkedin.com/feed/update/' + urn + '/' : ''\n  })\n}];"
+      },
+      "id": "publish-result",
+      "name": "read the publish result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "posted-c",
+              "leftValue": "={{ $json._posted }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "posted",
+      "name": "did it publish?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The publish did not succeed, and it is not being retried.\n//\n// FAILED means a 4xx with a reason — read it, fix the cause, run again.\n// DUPLICATE means it is already on the page. Stop.\n// UNKNOWN means look at the page with your own eyes before doing anything at all, because\n// this is the one state where running again can double-post.\n//\n// There is no automatic retry anywhere in this branch, on purpose.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, s, {\n    _stopped: 'publish failed',\n    _mode: cfg.mode,\n    _reason: '[' + s._outcome + '] ' + s._reason,\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-failed",
+      "name": "STOP: publish failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark the bank row published so it can never be drafted a second time.\n//\n// Only ever runs on a real POSTED outcome. The log already prevents a re-draft on its own —\n// `_posted_slugs` is read from it — so this is the second of two independent guards, not the\n// only one. Two guards because the failure it prevents is publishing the same post twice.\n\nconst cfg = $('config').first().json;\nconst B = cfg.bank_columns;\nconst d = $json;\n\nconst row = {};\nrow[B.slug] = d._slug;\nrow[B.state] = 'posted';\n\nreturn [{ json: Object.assign(row, {\n  _reason: 'bank row ' + d._slug + ' marked posted'\n}) }];"
+      },
+      "id": "bank-row",
+      "name": "mark the bank row posted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.bank_tab }}"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "operation": "appendOrUpdate",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Slug"
+          ],
+          "schema": []
+        }
+      },
+      "id": "write-bank",
+      "name": "[cred] Sheets - mark the bank row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2400,
+        -240
+      ],
+      "notes": "Matches on 'Slug'. Rename that heading and this silently appends a new row instead of updating - change BANK_COLUMNS.slug in config AND the match field here."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The row that closes the day.\n//\n// One row per outcome, appended — the log is never rewritten in place. `posted` is what\n// silences tomorrow's duplicate check; `cancelled` is what lets workflow 01 draft again the\n// same day; `expired` closes a draft nobody answered without claiming it went out.\n//\n// The bank row's State is updated separately, and only on a real publish. A cancelled post\n// stays `ready` on purpose: cancelling means \"not this one, now\", not \"never\".\n\nconst cfg = $('config').first().json;\nconst L = cfg.log_columns;\nconst d = $json;\n\nconst status = d._outcome === 'POSTED' ? 'posted'\n  : d._decision === 'cancel' ? 'cancelled'\n  : d._expired ? 'expired'\n  : d._outcome === 'DUPLICATE' ? 'posted'\n  : 'failed';\n\nconst row = {};\nrow[L.date] = d._date || '';\nrow[L.slug] = d._slug || '';\nrow[L.slot] = d._slot || '';\nrow[L.status] = status;\nrow[L.channel_id] = d._channel_id || cfg.channel_id;\nrow[L.message_id] = d._message_id || '';\nrow[L.caption_fp] = d._caption_fp_now || d._caption_fp || '';\nrow[L.urn] = d._urn || '';\nrow[L.note] = [\n  d._approver ? 'by ' + d._approver : '',\n  d._said ? '\"' + d._said + '\"' : '',\n  d._reason || ''\n].filter(Boolean).join(' — ').slice(0, 900);\nrow[L.at] = new Date().toISOString();\n\nreturn [{ json: Object.assign(row, { _status: status, _reason: d._reason }) }];"
+      },
+      "id": "posted-row",
+      "name": "row for the published outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2620,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-rows",
+      "name": "one log row",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2840,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.log_tab }}"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "operation": "append",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": []
+        }
+      },
+      "id": "write-log2",
+      "name": "[cred] Sheets - append the log row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3060,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-end2",
+      "name": "one outcome",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3280,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One line per run, for the optional Slack webhook.\n//\n// Every path through both workflows arrives here, including the ones that did nothing. A\n// summary that only fires on success is a summary that goes quiet exactly when something is\n// wrong, which is the failure mode this exists to catch: the job silently stopped drafting\n// three weeks ago and nobody noticed because nothing was ever broken enough to alert.\n//\n// The caption is NOT included. It goes to the approval channel and nowhere else — a draft\n// that reaches a second audience before it is approved has left the approval gate behind.\n\nconst cfg = $('config').first().json;\nconst s = $json;\n\nconst stopped = s._stopped || '';\nconst outcome = s._outcome || '';\n\nconst icon = outcome === 'POSTED' ? ':white_check_mark:'\n  : outcome === 'FAILED' || outcome === 'UNKNOWN' || stopped === 'no image' ? ':x:'\n  : stopped === 'still awaiting approval' || stopped === 'nothing awaiting' ? ':hourglass:'\n  : ':information_source:';\n\nconst headline = outcome === 'POSTED'\n  ? 'Published: ' + (s._slug || 'unknown')\n  : stopped\n    ? 'No post: ' + stopped\n    : 'Draft delivered for approval: ' + (s.slug || s._slug || 'unknown');\n\nconst lines = [\n  icon + ' *LinkedIn daily* — ' + headline,\n  '*Mode:* ' + cfg.mode + (cfg.forced_preview ? ' (forced — demo bank in use)' : ''),\n  s._reason ? '*Why:* ' + s._reason : '',\n  s._post_url ? '*Post:* ' + s._post_url : '',\n  s._approver ? '*Approved by:* ' + s._approver : '',\n  (s._warnings && s._warnings.length) ? '*Warnings:* ' + s._warnings.join('; ') : ''\n].filter(Boolean);\n\nconst text = lines.join('\\n');\n\nreturn [{\n  json: {\n    _summary: text,\n    _slack_body: { text: text },\n    _notify: cfg.report_enabled,\n    _outcome: outcome || stopped || 'delivered',\n    _reason: s._reason || ''\n  }\n}];"
+      },
+      "id": "summary2",
+      "name": "build the run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3500,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "report2-c",
+              "leftValue": "={{ $('config').first().json.report_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "report2",
+      "name": "report configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3720,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.report_webhook_url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._slack_body) }}"
+      },
+      "id": "slack2",
+      "name": "[cred] Slack - post the summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3940,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {},
+      "id": "done2",
+      "name": "done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3940,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 of 2 — publish on approval\n\nPolls the approval channel every five minutes. When a human replies `post` to the draft\nmessage, this publishes it to the company page.\n\n**Most runs do nothing**, and end at `STOP: nothing awaiting`. That is correct.\n\nThe gate is `read the approval reply`. Read that node before changing anything here — every\nrule in it is a refusal, and each one is there because the looser version has an obvious\nway to publish something nobody approved.",
+        "height": 300,
+        "width": 460,
+        "color": 4
+      },
+      "id": "t1",
+      "name": "Sticky Note t1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1580,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### The irreversible step\n\nThree calls: register the upload, PUT the bytes, publish.\n\n**`publish the post` has retryOnFail OFF, on purpose.** A publish that times out may have\nsucceeded. Retrying it double-posts, and that cannot be undone from here.\n\nAn UNKNOWN outcome means look at the page with your own eyes before running this again.",
+        "height": 240,
+        "width": 460,
+        "color": 2
+      },
+      "id": "t2",
+      "name": "Sticky Note t2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        820,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the log": {
+      "main": [
+        [
+          {
+            "node": "find the pending draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find the pending draft": {
+      "main": [
+        [
+          {
+            "node": "anything awaiting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything awaiting?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Discord - read the channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing awaiting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: nothing awaiting": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] Discord - read the channel": {
+      "main": [
+        [
+          {
+            "node": "read the approval reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the approval reply": {
+      "main": [
+        [
+          {
+            "node": "what did they say?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "what did they say?": {
+      "main": [
+        [
+          {
+            "node": "the approved draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "row for the cancelled outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: still awaiting approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: still awaiting approval": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "row for the cancelled outcome": {
+      "main": [
+        [
+          {
+            "node": "one log row",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "the approved draft": {
+      "main": [
+        [
+          {
+            "node": "still the approved draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "still the approved draft?": {
+      "main": [
+        [
+          {
+            "node": "publish it?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: the approved draft changed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: the approved draft changed": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "publish it?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LinkedIn - register the upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not published",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not published": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] LinkedIn - register the upload": {
+      "main": [
+        [
+          {
+            "node": "download the approved image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "download the approved image": {
+      "main": [
+        [
+          {
+            "node": "[cred] LinkedIn - upload the image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LinkedIn - upload the image": {
+      "main": [
+        [
+          {
+            "node": "[cred] LinkedIn - publish the post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LinkedIn - publish the post": {
+      "main": [
+        [
+          {
+            "node": "read the publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the publish result": {
+      "main": [
+        [
+          {
+            "node": "did it publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "did it publish?": {
+      "main": [
+        [
+          {
+            "node": "mark the bank row posted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: publish failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: publish failed": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "mark the bank row posted": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - mark the bank row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - mark the bank row": {
+      "main": [
+        [
+          {
+            "node": "row for the published outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "row for the published outcome": {
+      "main": [
+        [
+          {
+            "node": "one log row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "one log row": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - append the log row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - append the log row": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "one outcome": {
+      "main": [
+        [
+          {
+            "node": "build the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the run summary": {
+      "main": [
+        [
+          {
+            "node": "report configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "report configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Slack - post the summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "acme"
+    },
+    {
+      "name": "linkedin"
+    }
+  ]
+}

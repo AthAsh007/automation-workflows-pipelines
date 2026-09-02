@@ -1,0 +1,3 @@
+# Only the standard library is required to run a pipeline in --dry-run.
+# A live call needs an HTTP client; requests is used because it is everywhere.
+requests>=2.32

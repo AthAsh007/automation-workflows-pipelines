@@ -1,0 +1,1028 @@
+{
+  "name": "14 - Enrichment Waterfall (config)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enrich",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook - enrich request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        300
+      ],
+      "webhookId": "enrich-waterfall-14",
+      "notes": "Point a Clay HTTP API column here, or call it from template 08. Sample data is pinned, so Execute Workflow works before anything is wired up."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// config - the only node you edit.\n//\n// Nothing in this workflow reads $env, so it behaves identically on self-hosted\n// n8n and on n8n Cloud, needs no N8N_BLOCK_ENV_ACCESS_IN_NODE, and a threshold\n// change costs a save rather than a host restart.\n//\n// Leave a key blank and that step is SKIPPED, not failed:\n//   APOLLO_API_KEY       blank -> the waterfall starts at RocketReach\n//   ROCKETREACH_API_KEY  blank -> the waterfall starts at the pattern guess\n//   VERIFIER_API_KEY     blank -> nothing is verified, so pattern guesses are\n//                                 discarded and provider hits come back as\n//                                 email_status \"unknown\" rather than \"valid\"\n//\n// All three blank is a valid dry run: import, hit Execute, watch the shape of\n// the response without spending a credit anywhere.\n// ---------------------------------------------------------------------------\n\nconst APOLLO_API_KEY = '';\nconst ROCKETREACH_API_KEY = '';\nconst VERIFIER_API_KEY = '';\n\n// neverbounce | zerobounce | millionverifier\nconst VERIFIER = 'neverbounce';\n\n// Some clients would rather have a blank than an attempted guess. Off means the\n// waterfall stops after RocketReach.\nconst PATTERN_GUESS_ENABLED = true;\n\n// Handed back to the caller as recommended_action, so the thresholds agreed on\n// the call are the thresholds the data carries.\nconst MIN_CONFIDENCE_TO_SEND = 70;\nconst MIN_CONFIDENCE_TO_REVIEW = 40;\n\n// ---------------------------------------------------------------------------\n// derived - nothing below here needs editing\n// ---------------------------------------------------------------------------\n\n// All three verifiers take the key and the address as query parameters, so the\n// provider switch is one URL rather than a rewired node. The address is\n// appended, url-encoded, by the verifier node.\nconst VERIFIER_URLS = {\n  neverbounce: 'https://api.neverbounce.com/v4/single/check?key=' +\n    encodeURIComponent(VERIFIER_API_KEY) + '&email=',\n  zerobounce: 'https://api.zerobounce.net/v2/validate?api_key=' +\n    encodeURIComponent(VERIFIER_API_KEY) + '&email=',\n  millionverifier: 'https://api.millionverifier.com/api/v3/?api=' +\n    encodeURIComponent(VERIFIER_API_KEY) + '&email='\n};\n\nconst apolloKey = String(APOLLO_API_KEY || '').trim();\nconst rocketreachKey = String(ROCKETREACH_API_KEY || '').trim();\nconst verifierKey = String(VERIFIER_API_KEY || '').trim();\nconst verifier = String(VERIFIER || 'neverbounce').trim().toLowerCase();\n\nif (!VERIFIER_URLS[verifier]) {\n  throw new Error('config: VERIFIER must be one of ' +\n    Object.keys(VERIFIER_URLS).join(', ') + ' - got \"' + VERIFIER + '\"');\n}\n\nreturn [{\n  json: {\n    apollo_api_key: apolloKey,\n    rocketreach_api_key: rocketreachKey,\n    verifier_api_key: verifierKey,\n    verifier: verifier,\n    verifier_url: VERIFIER_URLS[verifier],\n\n    apollo_enabled: apolloKey !== '',\n    rocketreach_enabled: rocketreachKey !== '',\n    verifier_enabled: verifierKey !== '',\n    pattern_guess_enabled: PATTERN_GUESS_ENABLED === true,\n\n    min_confidence_to_send: MIN_CONFIDENCE_TO_SEND,\n    min_confidence_to_review: MIN_CONFIDENCE_TO_REVIEW\n  }\n}];"
+      },
+      "id": "config",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        300
+      ],
+      "notes": "The only node you edit. Blank key = that step is skipped, not failed."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One input shape for the whole waterfall, whatever the caller sent.\n// Reads the trigger by name rather than $input, because the node in front of\n// this one is config and carries settings, not the request.\nconst cfg = $('config').first().json;\nconst raw = $('Webhook - enrich request').first().json || {};\nconst b = raw.body || raw;\n\nconst slug = (s) => String(s || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9]+/g, '-')\n  .replace(/^-+|-+$/g, '');\n\nlet domain = String(b.domain || b.company_domain || '').toLowerCase().trim();\ndomain = domain.split('//').pop().split('/')[0].split('?')[0];\nif (domain.startsWith('www.')) domain = domain.slice(4);\n\nconst first = String(b.first_name || '').trim();\nconst last = String(b.last_name || '').trim();\n\n// lead_id is the dedupe key everywhere downstream (see _shared/conventions.md).\n// The caller owns it; we only mint one when it is missing, and we say so, so a\n// caller that thought it was sending one can see that it did not arrive.\nconst suppliedId = String(b.lead_id || '').trim();\nconst leadId = suppliedId || (slug(domain) + '-' + slug(first + ' ' + last)).replace(/^-|-$/g, '');\n\nconst skipped = [];\nif (!cfg.apollo_enabled) skipped.push('apollo');\nif (!cfg.rocketreach_enabled) skipped.push('rocketreach');\nif (!cfg.pattern_guess_enabled) skipped.push('pattern');\nif (!cfg.verifier_enabled) skipped.push('verifier');\n\nreturn [{\n  json: {\n    lead_id: leadId,\n    lead_id_generated: suppliedId === '',\n    first_name: first,\n    last_name: last,\n    full_name: (first + ' ' + last).trim(),\n    title: String(b.title || '').trim(),\n    company: String(b.company || '').trim(),\n    domain: domain,\n    linkedin_url: String(b.linkedin_url || '').trim(),\n    callback_url: String(b.callback_url || '').trim(),\n    email: '',\n    email_source: '',\n    email_status: 'unknown',\n    confidence: 0,\n    tried: [],\n    providers_skipped: skipped\n  }\n}];"
+      },
+      "id": "normalise-request",
+      "name": "normalise request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "apollo-on",
+              "leftValue": "={{ $('config').first().json.apollo_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "apollo-configured",
+      "name": "Apollo configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -460,
+        300
+      ],
+      "notes": "Blank APOLLO_API_KEY sends the lead straight down to RocketReach."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Cache-Control",
+              "value": "no-cache"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $('config').first().json.apollo_api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, domain: $json.domain, organization_name: $json.company, linkedin_url: $json.linkedin_url }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "apollo-match",
+      "name": "[cred] Apollo - match person",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Step 1 of the waterfall. No match is a normal outcome, not an error - which is why onError continues. Needs an Apollo plan tier that includes API access."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One lead per request - Clay calls this once per row - so there is exactly one\n// item. Read Apollo without letting a locked placeholder through as if it were\n// a real address: email_not_unlocked@domain.com is Apollo telling us to pay,\n// not a contact.\nconst lead = Object.assign({}, $('normalise request').first().json);\nconst res = $input.first().json || {};\nconst person = res.person || {};\nconst email = String(person.email || '');\nconst usable = email.includes('@') && !email.includes('email_not_unlocked');\n\nlead.tried = (lead.tried || []).concat(['apollo']);\nif (usable) {\n  lead.email = email.toLowerCase();\n  lead.email_source = 'apollo';\n}\nif (!lead.title && person.title) lead.title = person.title;\nif (!lead.company && person.organization && person.organization.name) {\n  lead.company = person.organization.name;\n}\n\nreturn [{ json: lead }];"
+      },
+      "id": "read-apollo",
+      "name": "read Apollo result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "skip-apollo",
+      "name": "Apollo skipped - no key",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        400
+      ],
+      "notes": "APOLLO_API_KEY is blank, so the lead passes through untouched with apollo absent from tried[]."
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "merge-apollo",
+      "name": "waterfall after Apollo",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-apollo-email",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "apollo-found",
+      "name": "Apollo found one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rr-on",
+              "leftValue": "={{ $('config').first().json.rocketreach_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "rr-configured",
+      "name": "RocketReach configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        460
+      ],
+      "notes": "Blank ROCKETREACH_API_KEY sends the lead straight down to the pattern guess."
+    },
+    {
+      "parameters": {
+        "url": "https://api.rocketreach.co/api/v2/person/lookup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Api-Key",
+              "value": "={{ $('config').first().json.rocketreach_api_key }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.full_name }}"
+            },
+            {
+              "name": "current_employer",
+              "value": "={{ $json.company }}"
+            },
+            {
+              "name": "linkedin_url",
+              "value": "={{ $json.linkedin_url }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "rocketreach",
+      "name": "[cred] RocketReach - lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        360
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Step 2. Only runs when Apollo came back empty, so it only costs a credit when it is the one doing the work."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prefer a professional address over a personal one, and skip the grades\n// RocketReach itself has no confidence in - a graded-F address is not a\n// finding. Base comes from the merge rather than from the Apollo reader,\n// because the Apollo reader does not run when APOLLO_API_KEY is blank.\nconst lead = Object.assign({}, $('waterfall after Apollo').first().json);\nconst res = $input.first().json || {};\nconst emails = Array.isArray(res.emails) ? res.emails : [];\n\nconst professional = emails.find((e) => e.email && e.type === 'professional' && e.grade !== 'F');\nconst fallback = emails.find((e) => e.email && e.grade !== 'F');\nconst picked = professional || fallback;\n\nlead.tried = (lead.tried || []).concat(['rocketreach']);\nif (picked) {\n  lead.email = String(picked.email).toLowerCase();\n  lead.email_source = 'rocketreach';\n}\nif (!lead.title && res.current_title) lead.title = res.current_title;\n\nreturn [{ json: lead }];"
+      },
+      "id": "read-rocketreach",
+      "name": "read RocketReach result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        360
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "skip-rocketreach",
+      "name": "RocketReach skipped - no key",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        860,
+        560
+      ],
+      "notes": "ROCKETREACH_API_KEY is blank, so the lead passes through untouched."
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "merge-rocketreach",
+      "name": "waterfall after RocketReach",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1300,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-rr-email",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "rr-found",
+      "name": "RocketReach found one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 3, and the honest one: a pattern guess is a hypothesis, not a contact.\n// It only survives if the verifier independently says the mailbox exists, which\n// is enforced in \"score confidence\" - so with no verifier key configured, a\n// guess can never leave this workflow.\nconst cfg = $('config').first().json;\n\nreturn $input.all().map((item) => {\n  const lead = Object.assign({}, item.json);\n\n  if (!cfg.pattern_guess_enabled) return { json: lead };\n\n  const f = String(lead.first_name || '').toLowerCase().replace(/[^a-z]/g, '');\n  const l = String(lead.last_name || '').toLowerCase().replace(/[^a-z]/g, '');\n  const d = lead.domain;\n\n  lead.tried = (lead.tried || []).concat(['pattern']);\n\n  if (f && l && d) {\n    lead.email = f + '.' + l + '@' + d;\n    lead.email_source = 'pattern';\n  }\n\n  return { json: lead };\n});"
+      },
+      "id": "guess-pattern",
+      "name": "guess pattern (unverified)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "id": "collect-candidates",
+      "name": "collect candidates",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1960,
+        380
+      ],
+      "notes": "Exactly one of the three inputs carries an item on any given run."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-any-email",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "have-email",
+      "name": "anything to verify?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2180,
+        380
+      ],
+      "notes": "No address means no verifier credit spent. Every provider missed and the answer is an honest blank."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "verifier-on",
+              "leftValue": "={{ $('config').first().json.verifier_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "verifier-configured",
+      "name": "Verifier configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('config').first().json.verifier_url + encodeURIComponent($json.email) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "verify",
+      "name": "[cred] Verifier - check email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "URL, key and vendor all come from the config node - switching NeverBounce/ZeroBounce/MillionVerifier is one line there, not a rewire here. A verifier outage returns unknown, never valid."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise three vendors' vocabularies into four words, so \"score confidence\"\n// never learns which verifier the client bought.\n//\n// Anything unrecognised - including a vendor error payload or an exhausted\n// credit balance - lands on \"unknown\", never on \"valid\". The failure mode of a\n// verifier outage has to be a lead nobody sends to yet, not a lead everybody\n// sends to.\nconst cfg = $('config').first().json;\nconst res = $input.first().json || {};\n\nconst raw = String(cfg.verifier === 'zerobounce' ? (res.status || '') : (res.result || ''))\n  .trim().toLowerCase();\n\nconst MAP = {\n  valid: 'valid',\n  ok: 'valid',\n  invalid: 'invalid',\n  disposable: 'invalid',\n  spamtrap: 'invalid',\n  abuse: 'invalid',\n  do_not_mail: 'invalid',\n  catchall: 'risky',\n  'catch-all': 'risky',\n  catch_all: 'risky',\n  accept_all: 'risky',\n  unknown: 'unknown'\n};\n\nreturn [{\n  json: {\n    verdict: MAP[raw] || 'unknown',\n    verifier: cfg.verifier,\n    verifier_raw: raw || 'no-response'\n  }\n}];"
+      },
+      "id": "read-verifier",
+      "name": "read verifier result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2840,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "skip-verifier",
+      "name": "Verifier skipped - no key",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        380
+      ],
+      "notes": "VERIFIER_API_KEY is blank. Provider hits survive as unknown; pattern guesses are discarded downstream, because nothing confirmed them."
+    },
+    {
+      "parameters": {},
+      "id": "no-email",
+      "name": "STOP: no address found",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        560
+      ],
+      "notes": "Every configured provider missed. The lead comes back blank with confidence 0 - visible in the execution list rather than vanishing."
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "id": "merge-verdicts",
+      "name": "verification outcome",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3060,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Confidence combines where the address came from with what the verifier said.\n// A pattern guess the verifier will not confirm is discarded, not downgraded -\n// handing a client a plausible-looking guess is how a sending domain gets\n// burned three weeks later, for reasons nobody connects back to enrichment.\nconst cfg = $('config').first().json;\nconst lead = Object.assign({}, $('collect candidates').first().json);\nconst inp = $input.first().json || {};\n\n// Three ways in: the verifier reader (carries a verdict), the \"verifier not\n// configured\" skip, and the \"no address to check\" skip. The last two pass the\n// lead straight through, so the absence of a verdict is the signal.\nconst verdict = typeof inp.verdict === 'string'\n  ? inp.verdict\n  : (lead.email ? 'unverified' : 'none');\n\nconst SOURCE_WEIGHT = { apollo: 70, rocketreach: 65, pattern: 25 };\nconst VERDICT_WEIGHT = { valid: 30, risky: 5, unknown: 0, unverified: 0, none: 0, invalid: -100 };\n\nlet confidence = (SOURCE_WEIGHT[lead.email_source] || 0) + (VERDICT_WEIGHT[verdict] || 0);\n\nconst guessUnconfirmed = lead.email_source === 'pattern' && verdict !== 'valid';\nif (verdict === 'invalid' || guessUnconfirmed) {\n  lead.email = '';\n  lead.email_source = '';\n  confidence = 0;\n}\nif (confidence < 0) confidence = 0;\nif (confidence > 100) confidence = 100;\n\n// A blank field is a fact the client can act on. A guess is a liability with\n// good manners.\nconst statusOf = { valid: 'valid', risky: 'risky', invalid: 'invalid' };\nlead.email_status = lead.email ? (statusOf[verdict] || 'unknown') : 'unknown';\nlead.confidence = confidence;\nlead.stage = lead.email ? 'enriched' : 'new';\n\nlet action = confidence >= cfg.min_confidence_to_send\n  ? 'send'\n  : (confidence >= cfg.min_confidence_to_review ? 'review' : 'do_not_send');\n\n// A catch-all domain accepts every address, so \"it did not bounce\" proves\n// nothing about the mailbox. It scores well and still belongs in its own\n// segment, sent last and watched on its own - never mixed into the main send.\nif (lead.email_status === 'risky' && action === 'send') action = 'review';\n\nlead.recommended_action = action;\n\nlead.verification = {\n  verifier: verdict === 'unverified' || verdict === 'none' ? 'none' : (inp.verifier || cfg.verifier),\n  verdict: verdict,\n  raw: inp.verifier_raw || null\n};\n\nlead.enriched_at = new Date().toISOString();\ndelete lead.callback_url;\n\nreturn [{ json: lead }];"
+      },
+      "id": "score-confidence",
+      "name": "score confidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-cb",
+              "leftValue": "={{ $('collect candidates').first().json.callback_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-callback",
+      "name": "caller wants a callback?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3500,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('collect candidates').first().json.callback_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "post-callback",
+      "name": "POST result to callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3720,
+        280
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "For async callers such as template 08 running a batch. Clay does not need this - it reads the response body."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('score confidence').first().json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3940,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 14 - Enrichment Waterfall\n\nOne lead in, the best address we can stand behind out - with a confidence number and a record of which providers were tried.\n\nApollo, then RocketReach, then a pattern guess - **and the guess only counts if the verifier independently confirms it.**\n\n### Setup\n\n1. Open the **config** node. That is the only node you edit - there are no environment variables and nothing to set on the host.\n2. Paste the keys you have. **Leave the ones you do not have blank** - a blank key skips that step instead of failing the run.\n3. Save, Activate, copy the **Production** URL from the webhook node.\n\n### Wiring Clay\n\nAdd an **HTTP API** column, `POST` to the production URL, body:\n\n`{\"lead_id\":\"{{Lead ID}}\",\"first_name\":\"{{First Name}}\",\"last_name\":\"{{Last Name}}\",\"domain\":\"{{Domain}}\",\"company\":\"{{Company}}\",\"linkedin_url\":\"{{LinkedIn}}\"}`\n\nClay reads the response straight back into columns - `email`, `email_status`, `confidence`, `recommended_action`, `tried`.\n\n### Cost\n\nOne verifier credit (~US$0.004) per lead that has an address to check. Apollo credit only on a match, RocketReach credit only when Apollo missed. Roughly a third of Clay's per-row cost for the same result.",
+        "height": 560,
+        "width": 520,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Run it before you have any keys\n\nThe webhook node ships with **pinned sample data**, so this works the moment it is imported:\n\n1. Leave all three keys blank in **config**.\n2. Click **Execute Workflow**.\n\nEvery provider is skipped, the pattern guess is built and then **thrown away because nothing confirmed it**, and the response comes back `email: \"\"`, `confidence: 0`, `recommended_action: \"do_not_send\"`, `providers_skipped: [\"apollo\",\"rocketreach\",\"verifier\"]`.\n\nThat is the correct answer, and it is the demo worth showing on a call: **the workflow with no data available returns nothing, loudly, instead of a guess that looks like a contact.**\n\nThen add just `VERIFIER_API_KEY` and run it again against someone whose address you already know. The same guess now comes back `confidence: 55`, `recommended_action: \"review\"`. Two runs, and the client has seen the whole argument.",
+        "height": 560,
+        "width": 480,
+        "color": 5
+      },
+      "id": "sticky-dryrun",
+      "name": "Dry run",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - enrich request": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "normalise request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalise request": {
+      "main": [
+        [
+          {
+            "node": "Apollo configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Apollo - match person",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apollo skipped - no key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Apollo - match person": {
+      "main": [
+        [
+          {
+            "node": "read Apollo result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read Apollo result": {
+      "main": [
+        [
+          {
+            "node": "waterfall after Apollo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo skipped - no key": {
+      "main": [
+        [
+          {
+            "node": "waterfall after Apollo",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "waterfall after Apollo": {
+      "main": [
+        [
+          {
+            "node": "Apollo found one?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo found one?": {
+      "main": [
+        [
+          {
+            "node": "collect candidates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RocketReach configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RocketReach configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] RocketReach - lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RocketReach skipped - no key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] RocketReach - lookup": {
+      "main": [
+        [
+          {
+            "node": "read RocketReach result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read RocketReach result": {
+      "main": [
+        [
+          {
+            "node": "waterfall after RocketReach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RocketReach skipped - no key": {
+      "main": [
+        [
+          {
+            "node": "waterfall after RocketReach",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "waterfall after RocketReach": {
+      "main": [
+        [
+          {
+            "node": "RocketReach found one?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RocketReach found one?": {
+      "main": [
+        [
+          {
+            "node": "collect candidates",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "guess pattern (unverified)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "guess pattern (unverified)": {
+      "main": [
+        [
+          {
+            "node": "collect candidates",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "collect candidates": {
+      "main": [
+        [
+          {
+            "node": "anything to verify?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything to verify?": {
+      "main": [
+        [
+          {
+            "node": "Verifier configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no address found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Verifier - check email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verifier skipped - no key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Verifier - check email": {
+      "main": [
+        [
+          {
+            "node": "read verifier result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read verifier result": {
+      "main": [
+        [
+          {
+            "node": "verification outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier skipped - no key": {
+      "main": [
+        [
+          {
+            "node": "verification outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "STOP: no address found": {
+      "main": [
+        [
+          {
+            "node": "verification outcome",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "verification outcome": {
+      "main": [
+        [
+          {
+            "node": "score confidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "score confidence": {
+      "main": [
+        [
+          {
+            "node": "caller wants a callback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "caller wants a callback?": {
+      "main": [
+        [
+          {
+            "node": "POST result to callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST result to callback": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {
+    "Webhook - enrich request": [
+      {
+        "json": {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "lead_id": "acme-jane-doe",
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "company": "Acme Pte Ltd",
+            "domain": "acme.example",
+            "linkedin_url": "https://www.linkedin.com/in/jane-doe",
+            "callback_url": ""
+          }
+        }
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

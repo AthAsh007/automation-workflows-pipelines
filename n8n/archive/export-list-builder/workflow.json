@@ -1,0 +1,242 @@
+{
+  "name": "08 ICP List Builder (Apollo to verified Sheet)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Run list build",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-620, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {"id": "a1", "name": "titles", "value": "Head of Operations,Operations Manager,Founder,Managing Director", "type": "string"},
+            {"id": "a2", "name": "locations", "value": "Singapore,Malaysia", "type": "string"},
+            {"id": "a3", "name": "employee_ranges", "value": "11,50", "type": "string"},
+            {"id": "a4", "name": "pages", "value": 2, "type": "number"},
+            {"id": "a5", "name": "per_page", "value": 25, "type": "number"}
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "icp-definition",
+      "name": "ICP definition",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-400, 300],
+      "notes": "CLIENT INPUT. The only node you edit per client."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per Apollo page, so the HTTP node paginates without a loop node.\nconst icp = $input.first().json;\nconst pages = Math.max(1, Number(icp.pages || 1));\nconst out = [];\nfor (let p = 1; p <= pages; p++) {\n  out.push({ json: Object.assign({}, icp, { page: p }) });\n}\nreturn out;"
+      },
+      "id": "plan-pages",
+      "name": "plan pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "Cache-Control", "value": "no-cache"},
+            {"name": "x-api-key", "value": "={{ $env.APOLLO_API_KEY }}"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ person_titles: String($json.titles).split(','), person_locations: String($json.locations).split(','), organization_num_employees_ranges: [String($json.employee_ranges)], page: $json.page, per_page: $json.per_page }) }}",
+        "options": {"timeout": 60000}
+      },
+      "id": "apollo-search",
+      "name": "[cred] Apollo - search people",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 300],
+      "notes": "Needs an Apollo plan tier that includes API access."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten Apollo pages into the shared lead object, and dedupe inside this run.\nconst slug = (s) => String(s || '')\n  .toLowerCase()\n  .split('')\n  .map((c) => ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ? c : '-'))\n  .join('')\n  .split('-')\n  .filter(Boolean)\n  .join('-');\n\nconst seen = new Set();\nconst out = [];\n\nfor (const item of $input.all()) {\n  const people = item.json.people || [];\n  for (const p of people) {\n    const org = p.organization || {};\n    let domain = String(org.website_url || '').toLowerCase();\n    domain = domain.split('//').pop().split('/')[0];\n    if (domain.startsWith('www.')) domain = domain.slice(4);\n    if (!domain) continue;\n\n    const rawEmail = String(p.email || '');\n    const locked = rawEmail === '' || rawEmail.includes('email_not_unlocked');\n    const lead_id = slug(domain) + '-' + slug((p.first_name || '') + ' ' + (p.last_name || ''));\n    if (seen.has(lead_id)) continue;\n    seen.add(lead_id);\n\n    out.push({ json: {\n      lead_id: lead_id,\n      first_name: p.first_name || '',\n      last_name: p.last_name || '',\n      title: p.title || '',\n      company: org.name || '',\n      domain: domain,\n      linkedin_url: p.linkedin_url || '',\n      email: locked ? '' : rawEmail,\n      email_status: 'unknown',\n      email_source: locked ? '' : 'apollo',\n      country: p.country || '',\n      industry: org.industry || '',\n      size_hint: org.estimated_num_employees ? String(org.estimated_num_employees) + ' staff' : '',\n      fit_score: null,\n      fit_reason: '',\n      stage: 'new',\n      built_by: '01-icp-list-builder'\n    }});\n  }\n}\n\nreturn out;"
+      },
+      "id": "normalise-leads",
+      "name": "normalise leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-email",
+      "name": "has an email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.neverbounce.com/v4/single/check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $env.VERIFIER_API_KEY, email: $json.email }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "verify-email",
+      "name": "[cred] Verifier - check email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 180],
+      "onError": "continueRegularOutput",
+      "notes": "Swap URL and body for ZeroBounce or MillionVerifier if the client already pays for one."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fold the verifier verdict back onto the lead. A verifier failure leaves the lead at\n// 'unknown' rather than dropping it - a dead verifier must not silently empty the list.\nconst map = { valid: 'valid', catchall: 'risky', unknown: 'unknown', disposable: 'invalid', invalid: 'invalid' };\nconst verdicts = $input.all();\nconst leads = $('has an email?').all();\nconst out = [];\n\nfor (let i = 0; i < verdicts.length; i++) {\n  const lead = (leads[i] && leads[i].json) || {};\n  const result = String((verdicts[i].json || {}).result || 'unknown');\n  out.push({ json: Object.assign({}, lead, {\n    email_status: map[result] || 'unknown',\n    stage: 'enriched'\n  })});\n}\n\nreturn out;"
+      },
+      "id": "apply-verdict",
+      "name": "apply verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No email from Apollo. Keep the row and flag it, so template 14 can enrich it.\nreturn $input.all().map((item) => ({ json: Object.assign({}, item.json, {\n  email_status: 'unknown',\n  email_source: '',\n  stage: 'new',\n  needs_enrichment: true\n})}));"
+      },
+      "id": "flag-for-enrichment",
+      "name": "flag for enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 420]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 2, "options": {}},
+      "id": "merge-branches",
+      "name": "merge branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1160, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.email_status }}",
+              "rightValue": "invalid",
+              "operator": {"type": "string", "operation": "notEquals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "drop-invalid",
+      "name": "STOP: drop invalid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1380, 300]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["lead_id"],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-upsert",
+      "name": "[cred] Google Sheets - upsert",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1600, 200],
+      "notes": "Sheet needs a header row containing lead_id. Cross-run dedupe happens here."
+    },
+    {
+      "parameters": {},
+      "id": "dropped",
+      "name": "STOP: dropped (invalid email)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1600, 420]
+    },
+    {
+      "parameters": {
+        "content": "## 08 ICP List Builder\n\n**Set up in this order**\n1. Env vars on the n8n host: `APOLLO_API_KEY`, `VERIFIER_API_KEY`, `LEADS_SHEET_ID`.\n2. Edit **ICP definition** - the only client-specific node.\n3. Attach a Google service-account credential to the Sheets node and share the Sheet with it.\n4. Create the Sheet with a header row that includes `lead_id`.\n\n**Output:** a deduped, verified list in the `Leads` tab. Rows with `needs_enrichment: true` are what template 14 picks up.\n\nDedupe is by `lead_id` - inside a run in the Code node, across runs in Sheets appendOrUpdate.",
+        "height": 420,
+        "width": 420,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-620, -220]
+    }
+  ],
+  "connections": {
+    "Run list build": {"main": [[{"node": "ICP definition", "type": "main", "index": 0}]]},
+    "ICP definition": {"main": [[{"node": "plan pages", "type": "main", "index": 0}]]},
+    "plan pages": {"main": [[{"node": "[cred] Apollo - search people", "type": "main", "index": 0}]]},
+    "[cred] Apollo - search people": {"main": [[{"node": "normalise leads", "type": "main", "index": 0}]]},
+    "normalise leads": {"main": [[{"node": "has an email?", "type": "main", "index": 0}]]},
+    "has an email?": {
+      "main": [
+        [{"node": "[cred] Verifier - check email", "type": "main", "index": 0}],
+        [{"node": "flag for enrichment", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Verifier - check email": {"main": [[{"node": "apply verdict", "type": "main", "index": 0}]]},
+    "apply verdict": {"main": [[{"node": "merge branches", "type": "main", "index": 0}]]},
+    "flag for enrichment": {"main": [[{"node": "merge branches", "type": "main", "index": 1}]]},
+    "merge branches": {"main": [[{"node": "STOP: drop invalid", "type": "main", "index": 0}]]},
+    "STOP: drop invalid": {
+      "main": [
+        [{"node": "[cred] Google Sheets - upsert", "type": "main", "index": 0}],
+        [{"node": "STOP: dropped (invalid email)", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "leadgen"]
+}

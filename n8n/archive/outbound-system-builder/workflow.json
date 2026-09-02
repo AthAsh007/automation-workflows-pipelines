@@ -1,0 +1,337 @@
+{
+  "name": "04 Outbound System Orchestrator (daily scorecard and stall detection)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 45 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Weekday 07:45",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -820,
+        300
+      ],
+      "notes": "Runs before the sending workflow, so a stall is caught before it wastes a day."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.LEADS_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -600,
+        300
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_BASE_URL }}/api/v1/executions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "includeData",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "read-executions",
+      "name": "[cred] n8n - read recent executions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -380,
+        300
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Needs an n8n API key. Without it the scorecard still works, minus the stall check."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The scorecard. Everything here answers a question a client actually asks:\n// is the machine running, is it about to run out of leads, and is anything stuck?\nconst leads = $('[cred] Sheets - read leads').all().map((i) => i.json);\nconst execs = (($input.first().json || {}).data) || [];\n\nconst CAP = Number($env.DAILY_SEND_CAP || 80);\nconst MIN_RUNWAY_DAYS = Number($env.MIN_RUNWAY_DAYS || 5);\nconst REPLY_SLA_HOURS = Number($env.REPLY_SLA_HOURS || 24);\n\nlet stages = {};\nfor (const lead of leads) {\n  const s = String(lead.stage || 'unknown').trim() || 'unknown';\n  stages[s] = (stages[s] || 0) + 1;\n}\n\nconst sendable = leads.filter((l) =>\n  l.email &&\n  Number(l.confidence || 0) >= Number($env.MIN_CONFIDENCE || 70) &&\n  ['new', 'researched', 'enriched'].indexOf(String(l.stage || '').trim()) !== -1\n).length;\n\nconst runwayDays = CAP > 0 ? Math.floor(sendable / CAP) : 0;\nconst enrichBacklog = leads.filter((l) => !l.email && String(l.stage || '') !== 'suppressed').length;\n\n// Replies waiting on a human for longer than the SLA.\nconst now = Date.now();\nconst staleReplies = leads.filter((l) => {\n  if (String(l.stage || '') !== 'replied') return false;\n  const t = Date.parse(l.updated_at || l.received_at || '') || 0;\n  return t > 0 && (now - t) / 3600000 > REPLY_SLA_HOURS;\n}).length;\n\n// Which pipeline workflows ran in the last 24h, and did they succeed.\nlet watched = {};\ntry { watched = JSON.parse($env.PIPELINE_WORKFLOW_IDS || '{}'); } catch (e) {\n  throw new Error('PIPELINE_WORKFLOW_IDS is not valid JSON: ' + String(e.message));\n}\n\nconst dayAgo = now - 24 * 3600000;\nconst stalls = [];\nconst failures = [];\n\nfor (const label of Object.keys(watched)) {\n  const id = String(watched[label]);\n  const recent = execs.filter((e) => String(e.workflowId) === id && (Date.parse(e.startedAt || '') || 0) > dayAgo);\n  if (recent.length === 0) {\n    stalls.push(label);\n    continue;\n  }\n  const errored = recent.filter((e) => String(e.status || '') === 'error').length;\n  if (errored > 0) failures.push(label + ' (' + errored + '/' + recent.length + ' failed)');\n}\n\nconst healthy = stalls.length === 0 && failures.length === 0 && runwayDays >= MIN_RUNWAY_DAYS && staleReplies === 0;\n\nreturn [{ json: {\n  healthy: healthy,\n  stages: stages,\n  sendable: sendable,\n  runway_days: runwayDays,\n  min_runway_days: MIN_RUNWAY_DAYS,\n  enrich_backlog: enrichBacklog,\n  stale_replies: staleReplies,\n  reply_sla_hours: REPLY_SLA_HOURS,\n  stalls: stalls,\n  failures: failures,\n  executions_seen: execs.length,\n  date: new Date().toISOString().slice(0, 10)\n}}];"
+      },
+      "id": "scorecard",
+      "name": "build scorecard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format for a phone screen. Lead with the thing that needs a decision, not with a\n// wall of green ticks - a report nobody reads is the same as no report.\nconst s = $input.first().json;\nconst lines = [];\n\nlines.push((s.healthy ? ':white_check_mark:' : ':rotating_light:') + ' *Outbound system - ' + s.date + '*');\n\nif (s.stalls.length) lines.push(':rotating_light: *Did not run in 24h:* ' + s.stalls.join(', '));\nif (s.failures.length) lines.push(':x: *Errors:* ' + s.failures.join(', '));\nif (s.runway_days < s.min_runway_days) {\n  lines.push(':hourglass: *Runway ' + s.runway_days + ' days* (' + s.sendable + ' sendable leads). Below the ' + s.min_runway_days + '-day floor - build more list.');\n}\nif (s.stale_replies) {\n  lines.push(':envelope: *' + s.stale_replies + ' replies waiting over ' + s.reply_sla_hours + 'h.* This is the expensive one.');\n}\n\nif (s.healthy) lines.push('Runway ' + s.runway_days + ' days, ' + s.sendable + ' sendable, no stalls, no replies overdue.');\n\nconst byStage = Object.keys(s.stages).sort().map((k) => k + ' ' + s.stages[k]).join('  |  ');\nlines.push('_' + byStage + '_');\nif (s.enrich_backlog) lines.push('_' + s.enrich_backlog + ' rows still need an email address._');\n\nreturn [{ json: { text: lines.join('\\n'), healthy: s.healthy } }];"
+      },
+      "id": "format",
+      "name": "format scorecard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "notify",
+      "name": "[cred] Notify Slack or Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('format scorecard').first().json.healthy }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "is-unhealthy",
+      "name": "something needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PAGER_WEBHOOK_URL || $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: '<!here> outbound system needs attention:\\n' + $('format scorecard').first().json.text, content: '@here outbound system needs attention:\\n' + $('format scorecard').first().json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "page",
+      "name": "[cred] Page the owner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Set PAGER_WEBHOOK_URL to a channel someone actually has notifications on for."
+    },
+    {
+      "parameters": {},
+      "id": "all-good",
+      "name": "nothing to escalate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 04 Outbound System Orchestrator\n\nThe supervisor for the whole pipeline. Runs at 07:45, before the sender, so a stall is caught before it wastes a day.\n\n**Answers four questions every morning**\n1. Did every workflow run in the last 24h? (n8n executions API)\n2. Did any of them error?\n3. How many days of sendable leads are left at the current cap?\n4. Is any reply older than the SLA still untouched?\n\n**Env:** `N8N_BASE_URL`, `N8N_API_KEY`, `PIPELINE_WORKFLOW_IDS` (JSON of label to workflow id), `LEADS_SHEET_ID`, `DAILY_SEND_CAP`, `MIN_RUNWAY_DAYS`, `REPLY_SLA_HOURS`, `MIN_CONFIDENCE`, `ALERT_WEBHOOK_URL`, `PAGER_WEBHOOK_URL`.\n\n**Get the workflow ids** from each workflow's URL in n8n, then set:\n`{\"08 list build\":\"aBc123\",\"12 sender\":\"dEf456\",\"03 replies\":\"gHi789\"}`\n\nWithout an n8n API key the scorecard still works - it just cannot detect stalls.",
+        "height": 520,
+        "width": 460,
+        "color": 3
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        -340
+      ]
+    }
+  ],
+  "connections": {
+    "Weekday 07:45": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read leads": {
+      "main": [
+        [
+          {
+            "node": "[cred] n8n - read recent executions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] n8n - read recent executions": {
+      "main": [
+        [
+          {
+            "node": "build scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build scorecard": {
+      "main": [
+        [
+          {
+            "node": "format scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format scorecard": {
+      "main": [
+        [
+          {
+            "node": "[cred] Notify Slack or Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Notify Slack or Discord": {
+      "main": [
+        [
+          {
+            "node": "something needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "something needs a human?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Page the owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "nothing to escalate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "acme",
+    "ops"
+  ]
+}

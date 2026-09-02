@@ -1,0 +1,14 @@
+{
+  "_comment": "Paste this into the 'Job order created' webhook, or POST it to /webhook/meridian-job-order. Bullhorn shape: nested address, publicDescription, owner. Note skillList is DELIBERATELY EMPTY - this is the common case, and it is what makes the AI reader earn its place. Set AI_API_KEY in config and the required skills come out of the prose instead.",
+
+  "id": "JO-8842",
+  "title": "Forklift Operator",
+  "publicDescription": "Distribution centre in Calder City is hiring experienced forklift operators for first shift, Monday to Friday, 6am to 2:30pm. Sit-down and stand-up reach trucks. RF scanner experience preferred. OSHA certification a plus. Must be able to lift 50lbs and pass a background check.",
+  "skillList": "",
+  "address": { "city": "Calder City", "state": "MW", "zip": "43219" },
+  "payRate": "22.50",
+  "customText1": "1st shift, Mon-Fri",
+  "employmentType": "Contract",
+  "isOpen": true,
+  "owner": { "id": 442, "name": "Dana Reyes", "email": "dana.reyes@example.com" }
+}

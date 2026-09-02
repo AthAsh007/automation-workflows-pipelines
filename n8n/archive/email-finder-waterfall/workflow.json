@@ -1,0 +1,297 @@
+{
+  "name": "14 Enrichment Waterfall (Clay or webhook to verified email)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enrich",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook - enrich request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-760, 300],
+      "webhookId": "enrich-webhook",
+      "notes": "Point a Clay HTTP API column here, or call it from template 08."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One input shape for the whole waterfall, whatever the caller sent.\nreturn $input.all().map((item) => {\n  const b = item.json.body || item.json;\n  let domain = String(b.domain || b.company_domain || '').toLowerCase().trim();\n  domain = domain.split('//').pop().split('/')[0];\n  if (domain.startsWith('www.')) domain = domain.slice(4);\n\n  const first = String(b.first_name || '').trim();\n  const last = String(b.last_name || '').trim();\n\n  return { json: {\n    lead_id: b.lead_id || '',\n    first_name: first,\n    last_name: last,\n    full_name: (first + ' ' + last).trim(),\n    company: b.company || '',\n    domain: domain,\n    linkedin_url: b.linkedin_url || '',\n    callback_url: b.callback_url || '',\n    email: '',\n    email_source: '',\n    email_status: 'unknown',\n    confidence: 0,\n    tried: []\n  }};\n});"
+      },
+      "id": "normalise-request",
+      "name": "normalise request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-540, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "Cache-Control", "value": "no-cache"},
+            {"name": "x-api-key", "value": "={{ $env.APOLLO_API_KEY }}"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, domain: $json.domain, organization_name: $json.company, linkedin_url: $json.linkedin_url }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "apollo-match",
+      "name": "[cred] Apollo - match person",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-320, 300],
+      "onError": "continueRegularOutput",
+      "notes": "Step 1 of the waterfall. No match is a normal outcome, not an error."
+    },
+    {
+      "parameters": {
+        "jsCode": "// One lead per request - Clay calls this once per row - so there is exactly one item.\n// Read Apollo without letting a locked placeholder through as if it were an address.\nconst lead = Object.assign({}, $('normalise request').first().json);\nconst person = ($input.first().json || {}).person || {};\nconst email = String(person.email || '');\nconst usable = email.includes('@') && !email.includes('email_not_unlocked');\n\nlead.tried = (lead.tried || []).concat(['apollo']);\nif (usable) {\n  lead.email = email;\n  lead.email_source = 'apollo';\n}\nif (!lead.title && person.title) lead.title = person.title;\n\nreturn [{ json: lead }];"
+      },
+      "id": "read-apollo",
+      "name": "read Apollo result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-100, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "apollo-found",
+      "name": "Apollo found one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [120, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.rocketreach.co/api/v2/person/lookup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Api-Key", "value": "={{ $env.ROCKETREACH_API_KEY }}"}]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "name", "value": "={{ $json.full_name }}"},
+            {"name": "current_employer", "value": "={{ $json.company }}"},
+            {"name": "linkedin_url", "value": "={{ $json.linkedin_url }}"}
+          ]
+        },
+        "options": {"timeout": 30000}
+      },
+      "id": "rocketreach",
+      "name": "[cred] RocketReach - lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [340, 440],
+      "onError": "continueRegularOutput",
+      "notes": "Step 2. Only runs when Apollo came back empty."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prefer a professional address over a personal one, and skip the grades RocketReach\n// itself has no confidence in - a graded-F address is not a finding.\nconst lead = Object.assign({}, $('read Apollo result').first().json);\nconst res = $input.first().json || {};\nconst emails = Array.isArray(res.emails) ? res.emails : [];\n\nconst professional = emails.find((e) => e.email && e.type === 'professional' && e.grade !== 'F');\nconst fallback = emails.find((e) => e.email && e.grade !== 'F');\nconst picked = professional || fallback;\n\nlead.tried = (lead.tried || []).concat(['rocketreach']);\nif (picked) {\n  lead.email = picked.email;\n  lead.email_source = 'rocketreach';\n}\n\nreturn [{ json: lead }];"
+      },
+      "id": "read-rocketreach",
+      "name": "read RocketReach result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 440]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "rr-found",
+      "name": "RocketReach found one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [780, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step 3, and the honest one: a pattern guess is a hypothesis, not a contact.\n// It only survives if the verifier independently says the mailbox exists.\nreturn $input.all().map((item) => {\n  const lead = Object.assign({}, item.json);\n  const f = String(lead.first_name || '').toLowerCase();\n  const l = String(lead.last_name || '').toLowerCase();\n  const d = lead.domain;\n\n  lead.tried = (lead.tried || []).concat(['pattern']);\n\n  if (f && l && d) {\n    lead.email = f + '.' + l + '@' + d;\n    lead.email_source = 'pattern';\n  }\n\n  return { json: lead };\n});"
+      },
+      "id": "guess-pattern",
+      "name": "guess pattern (unverified)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 560]
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 3, "options": {}},
+      "id": "collect-candidates",
+      "name": "collect candidates",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1220, 340]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.neverbounce.com/v4/single/check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $env.VERIFIER_API_KEY, email: $json.email }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "verify",
+      "name": "[cred] Verifier - check email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 340],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Confidence combines where the address came from with what the verifier said.\n// A pattern guess the verifier will not confirm is discarded, not downgraded - handing\n// a client a plausible-looking guess is how a sending domain gets burned.\nconst statusOf = { valid: 'valid', catchall: 'risky', unknown: 'unknown', disposable: 'invalid', invalid: 'invalid' };\nconst sourceWeight = { apollo: 70, rocketreach: 65, pattern: 25 };\nconst statusWeight = { valid: 30, risky: 5, unknown: 0, invalid: -100 };\n\nconst lead = Object.assign({}, $('collect candidates').first().json);\nconst result = String(($input.first().json || {}).result || 'unknown');\nconst status = statusOf[result] || 'unknown';\n\nlet confidence = (sourceWeight[lead.email_source] || 0) + (statusWeight[status] || 0);\nif (confidence < 0) confidence = 0;\nif (confidence > 100) confidence = 100;\n\nconst guessUnconfirmed = lead.email_source === 'pattern' && status !== 'valid';\nif (status === 'invalid' || guessUnconfirmed) {\n  lead.email = '';\n  lead.email_source = '';\n  confidence = 0;\n}\n\nlead.email_status = lead.email ? status : 'unknown';\nlead.confidence = confidence;\nlead.stage = lead.email ? 'enriched' : 'new';\nlead.enriched_at = new Date().toISOString();\n\nreturn [{ json: lead }];"
+      },
+      "id": "score-confidence",
+      "name": "score confidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.callback_url }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-callback",
+      "name": "caller wants a callback?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1880, 340]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "post-callback",
+      "name": "POST result to callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2100, 240],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('score confidence').item.json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2320, 340]
+    },
+    {
+      "parameters": {
+        "content": "## 14 Enrichment Waterfall\n\nApollo, then RocketReach, then a pattern guess - and the guess only counts if the verifier confirms it.\n\n**Wiring Clay:** add an **HTTP API** column, POST to this webhook, body `{\"lead_id\":\"{{Lead ID}}\",\"first_name\":\"{{First Name}}\",\"last_name\":\"{{Last Name}}\",\"domain\":\"{{Domain}}\",\"company\":\"{{Company}}\"}`. Clay reads the response body straight back into columns.\n\n**Env:** `APOLLO_API_KEY`, `ROCKETREACH_API_KEY`, `VERIFIER_API_KEY`.\n\n**Confidence:** source weight plus verifier verdict, 0-100. Anything at 0 means we found nothing we would stand behind - return the blank rather than a guess.\n\n**Cost:** one verifier credit (~US$0.004) per lead, plus provider credits only for the steps that actually ran.",
+        "height": 480,
+        "width": 460,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-760, -280]
+    }
+  ],
+  "connections": {
+    "Webhook - enrich request": {"main": [[{"node": "normalise request", "type": "main", "index": 0}]]},
+    "normalise request": {"main": [[{"node": "[cred] Apollo - match person", "type": "main", "index": 0}]]},
+    "[cred] Apollo - match person": {"main": [[{"node": "read Apollo result", "type": "main", "index": 0}]]},
+    "read Apollo result": {"main": [[{"node": "Apollo found one?", "type": "main", "index": 0}]]},
+    "Apollo found one?": {
+      "main": [
+        [{"node": "collect candidates", "type": "main", "index": 0}],
+        [{"node": "[cred] RocketReach - lookup", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] RocketReach - lookup": {"main": [[{"node": "read RocketReach result", "type": "main", "index": 0}]]},
+    "read RocketReach result": {"main": [[{"node": "RocketReach found one?", "type": "main", "index": 0}]]},
+    "RocketReach found one?": {
+      "main": [
+        [{"node": "collect candidates", "type": "main", "index": 1}],
+        [{"node": "guess pattern (unverified)", "type": "main", "index": 0}]
+      ]
+    },
+    "guess pattern (unverified)": {"main": [[{"node": "collect candidates", "type": "main", "index": 2}]]},
+    "collect candidates": {"main": [[{"node": "[cred] Verifier - check email", "type": "main", "index": 0}]]},
+    "[cred] Verifier - check email": {"main": [[{"node": "score confidence", "type": "main", "index": 0}]]},
+    "score confidence": {"main": [[{"node": "caller wants a callback?", "type": "main", "index": 0}]]},
+    "caller wants a callback?": {
+      "main": [
+        [{"node": "POST result to callback", "type": "main", "index": 0}],
+        [{"node": "Respond", "type": "main", "index": 0}]
+      ]
+    },
+    "POST result to callback": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "leadgen", "clay"]
+}

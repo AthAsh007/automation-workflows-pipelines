@@ -1,0 +1,12 @@
+{
+  "_comment": "Edit this file, not run.py. The 'unknown' bucket is added automatically if you leave it out.",
+  "buckets": [
+    { "id": "billing",        "rule": "About money already charged or about to be: an invoice, a refund, a failed payment, a plan change, a price question." },
+    { "id": "bug",            "rule": "Something that used to work, or is documented to work, does not. The message describes what happened and what was expected." },
+    { "id": "how_to",         "rule": "The product can do this and the person cannot find how. No claim that anything is broken." },
+    { "id": "feature_request","rule": "The product cannot do this and the person wants it to." },
+    { "id": "account_access", "rule": "Cannot sign in, locked out, lost a second factor, needs a seat added or removed." },
+    { "id": "abuse_report",   "rule": "Reports another user, spam, or content that breaks the rules." },
+    { "id": "spam",           "rule": "Unsolicited sales, SEO or link-building outreach sent to the support address." }
+  ]
+}

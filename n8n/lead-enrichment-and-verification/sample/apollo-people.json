@@ -1,0 +1,181 @@
+{
+  "_comment": "Keyed by the domain (or the organisation name where the raw row had no website). Each value is an Apollo mixed_people/search response body, trimmed to the fields the workflow reads.",
+
+  "northgate-health.example": {
+    "people": [
+      {
+        "name": "Delia Wexford",
+        "first_name": "Denise",
+        "last_name": "Wexford",
+        "title": "Director of Case Management",
+        "email": "denise.whitfield@northgate-health.example",
+        "email_status": "verified",
+        "linkedin_url": "https://linkedin.com/in/denise-whitfield-example",
+        "phone_numbers": [{ "sanitized_number": "+16145550121" }]
+      },
+      {
+        "name": "Tom Lees",
+        "first_name": "Tom",
+        "last_name": "Lees",
+        "title": "Transitions of Care Coordinator",
+        "email": "email_not_unlocked@domain.com",
+        "email_status": "unavailable"
+      },
+      {
+        "name": "Milo Rayburn",
+        "first_name": "Marcus",
+        "last_name": "Reilly",
+        "title": "Discharge Planner, Inpatient Behavioral Health",
+        "email": "marcus.reilly@northgate-health.example",
+        "email_status": "guessed",
+        "phone_numbers": []
+      },
+      {
+        "name": "Alena Prosper",
+        "first_name": "Angela",
+        "last_name": "Prosper",
+        "title": "Billing Manager",
+        "email": "angela.prine@northgate-health.example",
+        "email_status": "verified"
+      }
+    ]
+  },
+
+  "jfs.lakeshore-county.example": {
+    "people": [
+      {
+        "name": "Kiran Rasmussen",
+        "first_name": "Keith",
+        "last_name": "Ramos",
+        "title": "Program Director, Adult Protective Services",
+        "email": "keith.ramos@jfs.lakeshore-county.example",
+        "email_status": "verified",
+        "phone_numbers": [{ "raw_number": "614-555-0101" }]
+      },
+      {
+        "name": "",
+        "first_name": "",
+        "last_name": "",
+        "title": "Intake Coordinator",
+        "email": "info@jfs.lakeshore-county.example",
+        "email_status": "verified"
+      }
+    ]
+  },
+
+  "harborview-recovery.example": {
+    "people": [
+      {
+        "name": "Perla Ovett",
+        "first_name": "Priscilla",
+        "last_name": "Owens",
+        "title": "Executive Director",
+        "email": "powens@harborview-recovery.example",
+        "email_status": "verified",
+        "phone_numbers": [{ "sanitized_number": "+16145550140" }]
+      },
+      {
+        "name": "Dara Kellen",
+        "first_name": "Dana",
+        "last_name": "Kirk",
+        "title": "Intake Coordinator",
+        "email": "dkirk@harborview-recovery.example",
+        "email_status": "guessed"
+      }
+    ]
+  },
+
+  "community-action.example": {
+    "people": [
+      {
+        "name": "Remy Batiste",
+        "first_name": "Renee",
+        "last_name": "Baptiste",
+        "title": "Program Director, Family Stability",
+        "email": "rbaptiste@community-action.example",
+        "email_status": "guessed",
+        "phone_numbers": [{ "raw_number": "614-555-0179" }]
+      }
+    ]
+  },
+
+  "southside-services.example": {
+    "people": [
+      {
+        "name": "Gareth Nolan",
+        "first_name": "Gregory",
+        "last_name": "Nash",
+        "title": "Director of Nursing",
+        "email": "gnash@southside-services.example",
+        "email_status": "verified",
+        "phone_numbers": [{ "sanitized_number": "+16145550191" }]
+      },
+      {
+        "name": "Yara Freemont",
+        "first_name": "Yolanda",
+        "last_name": "Freeman",
+        "title": "Care Coordinator",
+        "email": "yfreeman@southside-services.example",
+        "email_status": "guessed"
+      }
+    ]
+  },
+
+  "Bridgeway House": {
+    "people": [
+      {
+        "name": "Leah Cortez",
+        "first_name": "Lisa",
+        "last_name": "Cortez",
+        "title": "Director of Admissions",
+        "email": "lisa.cordero@bridgeway-house.example",
+        "email_status": "verified",
+        "phone_numbers": [{ "raw_number": "513-555-0100" }]
+      }
+    ]
+  },
+
+  "adm-board.example": {
+    "people": [
+      {
+        "name": "Arlen Whitcastle",
+        "first_name": "Aaron",
+        "last_name": "Whitcastle",
+        "title": "Clinical Director",
+        "email": "awhitcomb@adm-board.example",
+        "email_status": "verified"
+      }
+    ]
+  },
+
+  "stalefalls.example": {
+    "error": "insufficient credits on this plan",
+    "people": []
+  },
+
+  "riverbend-recovery.example": {
+    "people": [
+      {
+        "name": "Noel Boyden",
+        "first_name": "Nathan",
+        "last_name": "Boyd",
+        "title": "Program Director",
+        "email": "nboyd@riverbend-recovery.example",
+        "email_status": "verified"
+      }
+    ]
+  },
+
+  "mentorship-alliance.example": {
+    "people": [
+      {
+        "name": "Zane Norwood",
+        "first_name": "Zak",
+        "last_name": "Norwood",
+        "title": "Executive Director",
+        "email": "zak@mentorship-alliance.example",
+        "email_status": "verified"
+      }
+    ]
+  }
+}

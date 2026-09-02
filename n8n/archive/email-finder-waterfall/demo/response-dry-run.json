@@ -1,0 +1,31 @@
+{
+  "lead_id": "acme-jane-doe",
+  "lead_id_generated": false,
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "full_name": "Jane Doe",
+  "title": "",
+  "company": "Acme Pte Ltd",
+  "domain": "acme.example",
+  "linkedin_url": "https://www.linkedin.com/in/jane-doe",
+  "email": "",
+  "email_source": "",
+  "email_status": "unknown",
+  "confidence": 0,
+  "tried": [
+    "pattern"
+  ],
+  "providers_skipped": [
+    "apollo",
+    "rocketreach",
+    "verifier"
+  ],
+  "stage": "new",
+  "recommended_action": "do_not_send",
+  "verification": {
+    "verifier": "none",
+    "verdict": "unverified",
+    "raw": null
+  },
+  "enriched_at": "2026-08-24T09:15:04.318Z"
+}

@@ -1,0 +1,776 @@
+{
+  "name": "09 Booking and Show-up (confirm, remind, recover no-shows)",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// config - the only node you edit.\n//\n// Nothing in this workflow reads $env, so it behaves identically on self-hosted\n// n8n and on n8n Cloud, needs no N8N_BLOCK_ENV_ACCESS_IN_NODE, and a threshold\n// change costs a save rather than a host restart.\n//\n// Leave a key blank and that step is SKIPPED, not failed:\n//   LLM_API_KEY        blank -> the plain confirmation fallback is used\n//   GHL_API_TOKEN      blank -> confirmations and reminders are not sent\n//   LEADS_SHEET_ID     blank -> nothing is written to Sheets\n//   ALERT_WEBHOOK_URL  blank -> no booking / calls-desk notifications\n//\n// LEADS_SHEET_ID is the only required value - fill in your Google Sheet ID.\n// ---------------------------------------------------------------------------\n\nconst LLM_BASE_URL = 'https://llm.acme.example';\nconst LLM_API_KEY = '';\nconst LLM_MODEL = 'modelark/seed-2-0-pro-260328';\nconst LLM_MODEL_WRITER = 'modelark/seed-2-0-pro-260328';\nconst SENDER_INTRO = 'automation for SME operations';\n\nconst GHL_API_TOKEN = '';\n\nconst LEADS_SHEET_ID = 'YOUR_GOOGLE_SHEET_ID';\n\n// Hours after the start time before an unmarked booking counts as a no-show.\nconst NOSHOW_GRACE_HOURS = 4;\n\n// Where booking events and the daily calls desk get posted.\nconst ALERT_WEBHOOK_URL = '';\n\n// ---------------------------------------------------------------------------\n// derived - nothing below here needs editing\n// ---------------------------------------------------------------------------\n\nconst llmApiKey = String(LLM_API_KEY || '').trim();\nconst ghlApiToken = String(GHL_API_TOKEN || '').trim();\nconst leadsSheetId = String(LEADS_SHEET_ID || '').trim();\nconst alertWebhookUrl = String(ALERT_WEBHOOK_URL || '').trim();\nconst llmModelWriter = String(LLM_MODEL_WRITER || '').trim() || String(LLM_MODEL || '').trim();\n\nreturn [{\n  json: {\n    llm_base_url: String(LLM_BASE_URL || '').trim().replace(/\\/+$/, ''),\n    llm_api_key: llmApiKey,\n    llm_model: String(LLM_MODEL || '').trim(),\n    llm_model_writer: llmModelWriter,\n    sender_intro: String(SENDER_INTRO || 'automation for SME operations').trim(),\n\n    ghl_api_token: ghlApiToken,\n    leads_sheet_id: leadsSheetId,\n    noshow_grace_hours: Number(NOSHOW_GRACE_HOURS) || 4,\n    alert_webhook_url: alertWebhookUrl,\n\n    llm_enabled: llmApiKey !== '',\n    ghl_enabled: ghlApiToken !== '',\n    sheets_enabled: leadsSheetId !== '' && leadsSheetId !== 'YOUR_GOOGLE_SHEET_ID',\n    notify_enabled: alertWebhookUrl !== ''\n  }\n}];"
+      },
+      "id": "config",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        200
+      ],
+      "notes": "The only node you edit. Blank key = that step is skipped, not failed. LEADS_SHEET_ID is the one required value."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-booking",
+      "name": "Webhook - calendar event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        200
+      ],
+      "webhookId": "booking-webhook",
+      "notes": "Cal.com: BOOKING_CREATED / BOOKING_CANCELLED. GHL: AppointmentCreate / AppointmentDelete."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cal.com, Calendly and GHL all describe a booking differently. One shape from here on.\nreturn $input.all().map((item) => {\n  const b = item.json.body || item.json;\n  const payload = b.payload || b;\n  const attendee = (payload.attendees && payload.attendees[0]) || {};\n\n  const email = String(\n    attendee.email || payload.email || payload.contact_email || b.email || ''\n  ).toLowerCase().trim();\n\n  const startsAt = payload.startTime || payload.start_time || payload.startsAt || payload.appointmentStartTime || '';\n  const triggerEvent = String(b.triggerEvent || b.type || b.event || '').toLowerCase();\n\n  const cancelled = triggerEvent.indexOf('cancel') !== -1 || triggerEvent.indexOf('delete') !== -1;\n  const rescheduled = triggerEvent.indexOf('reschedul') !== -1;\n\n  return { json: {\n    booking_id: payload.uid || payload.id || b.id || (email + '-' + startsAt),\n    lead_id: (payload.metadata && payload.metadata.lead_id) || b.lead_id || email,\n    email: email,\n    name: attendee.name || payload.name || '',\n    company: (payload.metadata && payload.metadata.company) || b.company || '',\n    starts_at: startsAt,\n    timezone: attendee.timeZone || payload.timezone || 'Asia/Singapore',\n    event_type: cancelled ? 'cancelled' : (rescheduled ? 'rescheduled' : 'created'),\n    ghl_contact_id: (payload.metadata && payload.metadata.ghl_contact_id) || '',\n    received_at: new Date().toISOString()\n  }};\n});"
+      },
+      "id": "normalise-booking",
+      "name": "normalise booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "cancelled",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "is-booked",
+      "name": "still on the calendar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.llm_base_url }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.llm_api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.llm_model_writer, max_tokens: 2000, stream: false, messages: [{ role: 'system', content: 'You write a two-line confirmation for a booked sales call. Line one confirms the time in their words. Line two says the one thing you will cover, phrased as a question they would want answered. No agenda list, no \"looking forward to connecting\", no attachments, nothing that reads like a template. Under 45 words total. Return only the message.' }, { role: 'user', content: 'Name: ' + $json.name + '\\nCompany: ' + $json.company + '\\nTime: ' + $json.starts_at + ' (' + $json.timezone + ')\\nWhat we sell: ' + $('config').first().json.sender_intro }] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "prep-note",
+      "name": "[cred] LLM - write the confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -220,
+        100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fall back to a plain confirmation if the model call failed. A booking must always\n// get a confirmation - that message is most of the reason people show up.\nconst bookings = $('still on the calendar?').all();\nconst out = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const booking = Object.assign({}, bookings[i].json);\n  const res = $input.all()[i].json || {};\n  const written = String(((((res.choices || [])[0]) || {}).message || {}).content || '').trim();\n\n  booking.confirmation = written\n    ? written\n    : 'Confirmed for ' + booking.starts_at + '. I will come with one question about how your team handles this today.';\n\n  booking.stage = 'booked';\n  booking.reminder_sent = 'no';\n  booking.outcome = '';\n  out.push({ json: booking });\n}\n\nreturn out;"
+      },
+      "id": "attach-confirmation",
+      "name": "attach confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/conversations/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Version",
+              "value": "2021-04-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.ghl_api_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'Email', contactId: $json.ghl_contact_id, subject: 'Confirmed - ' + $json.starts_at, html: '<p>' + $json.confirmation + '</p>' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-confirmation",
+      "name": "[cred] GHL - send confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Skipped harmlessly when the booking carries no ghl_contact_id."
+    },
+    {
+      "parameters": {
+        "jsCode": "// A cancellation is not a loss. Put them back in the pipeline with a re-book task\n// rather than letting the row die at 'cancelled'.\nreturn $input.all().map((item) => ({ json: Object.assign({}, item.json, {\n  stage: 'replied',\n  outcome: 'cancelled',\n  rebook_due: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),\n  reminder_sent: 'n/a'\n})}));"
+      },
+      "id": "handle-cancel",
+      "name": "queue a re-book",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "merge-booking",
+      "name": "merge booking paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "booking_id"
+          ],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-booking",
+      "name": "[cred] Sheets - upsert booking",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.alert_webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: ($('merge booking paths').item.json.event_type === 'cancelled' ? ':x: *Cancelled* - ' : ':calendar: *Booked* - ') + $('merge booking paths').item.json.name + ' (' + $('merge booking paths').item.json.company + ') ' + $('merge booking paths').item.json.starts_at, content: ($('merge booking paths').item.json.event_type === 'cancelled' ? 'Cancelled - ' : 'Booked - ') + $('merge booking paths').item.json.name + ' ' + $('merge booking paths').item.json.starts_at }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "notify-booking",
+      "name": "[cred] Notify the booking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -880,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-bookings",
+      "name": "[cred] Sheets - read bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -660,
+        620
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Two jobs: remind tomorrow's calls, and close out yesterday's that nobody marked.\n// An unmarked past booking is treated as a no-show after a grace period, because the\n// alternative - assuming it went fine - is how pipelines fill up with ghosts.\nconst GRACE_HOURS = Number($('config').first().json.noshow_grace_hours || 4);\nconst now = Date.now();\nconst out = [];\n\nfor (const item of $input.all()) {\n  const b = item.json;\n  const starts = Date.parse(b.starts_at || '') || 0;\n  if (!starts) continue;\n  if (String(b.outcome || '')) continue;\n\n  const hoursAway = (starts - now) / 3600000;\n\n  if (hoursAway > 0 && hoursAway <= 24 && String(b.reminder_sent || 'no') === 'no') {\n    out.push({ json: Object.assign({}, b, { action: 'remind' }) });\n    continue;\n  }\n\n  if (hoursAway < -GRACE_HOURS) {\n    out.push({ json: Object.assign({}, b, { action: 'noshow' }) });\n  }\n}\n\nif (out.length === 0) return [{ json: { action: 'none' } }];\nreturn out;"
+      },
+      "id": "classify-due",
+      "name": "reminders and no-shows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "remind",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "is-reminder",
+      "name": "reminder due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/conversations/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Version",
+              "value": "2021-04-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.ghl_api_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'Email', contactId: $json.ghl_contact_id, subject: 'Tomorrow - ' + $json.starts_at, html: '<p>Quick reminder about tomorrow at ' + $json.starts_at + ' (' + $json.timezone + ').</p><p>If something has come up, reply and we will move it - no need to cancel and rebook.</p>' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-reminder",
+      "name": "[cred] GHL - send reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        520
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Offering to move it beats asking them to confirm. Fewer silent no-shows."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark reminded so tomorrow's run does not send it twice.\nconst source = $('reminder due?').all();\nreturn source.map((item) => ({ json: {\n  booking_id: item.json.booking_id,\n  reminder_sent: 'yes',\n  reminder_sent_at: new Date().toISOString()\n}}));"
+      },
+      "id": "mark-reminded",
+      "name": "mark reminded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No-shows. Set the outcome and a re-book date; the sales person gets a nudge, and\n// the lead is not silently abandoned. 'none' items pass through untouched.\nreturn $input.all()\n  .filter((item) => item.json.action === 'noshow')\n  .map((item) => ({ json: {\n    booking_id: item.json.booking_id,\n    lead_id: item.json.lead_id,\n    outcome: 'no_show',\n    rebook_due: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),\n    closed_at: new Date().toISOString()\n  }}));"
+      },
+      "id": "mark-noshow",
+      "name": "mark no-shows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "merge-daily",
+      "name": "merge daily paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        440,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('config').first().json.leads_sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "booking_id"
+          ],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-daily",
+      "name": "[cred] Sheets - write outcomes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        620
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Morning line for the sales person. Silent when there is nothing on.\nlet reminded = [];\nlet noshows = [];\ntry { reminded = $('mark reminded').all(); } catch (e) { reminded = []; }\ntry { noshows = $('mark no-shows').all(); } catch (e) { noshows = []; }\n\nif (!reminded.length && !noshows.length) return [];\n\nconst lines = [':calendar: *Calls desk*'];\nif (reminded.length) lines.push(reminded.length + ' reminder' + (reminded.length === 1 ? '' : 's') + ' sent for today and tomorrow.');\nif (noshows.length) lines.push(':ghost: *' + noshows.length + ' no-show' + (noshows.length === 1 ? '' : 's') + ' closed out.* Re-book task due in two days - they are in the Bookings tab with `outcome: no_show`.');\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "daily-summary",
+      "name": "daily summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        620
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.alert_webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "notify-daily",
+      "name": "[cred] Post the calls desk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        620
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 09 Booking and Show-up\n\nBooking a call is not the outcome. **Showing up is.** This template exists because the gap between the two is where cold-email money actually leaks.\n\n**Top chain (webhook):** a booking is confirmed within seconds with a two-line message written from what we know about them. A cancellation queues a re-book instead of dying.\n\n**Bottom chain (daily 07:00):** reminds tomorrow's calls, and closes out yesterday's that nobody marked - an unmarked past booking becomes a no-show after the grace hours in `config`, with a re-book date.\n\n**The reminder offers to move the call** rather than asking them to confirm. It produces noticeably fewer silent no-shows.\n\n**Config:** edit the `config` node at the head of the workflow - it holds the LLM endpoint/key, GHL token, Sheet ID, grace hours and webhook URLs. No env vars, no host setup. A blank key skips that step.\n\n**Sheet tab:** `Bookings` keyed on `booking_id`.",
+        "height": 500,
+        "width": 460,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        -300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - calendar event": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 07:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "normalise booking",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "[cred] Sheets - read bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalise booking": {
+      "main": [
+        [
+          {
+            "node": "still on the calendar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "still on the calendar?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - write the confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "queue a re-book",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attach confirmation": {
+      "main": [
+        [
+          {
+            "node": "[cred] GHL - send confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GHL - send confirmation": {
+      "main": [
+        [
+          {
+            "node": "merge booking paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "queue a re-book": {
+      "main": [
+        [
+          {
+            "node": "merge booking paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge booking paths": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - upsert booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - upsert booking": {
+      "main": [
+        [
+          {
+            "node": "[cred] Notify the booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read bookings": {
+      "main": [
+        [
+          {
+            "node": "reminders and no-shows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reminders and no-shows": {
+      "main": [
+        [
+          {
+            "node": "reminder due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reminder due?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GHL - send reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "mark no-shows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GHL - send reminder": {
+      "main": [
+        [
+          {
+            "node": "mark reminded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mark reminded": {
+      "main": [
+        [
+          {
+            "node": "merge daily paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mark no-shows": {
+      "main": [
+        [
+          {
+            "node": "merge daily paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge daily paths": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - write outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - write outcomes": {
+      "main": [
+        [
+          {
+            "node": "daily summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "daily summary": {
+      "main": [
+        [
+          {
+            "node": "[cred] Post the calls desk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - write the confirmation": {
+      "main": [
+        [
+          {
+            "node": "attach confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "acme",
+    "booking"
+  ]
+}

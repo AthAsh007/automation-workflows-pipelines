@@ -1,0 +1,128 @@
+# Daily partner extract, as a Kestra flow.
+#
+# Kestra's pitch is that the pipeline is data, not code: this file is the whole
+# definition, and someone who does not write Python can read it and change the
+# schedule, the thresholds or the alert target. The Python it calls is the same
+# shared/pipeline.py the other five engines use.
+#
+# Install:
+#   docker run --rm -p 8080:8080 kestra/kestra:latest server local
+#   Open http://localhost:8080, Flows, Create, paste this file.
+#
+# Backfill: open the trigger in the UI and choose a date range. Kestra generates
+# one execution per day of the range, with `trigger.date` set to that day.
+
+id: partner-extract
+namespace: company.data
+
+description: |
+  Loads one day of partner orders, validates every row, upserts the partition and
+  records four quality checks. Sends an alert only when a check fails.
+
+labels:
+  owner: data-platform
+  domain: partner
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: false
+    description: The day to load. Defaults to the trigger date, or yesterday on a manual run.
+
+  - id: drop_dir
+    type: STRING
+    defaults: /app/data/partner
+    description: Where the partner drops the daily CSV.
+
+  - id: max_null_customer_rate
+    type: FLOAT
+    defaults: 0.10
+    description: Fail the null_customer_ref check above this share of rows.
+
+  - id: max_reject_rate
+    type: FLOAT
+    defaults: 0.05
+    description: Fail the reject_rate check above this share of source rows.
+
+variables:
+  # One expression, used by every task below, so the fallback is defined once.
+  day: "{{ inputs.business_date ?? (trigger.date ?? execution.startDate | dateAdd(-1, 'DAYS')) | date('yyyy-MM-dd') }}"
+
+tasks:
+  - id: wait_for_drop
+    type: io.kestra.plugin.core.flow.WorkingDirectory
+    description: Fail fast and legibly when the partner has not dropped the file.
+    tasks:
+      - id: check_present
+        type: io.kestra.plugin.scripts.shell.Commands
+        taskRunner:
+          type: io.kestra.plugin.core.runner.Process
+        commands:
+          - |
+            FILE="{{ inputs.drop_dir }}/partner-{{ render(vars.day) }}.csv"
+            if [ ! -f "$FILE" ]; then
+              echo "no drop for {{ render(vars.day) }} at $FILE" >&2
+              exit 1
+            fi
+            wc -l "$FILE"
+
+  - id: load_and_check
+    type: io.kestra.plugin.scripts.python.Commands
+    description: Parse, validate, upsert the partition, then record the checks.
+    containerImage: python:3.12-slim
+    namespaceFiles:
+      enabled: true
+    env:
+      PIPELINE_DB: /app/data/warehouse.db
+      PYTHONPATH: /app
+    commands:
+      - >-
+        python -m shared.pipeline
+        --date {{ render(vars.day) }}
+        --source {{ inputs.drop_dir }}/partner-{{ render(vars.day) }}.csv
+        --db /app/data/warehouse.db
+        > report.txt 2>&1 || echo "checks failed" > failed.flag
+      - cat report.txt
+    outputFiles:
+      - report.txt
+      - failed.flag
+    retry:
+      type: exponential
+      maxAttempt: 3
+      interval: PT2M
+      maxInterval: PT30M
+
+  - id: alert_when_a_check_failed
+    type: io.kestra.plugin.core.flow.If
+    # `python -m shared.pipeline` exits 1 on a failing check and writes the flag.
+    # The load itself already succeeded, so this branches rather than failing.
+    condition: "{{ outputs.load_and_check.outputFiles containsKey 'failed.flag' }}"
+    then:
+      - id: notify
+        type: io.kestra.plugin.core.log.Log
+        # Swap for io.kestra.plugin.notifications.slack.SlackIncomingWebhook and
+        # give it a secret. Log keeps the flow runnable with nothing configured.
+        message: |
+          Partner extract for {{ render(vars.day) }} failed a quality check.
+          {{ read(outputs.load_and_check.outputFiles['report.txt']) }}
+        level: ERROR
+
+  - id: run_summary
+    type: io.kestra.plugin.core.log.Log
+    message: "partner-extract {{ render(vars.day) }} finished"
+
+triggers:
+  - id: daily
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 6 * * *"
+    timezone: UTC
+    # Kestra generates one execution per missed interval when a backfill is run
+    # from the UI, so a re-run of ninety days needs no change to this file.
+
+errors:
+  - id: pipeline_failed
+    type: io.kestra.plugin.core.log.Log
+    message: |
+      partner-extract failed for {{ render(vars.day) }}.
+      Task: {{ task.id }}. This is a pipeline failure, not a quality-check failure.
+    level: ERROR

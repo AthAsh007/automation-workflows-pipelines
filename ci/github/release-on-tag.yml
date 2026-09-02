@@ -1,0 +1,111 @@
+# Cut a release when a version tag is pushed.
+#
+#   git tag -a v1.4.0 -m "v1.4.0" && git push origin v1.4.0
+#
+# Two properties worth copying: the tag is verified against the version in the
+# project file before anything is published, and the job that writes has write
+# permission while the job that builds does not.
+
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: check
+        name: The tag and the project version must agree
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os, re, sys, pathlib, json
+          tag = os.environ["REF_NAME"]
+          version = tag.lstrip("v")
+
+          declared = None
+          if pathlib.Path("package.json").exists():
+              declared = json.loads(pathlib.Path("package.json").read_text())["version"]
+          elif pathlib.Path("pyproject.toml").exists():
+              text = pathlib.Path("pyproject.toml").read_text()
+              m = re.search(r'^version\s*=\s*["\']([^"\']+)', text, re.M)
+              declared = m.group(1) if m else None
+
+          if declared and declared != version:
+              print("tag %s does not match the declared version %s." % (tag, declared))
+              print("Bump the project file and re-tag; a release whose tag and")
+              print("version disagree is impossible to reason about later.")
+              sys.exit(1)
+
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a") as f:
+              f.write("version=%s\n" % version)
+              f.write("prerelease=%s\n" % ("true" if "-" in version else "false"))
+          print("releasing %s" % version)
+          PY
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install --disable-pip-version-check build
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    # Raised only for this job. The build job above cannot write to the repo.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Build the changelog from the commits since the previous tag
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          {
+            echo 'body<<CHANGELOG_EOF'
+            if [ -n "$PREV" ]; then
+              echo "### Changes since $PREV"
+              echo
+              git log --no-merges --pretty='- %s (%h)' "$PREV..$TAG"
+            else
+              echo "### First release"
+              echo
+              git log --no-merges --pretty='- %s (%h)' "$TAG"
+            fi
+            echo CHANGELOG_EOF
+          } >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.notes.outputs.body }}
+          prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
+          files: dist/*
+          fail_on_unmatched_files: false

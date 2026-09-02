@@ -1,0 +1,74 @@
+{
+  "_comment": "Scheduled jobs used by the templates in this folder. Merge the entries you need into ~/.hermes/cron/jobs.json. Replace every REPLACE_WITH_ value. no_agent: true means the script runs and its output is delivered as-is; no_agent: false means the model reads the script output using prompt_file.",
+
+  "jobs": [
+    {
+      "_template": "01 memory-architecture",
+      "name": "memory_hygiene_weekly",
+      "schedule_display": "0 21 * * 0",
+      "script": "memory_audit.py",
+      "no_agent": false,
+      "skill": "org-memory",
+      "deliver": "discord:REPLACE_WITH_OPS_CHANNEL_ID",
+      "prompt_file": "cron/memory-hygiene.prompt.md"
+    },
+    {
+      "_template": "03 customer-service-agent",
+      "name": "support_queue_sweep",
+      "schedule_display": "*/15 8-19 * * 1-5",
+      "script": "support_queue.py --unanswered",
+      "no_agent": false,
+      "skill": "customer-service",
+      "enabled_toolsets": "web",
+      "deliver": "discord:REPLACE_WITH_SUPPORT_CHANNEL_ID",
+      "prompt_file": "cron/support-triage.prompt.md"
+    },
+    {
+      "_template": "03 customer-service-agent",
+      "name": "support_sla_breach_check",
+      "schedule_display": "0 9,14 * * 1-5",
+      "script": "support_sla_check.py",
+      "no_agent": true,
+      "deliver": "discord:REPLACE_WITH_SUPPORT_LEAD_CHANNEL_ID"
+    },
+    {
+      "_template": "04 autonomous-research-agent",
+      "name": "research_brief_daily",
+      "schedule_display": "30 6 * * 1-5",
+      "script": "research_context.py",
+      "no_agent": false,
+      "skill": "autonomous-research",
+      "enabled_toolsets": "web,terminal",
+      "deliver": "discord:REPLACE_WITH_RESEARCH_CHANNEL_ID",
+      "prompt_file": "cron/research-brief.prompt.md"
+    },
+    {
+      "_template": "05 personal-assistant-setup",
+      "name": "morning_brief",
+      "schedule_display": "0 7 * * 1-5",
+      "script": "morning_context.py",
+      "no_agent": false,
+      "skill": "personal-assistant",
+      "deliver": "telegram:REPLACE_WITH_CHAT_ID",
+      "prompt_file": "cron/morning-brief.prompt.md"
+    },
+    {
+      "_template": "05 personal-assistant-setup",
+      "name": "end_of_day_close",
+      "schedule_display": "0 18 * * 1-5",
+      "script": "day_close.py",
+      "no_agent": false,
+      "skill": "personal-assistant",
+      "deliver": "telegram:REPLACE_WITH_CHAT_ID",
+      "prompt_file": "cron/day-close.prompt.md"
+    },
+    {
+      "_template": "all - reliability, see _shared/deploy.md",
+      "name": "agent_heartbeat",
+      "schedule_display": "0 * * * *",
+      "script": "heartbeat.sh",
+      "no_agent": true,
+      "deliver": "local"
+    }
+  ]
+}

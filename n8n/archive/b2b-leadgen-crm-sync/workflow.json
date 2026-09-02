@@ -1,0 +1,204 @@
+{
+  "name": "02 Clay to GHL CRM Sync (two-way, field-mapped)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}
+      },
+      "id": "schedule",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-820, 240]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-600, 240],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only sync what actually changed. Comparing updated_at against synced_at is what\n// keeps a 15-minute schedule from burning GHL API quota on 4,000 unchanged rows.\nconst SYNC_STAGES = String($env.SYNC_STAGES || 'enriched,queued,sent,replied,booked').split(',').map((s) => s.trim());\nconst out = [];\nlet skipped = 0;\n\nfor (const item of $input.all()) {\n  const row = item.json;\n  if (!row.email) { skipped++; continue; }\n  if (SYNC_STAGES.indexOf(String(row.stage || '').trim()) === -1) { skipped++; continue; }\n\n  const updated = Date.parse(row.updated_at || row.enriched_at || row.researched_at || '') || 0;\n  const synced = Date.parse(row.synced_at || '') || 0;\n  if (synced && synced >= updated) { skipped++; continue; }\n\n  out.push({ json: Object.assign({}, row, { _skipped_this_run: skipped }) });\n}\n\nif (out.length === 0) return [];\nout[0].json._skipped_this_run = skipped;\nreturn out;"
+      },
+      "id": "changed-only",
+      "name": "changed since last sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-380, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===================== THE NODE YOU EDIT PER CLIENT =====================\n// Left side: the field name in GHL. Right side: where it comes from in our lead object.\n// Anything GHL does not have a standard field for goes through GHL_CUSTOM_FIELD_MAP,\n// a JSON env var of { \"customFieldId\": \"our_field_name\" }.\n// =======================================================================\nconst STANDARD = {\n  firstName: 'first_name',\n  lastName: 'last_name',\n  email: 'email',\n  companyName: 'company',\n  website: 'domain',\n  city: 'city',\n  country: 'country'\n};\n\nlet customMap = {};\ntry { customMap = JSON.parse($env.GHL_CUSTOM_FIELD_MAP || '{}'); } catch (e) {\n  throw new Error('GHL_CUSTOM_FIELD_MAP is not valid JSON: ' + String(e.message));\n}\n\nreturn $input.all().map((item) => {\n  const lead = item.json;\n  const contact = { locationId: $env.GHL_LOCATION_ID };\n\n  for (const ghlField of Object.keys(STANDARD)) {\n    const value = lead[STANDARD[ghlField]];\n    if (value !== undefined && value !== null && String(value) !== '') contact[ghlField] = value;\n  }\n\n  contact.name = ((lead.first_name || '') + ' ' + (lead.last_name || '')).trim() || lead.email;\n  contact.source = lead.built_by || 'n8n pipeline';\n  contact.tags = ['pipeline', 'stage:' + (lead.stage || 'unknown')];\n  if (lead.fit_score >= 70) contact.tags.push('high-fit');\n\n  contact.customFields = Object.keys(customMap)\n    .filter((id) => lead[customMap[id]] !== undefined && lead[customMap[id]] !== '')\n    .map((id) => ({ id: id, value: String(lead[customMap[id]]) }));\n\n  return { json: { _lead: lead, contact: contact } };\n});"
+      },
+      "id": "field-map",
+      "name": "field map (EDIT ME)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/contacts/upsert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "Version", "value": "2021-07-28"},
+            {"name": "Authorization", "value": "=Bearer {{ $env.GHL_API_TOKEN }}"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.contact) }}",
+        "options": {"timeout": 30000, "batching": {"batch": {"batchSize": 10, "batchInterval": 1000}}}
+      },
+      "id": "ghl-upsert",
+      "name": "[cred] GHL - upsert contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [60, 240],
+      "onError": "continueRegularOutput",
+      "notes": "Batched 10 per second. GHL rate-limits at 100 requests per 10 seconds per location."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stamp what synced and what failed. A row that failed keeps its old synced_at, so\n// the next run retries it automatically - no dead-letter queue to babysit.\nconst mapped = $('field map (EDIT ME)').all();\nconst now = new Date().toISOString();\nconst out = [];\nlet failed = 0;\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const res = $input.all()[i].json || {};\n  const lead = (mapped[i] || { json: { _lead: {} } }).json._lead;\n  const contactId = (res.contact && res.contact.id) || '';\n\n  if (!contactId) { failed++; continue; }\n\n  out.push({ json: {\n    lead_id: lead.lead_id,\n    ghl_contact_id: contactId,\n    synced_at: now\n  }});\n}\n\nif (out.length) out[0].json._failed = failed;\nreturn out;"
+      },
+      "id": "stamp",
+      "name": "stamp synced rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 240]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["lead_id"],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-stamp",
+      "name": "[cred] Sheets - write sync stamp",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [500, 240],
+      "notes": "Adds ghl_contact_id and synced_at. Needs those two columns in the header row."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stay quiet when there is nothing to say. A sync that posts every 15 minutes gets\n// muted by the client inside a week, and then the failures are invisible too.\nconst synced = $input.all().length;\nconst failed = Number(($input.first().json || {})._failed || 0);\nif (failed === 0) return [];\n\nreturn [{ json: { text: ':warning: CRM sync: ' + synced + ' contacts updated, *' + failed + ' failed*. Failed rows keep their old synced_at and retry on the next run.' } }];"
+      },
+      "id": "sync-summary",
+      "name": "alert only on failures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "notify",
+      "name": "[cred] Notify Slack or Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 240],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghl-change",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-ghl",
+      "name": "Webhook - GHL change",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-820, 560],
+      "webhookId": "ghl-change-webhook",
+      "notes": "GHL Settings > Webhooks: subscribe to ContactUpdate and OpportunityStatusUpdate."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The write-back half. Whatever a human does in GHL becomes true in the Sheet, so the\n// sending workflows stop mailing someone the sales rep already spoke to.\nconst STAGE_FROM_GHL = {\n  open: 'replied',\n  won: 'booked',\n  lost: 'suppressed',\n  abandoned: 'suppressed'\n};\n\nreturn $input.all().map((item) => {\n  const b = item.json.body || item.json;\n  const contact = b.contact || b;\n  const email = String(contact.email || b.email || '').toLowerCase().trim();\n  const status = String(b.status || (b.opportunity && b.opportunity.status) || '').toLowerCase();\n\n  const patch = {\n    lead_id: contact.customFields && contact.customFields.lead_id ? contact.customFields.lead_id : (b.lead_id || email),\n    email: email,\n    ghl_contact_id: contact.id || b.contactId || '',\n    crm_owner: b.assignedTo || contact.assignedTo || '',\n    updated_at: new Date().toISOString(),\n    synced_at: new Date().toISOString()\n  };\n\n  if (STAGE_FROM_GHL[status]) patch.stage = STAGE_FROM_GHL[status];\n  if (b.pipelineStageId) patch.crm_stage_id = b.pipelineStageId;\n\n  return { json: patch };\n});"
+      },
+      "id": "normalise-ghl",
+      "name": "normalise GHL event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 560]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["lead_id"],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-back",
+      "name": "[cred] Sheets - write back CRM state",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-380, 560]
+    },
+    {
+      "parameters": {
+        "content": "## 02 Clay to GHL CRM Sync\n\nTwo chains, one workflow.\n\n**Top:** every 15 minutes, changed rows only, mapped and upserted into GHL.\n**Bottom:** GHL webhook writes the sales team's reality back into the Sheet, so no one gets emailed after a rep has already spoken to them.\n\n**The only node you edit is `field map (EDIT ME)`.** Custom fields come from `GHL_CUSTOM_FIELD_MAP`, a JSON env var of `{\"customFieldId\": \"our_field_name\"}`.\n\n**Sheet columns needed:** `ghl_contact_id`, `synced_at`, `updated_at`, `crm_owner`, `crm_stage_id`.\n\n**Quiet by design:** it only alerts when a sync fails. A workflow that posts every 15 minutes gets muted, and then real failures are invisible too.",
+        "height": 460,
+        "width": 440,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-820, -300]
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": {"main": [[{"node": "[cred] Sheets - read leads", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read leads": {"main": [[{"node": "changed since last sync", "type": "main", "index": 0}]]},
+    "changed since last sync": {"main": [[{"node": "field map (EDIT ME)", "type": "main", "index": 0}]]},
+    "field map (EDIT ME)": {"main": [[{"node": "[cred] GHL - upsert contact", "type": "main", "index": 0}]]},
+    "[cred] GHL - upsert contact": {"main": [[{"node": "stamp synced rows", "type": "main", "index": 0}]]},
+    "stamp synced rows": {"main": [[{"node": "[cred] Sheets - write sync stamp", "type": "main", "index": 0}]]},
+    "[cred] Sheets - write sync stamp": {"main": [[{"node": "alert only on failures", "type": "main", "index": 0}]]},
+    "alert only on failures": {"main": [[{"node": "[cred] Notify Slack or Discord", "type": "main", "index": 0}]]},
+    "Webhook - GHL change": {"main": [[{"node": "normalise GHL event", "type": "main", "index": 0}]]},
+    "normalise GHL event": {"main": [[{"node": "[cred] Sheets - write back CRM state", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "crm"]
+}

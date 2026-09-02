@@ -1,0 +1,89 @@
+# Annotated Hermes config baseline for the templates in this folder.
+# Copy to ~/.hermes/config.yaml, then read the notes against each block.
+# Real secrets belong in .env and are referenced as ${VAR}, never inlined here.
+
+model:
+  provider: anthropic
+  default: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # Effort controls thinking depth and spend. high is the sweet spot for agent work;
+  # drop scheduled digest jobs to low, and only raise to xhigh for genuinely hard tasks.
+  effort: high
+
+fallback_providers:
+  # A second provider is what keeps a customer-service agent (template 03) answering
+  # during an outage. Skip it for internal-only agents.
+  - provider: anthropic
+    model: claude-sonnet-5
+    api_key: ${ANTHROPIC_API_KEY}
+
+terminal:
+  backend: local
+  cwd: /home/hermes
+  timeout: 180
+
+memory:
+  # Template 01 is entirely about these four lines. Read its README before changing them.
+  memory_enabled: true
+  user_profile_enabled: true
+  # The budget, in characters, that memory may spend inside a prompt. Too high is the
+  # most common cause of "it lost the thread halfway through" - the actual question ends
+  # up buried under recalled context.
+  memory_char_limit: 2200
+  provider: ""
+
+# One entry per channel the agent is reachable on. Each channel gets its own toolset,
+# so a public channel cannot reach tools an internal one can.
+discord:
+  enabled: true
+telegram:
+  enabled: false
+
+platform_toolsets:
+  discord:
+    - hermes-discord
+  telegram:
+    - hermes-telegram
+
+dashboard:
+  host: 127.0.0.1
+  port: 9119
+
+cron:
+  # Templates 03, 04 and 05 all schedule work. Without this, their jobs.json is inert.
+  enabled: true
+
+skills:
+  curator:
+    enabled: true
+
+security:
+  redact_secrets: true
+  tirith_enabled: true
+
+privacy:
+  # Turn this on for any agent that touches customer data - template 03 in particular.
+  redact_pii: false
+
+streaming:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Per-template requirements
+#
+# 01 memory-architecture      memory.* above, plus skills/org-memory
+# 02 mcp-tool-orchestration   the mcp_servers block below
+# 03 customer-service-agent   cron.enabled, privacy.redact_pii: true, a fallback provider
+# 04 autonomous-research      cron.enabled, web toolset enabled
+# 05 personal-assistant       cron.enabled, at least one channel, dashboard reachable
+# ---------------------------------------------------------------------------
+
+mcp_servers:
+  # Template 02 owns this block. Start with one server, not five - see its README for
+  # why tool count is the thing that breaks agents.
+  # clickup:
+  #   command: npx
+  #   args: ["-y", "@clickup/mcp-server"]
+  #   env:
+  #     CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN}
+  #   enabled: true

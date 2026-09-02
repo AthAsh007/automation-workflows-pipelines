@@ -1,0 +1,1665 @@
+{
+  "name": "01 draft and approve",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual1",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1560,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "sched1",
+      "name": "Every weekday, 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1560,
+        260
+      ],
+      "notes": "08:00 Mon-Fri. The workflow's own timezone setting governs this; TIMEZONE in config governs which calendar day the log is keyed on. Set both to the same zone."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ACME LINKEDIN DAILY — CONFIG\n// Edit values only in this node. Nothing else in either workflow needs changing.\n// Both workflows carry an identical copy of this node; change one, change the other.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what\n// lets the whole pipeline be demonstrated on a screen-share before a single credential\n// exists — see LOOM.md.\n\n// ---------------------------------------------------------------- The content sheet\n// The id is the long code in the sheet's web address:\n// docs.google.com/spreadsheets/d/<THIS BIT>/edit\n//\n// Blank -> the DEMO_BANK posts below are used instead and nothing is logged. The draft is\n// still written, rendered and delivered, so the pipeline can be watched end to end with no\n// Google account attached at all.\nconst SHEET_ID = '';\nconst BANK_TAB = 'Bank';   // one row per post, in publish order. sheet/Bank.csv\nconst LOG_TAB  = 'Log';    // append-only outcome log. sheet/Log.csv\n\n// Column headings, exactly as they appear in row 1 of each tab.\nconst BANK_COLUMNS = {\n  slot:          'Slot',\n  slug:          'Slug',\n  pillar:        'Pillar',\n  category:      'Category',\n  headline:      'Headline',\n  headline_size: 'Headline size',\n  subhead:       'Subhead',\n  layout:        'Layout',\n  items:         'Items',        // JSON array — shape depends on Layout\n  band:          'Band',         // grid only\n  stat_big:      'Stat big',     // stat only\n  stat_sub:      'Stat sub',     // stat only\n  footer:        'Footer',\n  caption:       'Caption',      // blank -> written by the model, if one is configured\n  state:         'State'         // ready | posted | cancelled | holding\n};\n\nconst LOG_COLUMNS = {\n  date:       'Date',\n  slug:       'Slug',\n  slot:       'Slot',\n  status:     'Status',       // awaiting | posted | cancelled | expired | skipped | failed\n  channel_id: 'Channel id',\n  message_id: 'Message id',   // the Discord draft — how workflow 02 finds the reply\n  caption_fp: 'Caption fp',   // fingerprint of the delivered caption\n  urn:        'Post urn',\n  note:       'Note',\n  at:         'At'\n};\n\n// Only these bank states are drafted. Anything else is treated as already handled.\nconst READY_STATES = ['', 'ready'];\n\n// ---------------------------------------------------------------- When it runs\n// The schedule lives on the trigger node, not here — this is the guard that stops a manual\n// run at 11pm on a Sunday from putting a post out on a day it should not.\n// 1 = Monday ... 7 = Sunday.\nconst PUBLISH_DAYS = [1, 2, 3, 4, 5];\nconst TIMEZONE     = 'Asia/Singapore';\n\n// Design-side posts go out on Thursdays. build.js in the drafts repo enforces this at build\n// time; this is the same rule enforced again at publish time, because the bank can be\n// reordered in the sheet long after it was built.\nconst DESIGN_PILLAR_PREFIX     = 'Design process';\nconst ENFORCE_DESIGN_THURSDAY  = true;\nconst OFF_CADENCE_DESIGN_SLOTS = [6];   // slot 6 is a Friday, and went out that way on purpose\n\n// No two posts published within this many slots may share a layout or a pillar. Five is a\n// publishing week at the weekday cadence. Measured in slots, not dates.\nconst WINDOW_SLOTS = 5;\n\n// ---------------------------------------------------------------- Brand system\n// DESIGN.md is the source of record for all of this. Changing a colour here changes every\n// future render; it does not reflow anything already published.\nconst BRAND = {\n  bg:          '#050505',\n  accent:      '#DC2056',\n  white:       '#FFFFFF',\n  muted:       '#A8A8A8',\n  line:        '#303030',\n  card_border: '#262626',\n  card_bg:     '#0B0B0B',\n  font:        'Arial, Helvetica, sans-serif',\n  site:        'acme.example'\n};\n\nconst CANVAS_WIDTH  = 1080;\nconst CANVAS_HEIGHT = 1350;\nconst DEVICE_SCALE  = 2;      // 2 -> a 2160x2700 PNG from a 1080x1350 canvas\n\n// The wordmark, inlined into the template. The renderer loads the HTML with no network, so\n// nothing here may reference a file or a URL. Paste the contents of acme_logo_12.svg\n// (white wordmark, pink mark) between the quotes. Left blank the template falls back to a\n// plain text wordmark, which is visibly not the logo — on purpose. A missing logo must look\n// missing rather than quietly pass review.\nconst LOGO_SVG = '';\n\n// ---------------------------------------------------------------- The renderer\n// HTML -> PNG. n8n has no browser of its own, so this is one HTTP call out.\n//\n//   'browserless' — self-hosted, and the one to use. Add it to the same docker-compose file\n//                   n8n runs in and point RENDER_URL at http://browserless:3000. Returns\n//                   the PNG bytes directly.\n//   'hcti'        — htmlcsstoimage.com. RENDER_USER / RENDER_KEY are the API id and key.\n//                   Returns a JSON url, which the workflow then downloads.\n//   ''            -> no image. The run stops at \"STOP: renderer not configured\" and delivers\n//                    nothing, because a caption without its image is not a draft.\nconst RENDER_PROVIDER = 'browserless';\nconst RENDER_URL      = 'http://browserless:3000';\nconst RENDER_USER     = '';   // hcti only\nconst RENDER_KEY      = '';   // browserless token, or the hcti api key\n\n// A render that comes back under this many bytes is a blank or half-drawn canvas, not a\n// post. Measured against the live bank: the smallest real render is about 87 KB.\nconst MIN_PNG_BYTES = 40000;\n\n// ---------------------------------------------------------------- Discord approval\n// The channel the draft is delivered to, and the only place an approval is read from.\n//\n// ANYONE WHO CAN SEND A MESSAGE IN THIS CHANNEL CAN PUBLISH TO THE COMPANY PAGE. Use a\n// private channel created for this and nothing else — not a general channel, where one\n// person typing a common English word publishes a draft.\n//\n// The bot token goes in an n8n Discord credential, not here.\nconst DISCORD_CHANNEL_ID = '';\n\n// What a reviewer types. Matched case-insensitively against the whole message, trimmed.\n// Trailing text is NOT tolerated: \"post\" approves, \"post please\" does not, because the\n// looser the match the more ways an unrelated sentence becomes a publish.\nconst APPROVE_WORDS = ['post', 'approve', 'ship it'];\nconst CANCEL_WORDS  = ['cancel', 'reject', 'discard'];\n\n// How long a draft stays approvable. After this the day has moved on and the claims in it\n// may not have. Workflow 02 marks it expired rather than publishing it.\nconst APPROVAL_EXPIRES_HOURS = 20;\n\n// ---------------------------------------------------------------- LinkedIn\n// The organisation to post as, and the token that may post as it.\n// urn:li:organization:<id> — the id is in the page's admin URL.\nconst LINKEDIN_ORG_URN = 'urn:li:organization:96592857';\n\n// A w_organization_social token. Blank -> nothing is ever published, whatever a reviewer\n// replies; the run reaches \"STOP: not published\" and says why.\nconst LINKEDIN_ACCESS_TOKEN = '';\n\n// Probed 2026-08-18: 202512 and earlier are retired (HTTP 426 NONEXISTENT_VERSION).\n// 202601..202608 are active.\nconst LINKEDIN_VERSION = '202608';\n\n// ---------------------------------------------------------------- Writing the caption\n// Only used for a bank row whose Caption cell is empty. A row that already carries a caption\n// is delivered as written — the model never rewrites approved copy.\n//\n// Blank key -> a row with no caption is held back with a reason, never delivered bare.\nconst LLM_BASE_URL = 'https://llm.acme.example';\nconst LLM_API_KEY  = '';\nconst LLM_MODEL    = 'modelark/seed-2-0-pro-260328';\n\n// The caption rules, from the acme-linkedin-content skill. These are handed to the model\n// and are also checked in code afterwards, because a model asked for 220 words will\n// sometimes write 340 and say it wrote 220.\nconst CAPTION_MIN_WORDS = 120;\nconst CAPTION_MAX_WORDS = 220;\nconst HASHTAGS_MIN      = 4;\nconst HASHTAGS_MAX      = 6;\nconst MAX_EMOJI         = 1;\n\n// Rejected outright, in a written caption or a banked one. A caption that trips this is held\n// back with the phrase named, never quietly edited.\nconst BANNED_PHRASES = [\n  'game changer', 'game-changer', 'revolutionary', 'the future is here',\n  'cutting edge', 'cutting-edge', 'unlock the power', 'next level',\n  'fast-paced world', 'seamlessly', 'synergy', 'paradigm shift',\n  'thought leader', 'disrupt', 'skyrocket', 'supercharge',\n  'best-in-class', 'world-class', 'leverage our'\n];\n\n// Discord's hard limit on one message is 2000 characters. The caption travels in the message\n// body so the reviewer reads exactly what would be published.\nconst DISCORD_MESSAGE_LIMIT = 2000;\n\n// ---------------------------------------------------------------- Optional notification\nconst REPORT_WEBHOOK_URL = '';   // Slack incoming webhook. Blank = no notification.\n\n// ---------------------------------------------------------------- Demo bank\n// Used only when SHEET_ID is blank. Three posts, three layouts, so a screen-share shows the\n// renderer doing real work before any Google account is attached. While the demo bank is in\n// use the run is FORCED into preview: made-up content can never reach the company page.\nconst DEMO_BANK = [\n  {\n    slot: 1, slug: 'demo-map-the-failure-mode', pillar: 'Engineering insight',\n    category: 'RESILIENCE',\n    headline: 'ONE OUTAGE.<br>HOW MANY<br><em>BLOCKED TEAMS</em>?',\n    headline_size: 94,\n    subhead: 'A dependency you never wrote down is still a dependency.',\n    layout: 'timeline',\n    items: [\n      ['Ship a hotfix', 'Without the pipeline, what is your deploy path?'],\n      ['Authenticate', 'If SSO is down, who can still get in?'],\n      ['Build artifacts', 'Do they exist anywhere other than there?'],\n      ['Your assistant', 'Work stopped, or just slower?']\n    ],\n    footer: 'Map the failure mode first.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThis is what the pipeline delivers '\n      + 'for review every morning: a caption, and the image it would go out with.\\n\\nThe '\n      + 'layout, the palette and the one-accent rule come from the design system, applied '\n      + 'in code rather than retyped each time.\\n\\n#Demo #Acme'\n  },\n  {\n    slot: 2, slug: 'demo-never-approve-your-own-work',\n    pillar: 'Production AI guardrails', category: 'AI GUARDRAILS',\n    headline: 'NEVER APPROVE<br><em>YOUR OWN WORK</em>.',\n    headline_size: 90,\n    subhead: 'Four things a workflow must never read as a human saying yes.',\n    layout: 'grid',\n    items: [\n      ['Its own message', 'The draft it just posted for review'],\n      ['Another bot', 'A second agent is not a second opinion'],\n      ['Silence', 'Nobody objected is not anybody approved'],\n      ['A reaction', 'A thumbs-up is not a signature']\n    ],\n    band: 'APPROVAL IS A HUMAN, IN THE RIGHT CHANNEL.',\n    footer: 'Everything else is the system agreeing with itself.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThe approval gate in this pipeline '\n      + 'reads one channel and ignores its own messages. That is the whole guardrail.\\n\\n'\n      + '#Demo #Acme'\n  },\n  {\n    slot: 3, slug: 'demo-reporting-costs-a-day', pillar: 'AI workflow, reporting',\n    category: 'REPORTING',\n    headline: 'IT ISN’T ANALYSIS.<br>IT’S <em>COLLECTION</em>.',\n    headline_size: 92,\n    subhead: 'A day of assembling. Four minutes of reading.',\n    layout: 'cards',\n    items: [\n      ['STEP 01 · COLLECT', 'Numbers<br>assemble', 'Exports and systems pulled on a schedule.'],\n      ['STEP 02 · RECONCILE', 'Conflicts<br>surface', 'Sources that disagree get flagged, never averaged.'],\n      ['STEP 03 · DECIDE', 'Stays<br>human', 'Someone still decides which system is right.']\n    ],\n    footer: 'The judgement stays. The copying goes.',\n    caption: 'DEMO DRAFT — not for publication.\\n\\nThird layout, same build node. The '\n      + 'bank row picks the layout; nothing downstream changes.\\n\\n#Demo #Acme'\n  }\n];\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_CHANNEL_ID blank -> PREVIEW. The draft is written and rendered so\n//                                            you can look at the PNG, but it is delivered\n//                                            nowhere and published nowhere. Ships this way.\n//   TEST_RUN true,  TEST_CHANNEL_ID set   -> TEST. The draft really is delivered, to that\n//                                            channel instead of the live one, and approvals\n//                                            are read there. LinkedIn is still never\n//                                            published to.\n//   TEST_RUN false                        -> LIVE. Delivered to DISCORD_CHANNEL_ID, and an\n//                                            approval there publishes to the company page.\n//\n// Filling in TEST_CHANNEL_ID can only ever redirect a delivery. It cannot cause a publish —\n// going live is the separate, deliberate act of setting TEST_RUN = false.\nconst TEST_RUN        = true;\nconst TEST_CHANNEL_ID = '';\n\n// Hard ceiling on posts published per run. One a day is the whole design; this exists so a\n// bad batch of rows cannot become a bad batch of posts.\nconst DAILY_CAP = 1;\n\n// ---------------------------------------------------------------- derived\nconst USING_DEMO_BANK = SHEET_ID.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (TEST_CHANNEL_ID.trim() !== '' ? 'test' : 'preview');\n\n// Demo content is not a post. It cannot open the publish gate, whatever TEST_RUN says.\nconst FORCED_PREVIEW = USING_DEMO_BANK && MODE === 'live';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst CHANNEL_ID = MODE === 'test' ? TEST_CHANNEL_ID.trim() : DISCORD_CHANNEL_ID.trim();\n\nconst lower = (a) => a.map((s) => String(s).trim().toLowerCase()).filter(Boolean);\n\nreturn [{\n  json: {\n    sheet_id: SHEET_ID.trim(),\n    bank_tab: BANK_TAB,\n    log_tab:  LOG_TAB,\n    bank_columns: BANK_COLUMNS,\n    log_columns:  LOG_COLUMNS,\n    ready_states: READY_STATES.map((s) => String(s).trim().toLowerCase()),\n\n    publish_days: PUBLISH_DAYS.map(Number),\n    timezone:     TIMEZONE,\n\n    design_pillar_prefix:     DESIGN_PILLAR_PREFIX,\n    enforce_design_thursday:  ENFORCE_DESIGN_THURSDAY !== false,\n    off_cadence_design_slots: OFF_CADENCE_DESIGN_SLOTS.map(Number),\n    window_slots:             Number(WINDOW_SLOTS) || 5,\n\n    brand:         BRAND,\n    canvas_width:  Number(CANVAS_WIDTH) || 1080,\n    canvas_height: Number(CANVAS_HEIGHT) || 1350,\n    device_scale:  Number(DEVICE_SCALE) || 1,\n    logo_svg:      LOGO_SVG,\n\n    render_provider: RENDER_PROVIDER.trim().toLowerCase(),\n    render_url:      RENDER_URL.replace(/\\/+$/, ''),\n    render_user:     RENDER_USER.trim(),\n    render_key:      RENDER_KEY.trim(),\n    min_png_bytes:   Number(MIN_PNG_BYTES) || 0,\n\n    channel_id:     CHANNEL_ID,\n    approve_words:  lower(APPROVE_WORDS),\n    cancel_words:   lower(CANCEL_WORDS),\n    approval_expires_hours: Number(APPROVAL_EXPIRES_HOURS) || 20,\n    discord_message_limit:  Number(DISCORD_MESSAGE_LIMIT) || 2000,\n\n    linkedin_org_urn: LINKEDIN_ORG_URN.trim(),\n    linkedin_token:   LINKEDIN_ACCESS_TOKEN.trim(),\n    linkedin_version: LINKEDIN_VERSION,\n\n    llm_base_url: LLM_BASE_URL.replace(/\\/+$/, ''),\n    llm_api_key:  LLM_API_KEY.trim(),\n    llm_model:    LLM_MODEL,\n\n    caption_min_words: Number(CAPTION_MIN_WORDS) || 0,\n    caption_max_words: Number(CAPTION_MAX_WORDS) || 400,\n    hashtags_min:      Number(HASHTAGS_MIN) || 0,\n    hashtags_max:      Number(HASHTAGS_MAX) || 6,\n    max_emoji:         Number(MAX_EMOJI) || 0,\n    banned_phrases:    lower(BANNED_PHRASES),\n\n    report_webhook_url: REPORT_WEBHOOK_URL.trim(),\n    demo_bank:          DEMO_BANK,\n    daily_cap:          Number(DAILY_CAP) || 1,\n\n    // derived flags — every gate reads these, never the raw constants\n    mode:            MODE,\n    preview_only:    MODE === 'preview',\n    test_delivery:   MODE === 'test',\n    live_publish:    MODE === 'live' && LINKEDIN_ACCESS_TOKEN.trim() !== '',\n    sheet_enabled:   SHEET_ID.trim() !== '',\n    using_demo_bank: USING_DEMO_BANK,\n    forced_preview:  FORCED_PREVIEW,\n    render_enabled:  RENDER_PROVIDER.trim() !== '' && RENDER_URL.trim() !== '',\n    deliver_enabled: MODE !== 'preview' && CHANNEL_ID !== '',\n    llm_enabled:     LLM_API_KEY.trim() !== '',\n    report_enabled:  REPORT_WEBHOOK_URL.trim() !== '',\n    logo_present:    LOGO_SVG.trim() !== ''\n  }\n}];"
+      },
+      "id": "cfg1",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1340,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.log_tab }}"
+        },
+        "options": {}
+      },
+      "id": "read-log1",
+      "name": "[cred] Sheets - read the log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1120,
+        360
+      ],
+      "alwaysOutputData": true,
+      "notes": "alwaysOutputData is on. Without it a log holding only a header row ends the run here with a green tick and no explanation."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve today's state BEFORE anything is generated.\n//\n// A date is in exactly one of four states, and the LOG is what decides — never the presence\n// of a file, a rendered image or a Discord message:\n//\n//   nothing yet        no posted/cancelled/awaiting row for today   -> draft it\n//   awaiting approval  an `awaiting` row for today                  -> silent, one is pending\n//   posted             a `posted` row for today                     -> silent, done for the day\n//   cancelled          a `cancelled` row for today, nothing pending -> draft again\n//\n// Two rules that must not be reintroduced:\n//\n//   * A rendered image is NOT evidence of a post. It is written at draft time. Treating\n//     \"output exists\" as \"already posted\" makes a cancelled day unrecoverable.\n//   * There is NO cascade rule. \"The previous run was silent, so this one is too\" is\n//     self-perpetuating with nothing to clear it. A run is silent because TODAY's state\n//     says so, and for no other reason.\n//\n// Input: every row of the Log tab (or no rows at all, in demo mode).\n// Output: exactly one item. Always emits, so the run reaches a named STOP rather than\n// ending on a green tick with nothing said.\n\nconst cfg = $('config').first().json;\nconst L = cfg.log_columns;\n\n// Local calendar date and weekday, in the configured timezone. Doing this with Intl rather\n// than toISOString matters: a job that fires at 08:00 Singapore is still \"yesterday\" in UTC,\n// and the log would gain two rows for what a reader sees as one day.\nfunction localParts(date, tz) {\n  const f = new Intl.DateTimeFormat('en-GB', {\n    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short'\n  });\n  const p = {};\n  for (const part of f.formatToParts(date)) p[part.type] = part.value;\n  const days = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n  return {\n    date: p.year + '-' + p.month + '-' + p.day,\n    weekday: days[p.weekday] || 0,\n    weekday_name: p.weekday\n  };\n}\n\nconst now = new Date();\nconst today = localParts(now, cfg.timezone || 'UTC');\n\nconst rows = items\n  .map((i) => i.json)\n  .filter((r) => r && (r[L.date] || r[L.slug]));\n\nconst norm = (v) => String(v === undefined || v === null ? '' : v).trim();\nconst todays = rows.filter((r) => norm(r[L.date]) === today.date);\n\nconst statusOf = (r) => norm(r[L.status]).toLowerCase();\nconst posted = todays.filter((r) => statusOf(r) === 'posted');\nconst awaiting = todays.filter((r) => statusOf(r) === 'awaiting');\nconst cancelled = todays.filter((r) => statusOf(r) === 'cancelled');\n\n// Every slug that has ever been published, so the picker can never re-draft one. This is\n// read across the whole log, not just today.\nconst posted_slugs = rows\n  .filter((r) => statusOf(r) === 'posted')\n  .map((r) => norm(r[L.slug]))\n  .filter(Boolean);\n\n// The order posts actually went out in — what a reader saw, which is what the no-repeat\n// window is really measured against.\nconst posted_history = rows\n  .filter((r) => statusOf(r) === 'posted')\n  .map((r) => ({ date: norm(r[L.date]), slug: norm(r[L.slug]), slot: Number(r[L.slot]) || 0 }))\n  .sort((a, b) => (a.date < b.date ? 1 : -1))\n  .slice(0, 20);\n\nlet draftable = true;\nlet reason = '';\n\nif (!cfg.publish_days.includes(today.weekday)) {\n  draftable = false;\n  reason = today.weekday_name + ' is not a publishing day (PUBLISH_DAYS is '\n    + cfg.publish_days.join(', ') + ')';\n} else if (posted.length) {\n  draftable = false;\n  reason = 'already posted today: ' + (norm(posted[0][L.slug]) || 'unknown slug');\n} else if (posted.length >= cfg.daily_cap) {\n  draftable = false;\n  reason = 'daily cap of ' + cfg.daily_cap + ' already reached';\n} else if (awaiting.length) {\n  // Not an error and not a failure. Someone has a draft in front of them and has not\n  // answered yet; drafting a second one is how two posts go out on one day.\n  draftable = false;\n  reason = 'a draft is already awaiting approval: ' + (norm(awaiting[0][L.slug]) || 'unknown slug')\n    + ' (message ' + (norm(awaiting[0][L.message_id]) || 'unknown') + ')';\n} else if (cancelled.length) {\n  // Deliberately draftable. A cancelled draft means the reviewer wanted a different post,\n  // not that the day is over.\n  reason = 'today was cancelled earlier — drafting again';\n}\n\nreturn [{\n  json: {\n    _today: today.date,\n    _weekday: today.weekday,\n    _weekday_name: today.weekday_name,\n    _draftable: draftable,\n    _reason: reason,\n    _posted_slugs: posted_slugs,\n    _posted_history: posted_history,\n    _log_rows: rows.length,\n    _mode: cfg.mode\n  }\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "state",
+      "name": "resolve todays state",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "draftable-c",
+              "leftValue": "={{ $json._draftable }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "draftable",
+      "name": "draft today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -680,
+        360
+      ],
+      "notes": "The four-state machine in §7 of the Hermes setup doc. The LOG decides, never the presence of a rendered file."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Today is not a day to draft on. Not a failure — the state machine said so, and the\n// reason travels with the run so the execution list reads as an answer rather than a gap.\n//\n// This is where 'already posted today', 'a draft is already awaiting approval' and\n// 'not a publishing day' all land.\nconst cfg = $('config').first().json;\nconst s = $('resolve todays state').first().json;\n\nreturn [{\n  json: Object.assign({}, { _today: s._today, _weekday: s._weekday_name, _log_rows: s._log_rows }, {\n    _stopped: 'silent',\n    _mode: cfg.mode,\n    _reason: '[SILENT] ' + (s._reason || 'nothing to do today'),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-silent",
+      "name": "STOP: silent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.bank_tab }}"
+        },
+        "options": {}
+      },
+      "id": "read-bank",
+      "name": "[cred] Sheets - read the bank",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -460,
+        260
+      ],
+      "alwaysOutputData": true,
+      "notes": "Skipped entirely when SHEET_ID is blank - the demo bank in config is used instead, so the whole pipeline runs with no Google account."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pick the one post that goes out today, and prove it is allowed to.\n//\n// The bank is in publish order. Today's post is the lowest-numbered slot still `ready` that\n// has never been published — and then it has to survive three guards, all carried over from\n// build.js in the drafts repo, because a bank that was correct when it was built can be\n// reordered in a spreadsheet afterwards:\n//\n//   layout   no two posts within WINDOW_SLOTS slots share a layout\n//   pillar   no two posts within WINDOW_SLOTS slots share an argument\n//   Thursday a \"Design process\" post goes out on a Thursday, or not at all\n//\n// A guard that trips HOLDS the post and moves to the next candidate. It never rewrites the\n// bank and never silently publishes anyway — the reason travels with the run and ends up in\n// the log, so a held post is visible rather than mysteriously skipped.\n//\n// Input: every row of the Bank tab, or nothing at all when SHEET_ID is blank.\n// Output: exactly one item, always.\n\nconst cfg = $('config').first().json;\nconst state = $('resolve todays state').first().json;\nconst B = cfg.bank_columns;\n\nconst norm = (v) => String(v === undefined || v === null ? '' : v).trim();\n\n// Items may arrive as a JSON string (from a sheet cell) or as a real array (demo bank).\nfunction parseItems(v) {\n  if (Array.isArray(v)) return v;\n  const s = norm(v);\n  if (!s) return [];\n  try {\n    const parsed = JSON.parse(s);\n    return Array.isArray(parsed) ? parsed : [];\n  } catch (e) {\n    return null;   // null means malformed, which is different from empty\n  }\n}\n\nlet bank;\nif (cfg.using_demo_bank) {\n  bank = cfg.demo_bank.map((p) => Object.assign({}, p, { state: 'ready', _row: 0 }));\n} else {\n  bank = items\n    .map((i, n) => {\n      const r = i.json || {};\n      return {\n        slot: Number(r[B.slot]) || 0,\n        slug: norm(r[B.slug]),\n        pillar: norm(r[B.pillar]),\n        category: norm(r[B.category]),\n        headline: norm(r[B.headline]),\n        headline_size: Number(r[B.headline_size]) || 0,\n        subhead: norm(r[B.subhead]),\n        layout: norm(r[B.layout]).toLowerCase(),\n        items: parseItems(r[B.items]),\n        band: norm(r[B.band]),\n        stat_big: norm(r[B.stat_big]),\n        stat_sub: norm(r[B.stat_sub]),\n        footer: norm(r[B.footer]),\n        caption: String(r[B.caption] === undefined || r[B.caption] === null ? '' : r[B.caption]),\n        state: norm(r[B.state]).toLowerCase(),\n        _row: n + 2   // sheet row, for the reason string — row 1 is the headings\n      };\n    })\n    .filter((p) => p.slug);\n}\n\nbank.sort((a, b) => a.slot - b.slot);\n\n// ---------------------------------------------------------------- the three guards\nconst W = cfg.window_slots;\nconst designRe = new RegExp('^' + cfg.design_pillar_prefix.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'));\n\nfunction guards(p) {\n  const held = [];\n\n  // Layout and pillar, measured against every neighbour inside the window — published or\n  // not. What matters is what a reader sees inside a week, so a row still sitting `ready`\n  // two slots away still counts.\n  for (const q of bank) {\n    if (q.slug === p.slug) continue;\n    if (Math.abs(q.slot - p.slot) >= W) continue;\n    if (q.layout && q.layout === p.layout) {\n      held.push('layout \"' + p.layout + '\" repeats: slot ' + p.slot + ' and slot ' + q.slot\n        + ' (' + q.slug + ') are only ' + Math.abs(q.slot - p.slot) + ' apart, window is ' + W);\n    }\n    if (q.pillar && q.pillar === p.pillar) {\n      held.push('pillar \"' + p.pillar + '\" repeats: slot ' + p.slot + ' and slot ' + q.slot\n        + ' (' + q.slug + ') are only ' + Math.abs(q.slot - p.slot) + ' apart, window is ' + W);\n    }\n  }\n\n  // Thursday. build.js derives the weekday from the slot number because at build time there\n  // is no date; here there is a real one, so this checks the actual day.\n  if (cfg.enforce_design_thursday && designRe.test(p.pillar)\n      && state._weekday !== 4\n      && !cfg.off_cadence_design_slots.includes(p.slot)) {\n    held.push('pillar \"' + p.pillar + '\" goes out on Thursdays. Today is '\n      + state._weekday_name + '. Move the slot, or add ' + p.slot\n      + ' to OFF_CADENCE_DESIGN_SLOTS with a reason.');\n  }\n\n  // Structural: a row that cannot be rendered is held, not rendered wrong.\n  const LAYOUTS = ['timeline', 'cards', 'grid', 'split', 'stat', 'stack'];\n  if (!LAYOUTS.includes(p.layout)) {\n    held.push('unknown layout \"' + p.layout + '\" — one of ' + LAYOUTS.join(', '));\n  }\n  if (p.items === null) {\n    held.push('the Items cell is not valid JSON');\n  } else if (p.layout !== 'stat' && (!p.items || !p.items.length)) {\n    held.push('no items');\n  }\n  if (!p.headline) held.push('no headline');\n  if (p.layout === 'grid' && !p.band) held.push('the grid layout needs a Band');\n  if (p.layout === 'stat' && !p.stat_big) held.push('the stat layout needs a Stat big');\n\n  return held;\n}\n\n// ---------------------------------------------------------------- choose\nconst ready = bank.filter((p) =>\n  cfg.ready_states.includes(p.state) && !state._posted_slugs.includes(p.slug));\n\nconst holds = [];\nlet chosen = null;\n\nfor (const p of ready) {\n  const held = guards(p);\n  if (!held.length) { chosen = p; break; }\n  holds.push({ slot: p.slot, slug: p.slug, reasons: held });\n}\n\nif (!chosen) {\n  return [{\n    json: {\n      _has_post: false,\n      _today: state._today,\n      _reason: ready.length\n        ? 'every ready post is held: '\n          + holds.map((h) => 'slot ' + h.slot + ' ' + h.slug + ' — ' + h.reasons[0]).join('; ')\n        : 'the bank has no ready rows left — ' + bank.length + ' rows, '\n          + state._posted_slugs.length + ' already published',\n      _holds: holds,\n      _bank_size: bank.length,\n      _ready_size: ready.length\n    }\n  }];\n}\n\n// The caption decides the next branch. A row that already carries one is delivered as\n// written; the model is only ever asked for a caption that does not exist yet.\nconst caption = chosen.caption.trim();\n\n// ---------------------------------------------------------------- the writing brief\n// Built here rather than inside the HTTP node's body, so the rules the model is given are\n// readable without opening a JSON blob. These are the caption rules from the\n// acme-linkedin-content skill, and they are checked again in code afterwards — a model\n// asked for 220 words will sometimes write 340 and say it wrote 220.\nconst plain = (s) => String(s).replace(/<br\\s*\\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim();\n\nconst system = [\n  'You write LinkedIn captions for Acme, a company that builds AI workflow automation',\n  'and production systems for small and mid-sized businesses.',\n  '',\n  'Voice: specific, concrete, slightly understated. You are explaining something you have',\n  'actually built to somebody who runs a business. Short sentences. No preamble.',\n  '',\n  'Hard rules:',\n  '- ' + cfg.caption_min_words + '-' + cfg.caption_max_words + ' words, not counting hashtags.',\n  '- Open with one specific point of view, not a definition and not a question.',\n  '- Bullets only where they genuinely help scanning. Three to six if used.',\n  '- Translate any technical detail into an operational, cost, risk, speed or maintenance',\n  '  consequence. The reader does not care what the tool is called.',\n  '- Include exactly one honest trade-off or limitation. Not a disclaimer — a real one.',\n  '- Close with ONE easy-to-answer question or one specific invitation. Never two calls',\n  '  to action.',\n  '- End with ' + cfg.hashtags_min + '-' + cfg.hashtags_max + ' hashtags on the last line,',\n  '  the last of which is #Acme. At most ' + cfg.max_emoji + ' emoji in the whole caption.',\n  '',\n  'Never write: ' + cfg.banned_phrases.join(', ') + '.',\n  'Never write a long throat-clearing intro, an invented urgency, or an unsupported superlative.',\n  '',\n  'NEVER INVENT: engagement numbers, client names, outcomes, prices, timelines, headcounts,',\n  'certifications, partners or case studies. You have not been given any, so there are none',\n  'to use. Write about the mechanism, not about results you cannot support.',\n  '',\n  'Return the caption text and nothing else. No preamble, no markdown headings, no quotes',\n  'around it, no explanation of what you wrote.'\n].join('\\n');\n\nconst user = [\n  'Write the caption for this post. The image is already designed and says the following —',\n  'the caption must not simply repeat it, it should be what a person says underneath it.',\n  '',\n  'Category: ' + chosen.category,\n  'Pillar: ' + chosen.pillar,\n  'Headline on the image: ' + plain(chosen.headline),\n  'Subhead on the image: ' + chosen.subhead,\n  'Footer takeaway on the image: ' + chosen.footer,\n  '',\n  'The supporting items on the image:',\n  (chosen.items || []).map((it) => '- ' + (Array.isArray(it) ? it.map(plain).join(' — ') : plain(it))).join('\\n'),\n  chosen.band ? '\\nThe statement band on the image: ' + chosen.band : ''\n].join('\\n');\n\nreturn [{\n  json: Object.assign({}, chosen, {\n    _has_post: true,\n    _llm_system: system,\n    _llm_user: user,\n    _today: state._today,\n    _weekday_name: state._weekday_name,\n    _caption: caption,\n    _needs_caption: caption === '',\n    _caption_source: caption === '' ? 'model' : 'bank',\n    _holds: holds,\n    _bank_size: bank.length,\n    _ready_size: ready.length,\n    _reason: holds.length\n      ? 'chose slot ' + chosen.slot + ' after holding ' + holds.length + ' earlier row(s)'\n      : 'chose slot ' + chosen.slot\n  })\n}];",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "pick",
+      "name": "pick todays post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-post-c",
+              "leftValue": "={{ $json._has_post }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "has-post",
+      "name": "anything to post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -20,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nothing in the bank can go out today.\n//\n// Either every row is published, or every remaining row is held by the layout, pillar or\n// Thursday guard. Both are worth seeing: the first means somebody needs to write more\n// posts, the second means the bank's ordering has drifted and needs a reshuffle rather\n// than more content. `_holds` says which, per row.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _holds: s._holds, _bank_size: s._bank_size, _ready_size: s._ready_size }, {\n    _stopped: 'bank exhausted',\n    _mode: cfg.mode,\n    _reason: '[HELD] ' + s._reason,\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-bank",
+      "name": "STOP: bank exhausted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "need-caption-c",
+              "leftValue": "={{ $json._needs_caption && $('config').first().json.llm_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "need-caption",
+      "name": "caption needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        160
+      ],
+      "notes": "A row that already carries a caption goes straight through. The model is only ever asked for a caption that does not exist yet - it never rewrites copy a person approved."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.llm_base_url }}/v1/chat/completions",
+        "options": {
+          "timeout": 120000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.llm_api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.llm_model, stream: false, max_tokens: 1200, temperature: 0.7, messages: [{ role: 'system', content: $json._llm_system }, { role: 'user', content: $json._llm_user }] }) }}"
+      },
+      "id": "llm",
+      "name": "[cred] LLM - write the caption",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        60
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "OpenAI-compatible. stream:false matters - the gateway streams by default and n8n cannot read a streamed body. A failure here is not fatal: the next node treats a missing caption as a hold, not a crash."
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-caption",
+      "name": "one caption",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        640,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Take whichever caption we ended up with and check it against the rules.\n//\n// Two paths reach this node and both are checked identically:\n//\n//   bank   the row's Caption cell, written by a person\n//   model  whatever came back from the LLM, if one is configured\n//\n// A caption that fails is HELD, never trimmed to fit. Silently cutting a caption at 220\n// words ends a post mid-sentence, and the reviewer approves it because the top of it read\n// fine. Report the problem and deliver nothing.\n\nconst cfg = $('config').first().json;\nconst post = $('pick todays post').first().json;\n\n// The LLM node is behind an IF, so on the bank path it never ran. $json is the merge output;\n// read the model's answer defensively rather than assuming a shape.\nlet caption = post._caption || '';\nlet source = post._caption_source;\nconst problems = [];\n\nif (post._needs_caption) {\n  if (!cfg.llm_enabled) {\n    problems.push('slot ' + post.slot + ' has no caption in the bank and no model is '\n      + 'configured to write one. Fill in the Caption cell, or set LLM_API_KEY.');\n  } else {\n    // OpenAI-compatible shape, which is what the 9router gateway returns. A gateway error\n    // arrives as a 200 with an `error` key just as often as a 4xx, so check for content\n    // rather than for the absence of an error.\n    const body = $json || {};\n    const choice = (body.choices && body.choices[0]) || {};\n    const text = (choice.message && choice.message.content) || body.content || '';\n    caption = String(text).trim();\n    source = 'model';\n    if (!caption) {\n      problems.push('the model returned no caption. Response keys: '\n        + Object.keys(body).join(', ') + (body.error ? ' — ' + JSON.stringify(body.error) : ''));\n    }\n  }\n}\n\n// A model sometimes wraps the answer in a code fence or in quotes despite being told not to.\n// Unwrapping is safe and lossless; anything beyond that is editing, which this node does not do.\ncaption = caption\n  .replace(/^\\s*```[a-z]*\\s*\\n?/i, '')\n  .replace(/\\n?```\\s*$/i, '')\n  .replace(/^\\s*[\"“]([\\s\\S]+)[\"”]\\s*$/, '$1')\n  .trim();\n\n// ---------------------------------------------------------------- the checks\nconst hashtags = caption.match(/#[A-Za-z0-9_]+/g) || [];\nconst withoutTags = caption.replace(/#[A-Za-z0-9_]+/g, ' ');\nconst words = withoutTags.split(/\\s+/).filter(Boolean).length;\n\n// Surrogate pairs and the pictographic ranges. Counted rather than banned: the rule is at\n// most one, not none.\nconst emoji = (caption.match(/[‼-㊙\\u{1F000}-\\u{1FAFF}]/gu) || []).length;\n\nif (caption) {\n  if (words < cfg.caption_min_words) {\n    problems.push('caption is ' + words + ' words, the minimum is ' + cfg.caption_min_words);\n  }\n  if (words > cfg.caption_max_words) {\n    problems.push('caption is ' + words + ' words, the maximum is ' + cfg.caption_max_words);\n  }\n  if (hashtags.length < cfg.hashtags_min || hashtags.length > cfg.hashtags_max) {\n    problems.push('caption has ' + hashtags.length + ' hashtags, the rule is '\n      + cfg.hashtags_min + '-' + cfg.hashtags_max);\n  }\n  if (emoji > cfg.max_emoji) {\n    problems.push('caption has ' + emoji + ' emoji, the maximum is ' + cfg.max_emoji);\n  }\n  const lower = caption.toLowerCase();\n  for (const phrase of cfg.banned_phrases) {\n    if (lower.includes(phrase)) problems.push('caption contains the banned phrase \"' + phrase + '\"');\n  }\n}\n\n// LinkedIn \"little text\" reserved characters. '#' is deliberately NOT escaped so hashtags\n// keep working; everything else in the reserved set gets a backslash at publish time. The\n// escaping happens here, once, so the reviewer's copy and the published copy are the same\n// string with the same fingerprint.\nconst RESERVED = '\\\\|{}@[]()<>*_~';\nconst escaped = caption.split('').map((c) => (RESERVED.includes(c) ? '\\\\' + c : c)).join('');\n\n// FNV-1a. Not a security hash — it exists so workflow 02 can tell \"the caption I am about to\n// publish is the one that was approved\" from \"somebody edited the message\". require('crypto')\n// needs NODE_FUNCTION_ALLOW_BUILTIN set on the host, which is exactly the kind of thing the\n// config rule exists to avoid depending on.\nfunction fingerprint(s) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) {\n    h ^= s.charCodeAt(i);\n    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;\n  }\n  return ('0000000' + h.toString(16)).slice(-8);\n}\n\nreturn [{\n  json: Object.assign({}, post, {\n    _caption: caption,\n    _caption_escaped: escaped,\n    _caption_source: source,\n    _caption_words: words,\n    _caption_hashtags: hashtags.length,\n    _caption_fp: fingerprint(caption),\n    _caption_ok: problems.length === 0 && caption !== '',\n    _problems: problems,\n    _reason: problems.length ? problems[0] : 'caption ok (' + words + ' words, '\n      + hashtags.length + ' hashtags, from the ' + source + ')'\n  })\n}];"
+      },
+      "id": "apply-caption",
+      "name": "apply the caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "caption-ok-c",
+              "leftValue": "={{ $json._caption_ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "caption-ok",
+      "name": "caption ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The caption did not pass, so nothing is delivered.\n//\n// A caption is held for a stated reason — too long, too short, a banned phrase, the wrong\n// number of hashtags, or no model configured to write one. It is never trimmed, rewritten\n// or delivered with a warning attached. A reviewer handed a draft plus an apology approves\n// the draft.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _slot: s.slot, _words: s._caption_words, _source: s._caption_source, _problems: s._problems }, {\n    _stopped: 'caption held',\n    _mode: cfg.mode,\n    _reason: '[HELD] ' + (s._problems || []).join('; '),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-caption",
+      "name": "STOP: caption held",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the 1080x1350 HTML the renderer screenshots.\n//\n// This is the port of `render/build.js` from the drafts repo. The six layouts, the type\n// scale and the three-zone accent rule are DESIGN.md's, reproduced here so the workflow\n// renders the same picture the drafts repo does — the two are checked against each other by\n// build/simulate.js, which renders a bank row through both and diffs the HTML.\n//\n// Fully self-contained on purpose: inline CSS, inline SVG logo, no external fetch of any\n// kind. The renderer loads this with no network, so a linked font or a hosted logo is a\n// blank space in a published image.\n//\n// Where the accent may appear, and nowhere else:\n//   1. the logo mark\n//   2. one phrase inside the headline, wrapped in <em>\n//   3. the single focal element — last timeline node, last card, the band, the right split\n//      column, the stat figure, or the last bar\n// A fourth zone reads as decoration. `validate the layout` checks the count.\n\nconst cfg = $('config').first().json;\nconst p = $json;\nconst C = cfg.brand;\n\n// Bank text is authored by us and deliberately carries markup — <br> for line breaks and\n// <em> for the accent phrase. Everything else is escaped, so a stray < in a headline cannot\n// break the document.\nfunction text(v) {\n  return String(v === undefined || v === null ? '' : v)\n    .replace(/&(?!(#\\d+|#x[0-9a-f]+|[a-z]+);)/gi, '&amp;')\n    .replace(/<(?!\\/?(br|em)\\b)/gi, '&lt;');\n}\n\n// ---------------------------------------------------------------- the six layouts\nfunction timeline(rows) {\n  return '    <div class=\"timeline\">' + rows.map(([title, desc], i) => {\n    const last = i === rows.length - 1;\n    return `\n      <div class=\"titem${last ? ' last' : ''}\">\n        <div class=\"tcol\">\n          <div class=\"circle${last ? ' focal' : ''}\">0${i + 1}</div>\n          ${last ? '' : '<div class=\"tline\"></div>'}\n        </div>\n        <div class=\"tbody\">\n          <div class=\"ttitle${last ? ' focal' : ''}\">${text(title)}</div>\n          <div class=\"tdesc\">${text(desc)}</div>\n        </div>\n      </div>`;\n  }).join('') + '\\n    </div>';\n}\n\nfunction cards(rows) {\n  return '    <div class=\"cards\">' + rows.map(([eyebrow, title, desc], i) => {\n    const last = i === rows.length - 1;\n    return `\n      <div class=\"card${last ? ' focal' : ''}\">\n        <div class=\"ceyebrow\">${text(eyebrow)}</div>\n        <div class=\"ctitle${last ? ' focal' : ''}\">${text(title)}</div>\n        <div class=\"cspacer\"></div>\n        <div class=\"cdesc\">${text(desc)}</div>\n      </div>`;\n  }).join('') + '\\n    </div>';\n}\n\nfunction grid(rows, band) {\n  return '    <div class=\"grid\">' + rows.map(([title, desc]) => `\n      <div class=\"gcell\">\n        <div class=\"gx\">&times;</div>\n        <div class=\"gtitle\">${text(title)}</div>\n        <div class=\"gdesc\">${text(desc)}</div>\n      </div>`).join('') + `\n    </div>\n    <div class=\"band\">${text(band)}</div>`;\n}\n\nfunction split(rows) {\n  return '    <div class=\"split\">' + rows.map(([head, cells], i) => {\n    const focal = i === rows.length - 1;\n    return `\n      <div class=\"scol${focal ? ' focal' : ''}\">\n        <div class=\"shead\">${text(head)}</div>\n        <div class=\"srows\">${(cells || []).map((r) => `\n        <div class=\"srow\">${text(r)}</div>`).join('')}\n        </div>\n      </div>`;\n  }).join('') + '\\n    </div>';\n}\n\nfunction stat(post) {\n  return `    <div class=\"statwrap\">\n      <div class=\"statbig\">${text(post.stat_big)}</div>\n      <div class=\"statsub\">${text(post.stat_sub)}</div>\n    </div>\n    <div class=\"statcols\">` + (post.items || []).map(([label, desc]) => `\n      <div class=\"scell\">\n        <div class=\"slabel\">${text(label)}</div>\n        <div class=\"sdesc\">${text(desc)}</div>\n      </div>`).join('') + '\\n    </div>';\n}\n\nfunction stack(rows) {\n  return '    <div class=\"stack\">' + rows.map(([label, desc], i) => {\n    const last = i === rows.length - 1;\n    return `\n      <div class=\"bar${last ? ' focal' : ''}\">\n        <div class=\"blabel\">${text(label)}</div>\n        <div class=\"bdesc\">${text(desc)}</div>\n      </div>`;\n  }).join('') + '\\n    </div>';\n}\n\nfunction body(post) {\n  if (post.layout === 'cards') return cards(post.items);\n  if (post.layout === 'grid') return grid(post.items, post.band);\n  if (post.layout === 'split') return split(post.items);\n  if (post.layout === 'stat') return stat(post);\n  if (post.layout === 'stack') return stack(post.items);\n  return timeline(post.items);\n}\n\n// ---------------------------------------------------------------- the logo\n// Blank LOGO_SVG renders a plain wordmark rather than nothing. A missing logo has to LOOK\n// missing — an empty box passes a glance and reaches the page.\nconst logo = cfg.logo_present\n  ? cfg.logo_svg.trim()\n  : '<div class=\"logofallback\">ACME<span>&nbsp;/ logo not configured</span></div>';\n\n// ---------------------------------------------------------------- the stylesheet\nconst css = `\n  * { margin: 0; padding: 0; box-sizing: border-box; }\n  html, body { width: ${cfg.canvas_width}px; height: ${cfg.canvas_height}px; }\n  body {\n    background: ${C.bg};\n    font-family: ${C.font};\n    -webkit-font-smoothing: antialiased;\n    overflow: hidden;\n  }\n  .strip { position: absolute; left: 0; right: 0; bottom: 0; height: 13px; background: ${C.accent}; }\n  .content {\n    position: absolute; inset: 74px 74px 88px 74px;\n    display: flex; flex-direction: column;\n  }\n  .head { display: flex; align-items: center; justify-content: space-between; }\n  .logo svg { width: 306px; height: auto; display: block; }\n  .cat { color: ${C.muted}; font-size: 19px; letter-spacing: 0.3em; font-weight: bold; }\n\n  .headline {\n    margin-top: 74px;\n    font-size: ${Number(p.headline_size) || 94}px; line-height: 1.06; font-weight: bold;\n    color: ${C.white}; letter-spacing: -0.015em;\n  }\n  .headline em { color: ${C.accent}; font-style: normal; }\n  .subhead { margin-top: 30px; font-size: 30px; line-height: 1.4; color: ${C.muted}; max-width: 830px; }\n\n  .timeline { display: flex; flex-direction: column; flex: 1; margin-top: 56px; }\n  .titem { display: flex; gap: 30px; flex: 1; }\n  .titem.last { flex: none; }\n  .tcol { width: 58px; flex: none; display: flex; flex-direction: column; align-items: center; }\n  .circle {\n    width: 58px; height: 58px; border-radius: 50%; flex: none;\n    border: 1px solid ${C.line}; color: ${C.white};\n    font-size: 21px; font-weight: bold;\n    display: flex; align-items: center; justify-content: center;\n  }\n  .circle.focal { background: ${C.accent}; border-color: ${C.accent}; }\n  .tline { width: 1px; flex: 1; background: ${C.line}; }\n  .tbody { padding-top: 4px; padding-bottom: 32px; }\n  .ttitle { font-size: 35px; font-weight: bold; color: ${C.white}; }\n  .ttitle.focal { color: ${C.accent}; }\n  .tdesc { margin-top: 11px; font-size: 25px; color: ${C.muted}; }\n\n  .cards { display: flex; gap: 26px; flex: 1; margin-top: 58px; }\n  .card {\n    flex: 1; display: flex; flex-direction: column;\n    border: 1px solid ${C.card_border}; border-radius: 14px;\n    background: ${C.card_bg}; padding: 34px 30px;\n  }\n  .card.focal { border-color: ${C.accent}; background: rgba(220, 32, 86, 0.07); }\n  .ceyebrow { font-size: 17px; letter-spacing: 0.11em; font-weight: bold; color: ${C.muted}; }\n  .ctitle { margin-top: 22px; font-size: 41px; line-height: 1.12; font-weight: bold; color: ${C.white}; }\n  .ctitle.focal { color: ${C.accent}; }\n  .cspacer { flex: 1; min-height: 40px; }\n  .cdesc { font-size: 23px; line-height: 1.42; color: ${C.muted}; }\n\n  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1; margin-top: 48px; }\n  .gcell {\n    border: 1px solid ${C.card_border}; border-radius: 14px; background: ${C.card_bg};\n    padding: 30px 28px; display: flex; flex-direction: column;\n  }\n  .gx { font-size: 42px; line-height: 0.9; font-weight: bold; color: ${C.muted}; }\n  .gtitle { margin-top: 18px; font-size: 32px; font-weight: bold; color: ${C.white}; }\n  .gdesc { margin-top: 10px; font-size: 23px; line-height: 1.4; color: ${C.muted}; }\n  .band {\n    margin-top: 24px; background: ${C.accent}; border-radius: 14px;\n    padding: 28px 30px; text-align: center;\n    color: ${C.white}; font-size: 29px; font-weight: bold; letter-spacing: 0.01em;\n  }\n\n  .split { display: flex; gap: 26px; flex: 1; margin-top: 48px; }\n  .scol {\n    flex: 1; display: flex; flex-direction: column;\n    border: 1px solid ${C.card_border}; border-radius: 14px;\n    background: ${C.card_bg}; padding: 30px 28px;\n  }\n  .scol.focal { border-color: ${C.accent}; background: rgba(220, 32, 86, 0.07); }\n  .shead { font-size: 19px; letter-spacing: 0.2em; font-weight: bold; color: ${C.muted}; }\n  .scol.focal .shead { color: ${C.accent}; }\n  .srows { display: flex; flex-direction: column; flex: 1; margin-top: 14px; }\n  .srow {\n    flex: 1; display: flex; align-items: center;\n    font-size: 25px; line-height: 1.3; color: ${C.muted};\n    border-bottom: 1px solid ${C.card_border};\n  }\n  .srow:last-child { border-bottom: none; }\n  .scol.focal .srow { color: ${C.white}; }\n\n  .statwrap {\n    flex: 1; display: flex; flex-direction: column;\n    align-items: center; justify-content: center; text-align: center;\n  }\n  .statbig { font-size: 260px; line-height: 0.86; font-weight: bold; color: ${C.accent}; letter-spacing: -0.04em; }\n  .statsub { margin-top: 26px; font-size: 30px; line-height: 1.35; color: ${C.muted}; max-width: 640px; }\n  .statcols { display: flex; gap: 26px; margin-top: 10px; }\n  .scell {\n    flex: 1; border: 1px solid ${C.card_border}; border-radius: 14px;\n    background: ${C.card_bg}; padding: 26px 24px;\n  }\n  .scell.focal { border-color: ${C.accent}; background: rgba(220, 32, 86, 0.07); }\n  .slabel { font-size: 19px; letter-spacing: 0.16em; font-weight: bold; color: ${C.white}; }\n  .scell.focal .slabel { color: ${C.accent}; }\n  .sdesc { margin-top: 12px; font-size: 22px; line-height: 1.4; color: ${C.muted}; }\n\n  .stack { display: flex; flex-direction: column; gap: 16px; flex: 1; margin-top: 50px; }\n  .bar {\n    flex: 1; display: flex; align-items: center; gap: 30px;\n    border: 1px solid ${C.card_border}; border-radius: 14px;\n    background: ${C.card_bg}; padding: 0 30px;\n  }\n  .bar.focal { border-color: ${C.accent}; background: rgba(220, 32, 86, 0.07); }\n  .blabel {\n    width: 210px; flex: none;\n    font-size: 20px; letter-spacing: 0.16em; font-weight: bold; color: ${C.muted};\n  }\n  .bar.focal .blabel { color: ${C.accent}; }\n  .bdesc { font-size: 27px; line-height: 1.3; color: ${C.white}; }\n\n  .foot {\n    margin-top: 40px; padding-top: 28px; border-top: 1px solid ${C.line};\n    display: flex; justify-content: space-between; align-items: baseline;\n    font-size: 25px; font-weight: bold;\n  }\n  .foot .take { color: ${C.white}; }\n  .foot .site { color: ${C.white}; }\n`;\n\nconst html = `<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>${text(p.slug)}</title>\n<style>${css}</style></head>\n<body>\n  <div class=\"content\">\n    <div class=\"head\">\n      <div class=\"logo\">${logo}</div>\n      <div class=\"cat\">${text(p.category)}</div>\n    </div>\n    <div class=\"headline\">${text(p.headline)}</div>\n    <div class=\"subhead\">${text(p.subhead)}</div>\n${body(p)}\n    <div class=\"foot\"><span class=\"take\">${text(p.footer)}</span><span class=\"site\">${C.site}</span></div>\n  </div>\n  <div class=\"strip\"></div>\n</body></html>\n`;\n\nreturn [{\n  json: Object.assign({}, p, {\n    _html: html,\n    _html_bytes: html.length,\n    _reason: 'built the ' + p.layout + ' template, ' + html.length + ' bytes'\n  })\n}];"
+      },
+      "id": "build-html",
+      "name": "build the HTML template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Blocking layout check, run on the HTML before a pixel is rendered.\n//\n// This is the cheap half of what `validate_linkedin_layout.js` does in the Hermes job. It\n// cannot see the rendered pixels — no browser here — so it checks the things that are\n// decidable from the source, and the PNG check after the render covers the rest.\n//\n// Every rule here exists because the mistake it catches actually shipped. The two defects\n// found on 2026-08-28 were both obvious in the image and invisible in the HTML, which is why\n// the human still looks at the PNG in Discord: this node narrows what reaches them, it does\n// not replace them.\n\nconst cfg = $('config').first().json;\nconst p = $json;\nconst html = p._html || '';\nconst C = cfg.brand;\n\nconst issues = [];\nconst warnings = [];\n\n// ---------------------------------------------------------------- the accent, three zones\n// DESIGN.md: the mark, one phrase in the headline, and the single focal element. A fourth\n// zone reads as decoration and was the first round's most common mistake.\nconst emCount = (p.headline.match(/<em>/gi) || []).length;\nif (emCount === 0) {\n  warnings.push('no <em> in the headline — the accent phrase is one of the three zones the '\n    + 'accent is allowed in, and this post gives it up');\n} else if (emCount > 1) {\n  issues.push(emCount + ' <em> phrases in the headline. One. Two accent lines out of three '\n    + 'reads as shouting.');\n}\n\n// The focal class is applied to exactly one element per layout by the builder. If a bank row\n// somehow produces none, the post has no focus at all.\nconst focal = (html.match(/class=\"[^\"]*\\bfocal\\b/g) || []).length;\nif (p.layout !== 'stat' && focal === 0) {\n  issues.push('nothing carries the focal accent — the last item should');\n}\n\n// ---------------------------------------------------------------- the canvas\nif (!html.includes('width: ' + cfg.canvas_width + 'px')\n    || !html.includes('height: ' + cfg.canvas_height + 'px')) {\n  issues.push('the canvas is not ' + cfg.canvas_width + 'x' + cfg.canvas_height);\n}\nif (!html.includes(C.bg)) issues.push('the background is not ' + C.bg);\nif (html.includes('class=\"strip\"') === false) issues.push('no brand strip');\n\n// ---------------------------------------------------------------- nothing may be fetched\n// The renderer loads this with no network. A linked stylesheet, font or image is a blank\n// space in a published post, and it looks fine in a browser that has the file cached.\nconst external = html.match(/(?:src|href)\\s*=\\s*[\"'](?!data:|#)([^\"']+)/gi) || [];\nif (external.length) {\n  issues.push('the template references ' + external.length + ' external resource(s): '\n    + external.slice(0, 3).join(', ') + '. Everything must be inline — the renderer has no '\n    + 'network.');\n}\nif (/@import|url\\(\\s*[\"']?https?:/i.test(html)) {\n  issues.push('the stylesheet imports or fetches a remote resource');\n}\n\n// ---------------------------------------------------------------- the logo\nif (!cfg.logo_present) {\n  issues.push('LOGO_SVG is blank in config. The post would render with a text placeholder '\n    + 'where the wordmark goes. Paste acme_logo_12.svg into LOGO_SVG.');\n} else if (!/<svg[\\s>]/i.test(cfg.logo_svg)) {\n  issues.push('LOGO_SVG does not contain an <svg> element — a truncated paste is the only '\n    + 'way the logo goes missing');\n}\n\n// ---------------------------------------------------------------- text that will not fit\n// The content box is 932px wide. Bold Arial caps run roughly 0.60em per character, so a line\n// at the configured headline size has a character budget. Overrunning it wraps to an orphan\n// word, which DESIGN.md says to fix by shortening the words, not the type.\nconst BOX = cfg.canvas_width - (74 * 2);\nconst size = Number(p.headline_size) || 94;\nconst budget = Math.floor(BOX / (size * 0.6));\nconst lines = String(p.headline).split(/<br\\s*\\/?>/i)\n  .map((l) => l.replace(/<[^>]+>/g, '').trim());\nfor (const line of lines) {\n  if (line.length > budget) {\n    issues.push('headline line \"' + line + '\" is ' + line.length + ' characters at ' + size\n      + 'px; about ' + budget + ' fit in the ' + BOX + 'px box. Shorten the words rather '\n      + 'than the type.');\n  }\n}\nif (lines.length > 4) {\n  warnings.push('the headline is ' + lines.length + ' lines; DESIGN.md says two to four');\n}\n\n// ---------------------------------------------------------------- per-layout item counts\n// Each layout is designed around a number of items. One more than it expects does not\n// overflow — flexbox squeezes it — it just gets progressively unreadable, which is exactly\n// the kind of thing that passes an HTML review and fails in the picture.\nconst EXPECTED = {\n  timeline: [3, 4], cards: [3, 3], grid: [4, 4],\n  split: [2, 2], stat: [3, 3], stack: [4, 5]\n};\nconst range = EXPECTED[p.layout];\nconst n = (p.items || []).length;\nif (range && (n < range[0] || n > range[1])) {\n  issues.push('the ' + p.layout + ' layout takes ' + (range[0] === range[1] ? range[0]\n    : range[0] + '-' + range[1]) + ' items, this row has ' + n);\n}\n\n// Empty strings inside an item are the other silent one: the cell renders, at full height,\n// with nothing in it. That is the \"dead void\" defect from the first round.\n(p.items || []).forEach((item, i) => {\n  const parts = Array.isArray(item) ? item : [item];\n  parts.forEach((part, j) => {\n    if (Array.isArray(part)) {\n      part.forEach((sub, k) => {\n        if (!String(sub || '').trim()) {\n          issues.push('item ' + (i + 1) + ' field ' + (j + 1) + '.' + (k + 1) + ' is empty');\n        }\n      });\n    } else if (!String(part || '').trim()) {\n      issues.push('item ' + (i + 1) + ' field ' + (j + 1) + ' is empty — it renders as a '\n        + 'full-height blank');\n    }\n  });\n});\n\nif (!String(p.footer || '').trim()) issues.push('no footer takeaway');\nif (!String(p.subhead || '').trim()) warnings.push('no subhead');\nif (!String(p.category || '').trim()) issues.push('no category label');\n\nreturn [{\n  json: Object.assign({}, p, {\n    _layout_ok: issues.length === 0,\n    _issues: issues,\n    _warnings: warnings,\n    _reason: issues.length\n      ? issues.length + ' layout issue(s): ' + issues[0]\n      : 'layout ok' + (warnings.length ? ' with ' + warnings.length + ' warning(s)' : '')\n  })\n}];"
+      },
+      "id": "validate",
+      "name": "validate the layout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "layout-ok-c",
+              "leftValue": "={{ $json._layout_ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "layout-ok",
+      "name": "layout ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1740,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The template would not have rendered correctly, so it was not rendered.\n//\n// Fix the bank row — headline length, item count, an empty field — and run again. Every\n// check that lands here corresponds to a defect that reached a published post once.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _layout: s.layout, _issues: s._issues, _warnings: s._warnings }, {\n    _stopped: 'layout failed',\n    _mode: cfg.mode,\n    _reason: '[HELD] ' + (s._issues || []).join('; '),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-layout",
+      "name": "STOP: layout failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "render-on-c",
+              "leftValue": "={{ $('config').first().json.render_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "render-on",
+      "name": "renderer configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No renderer, so no image, so no draft.\n//\n// This one deliberately does NOT degrade into delivering the caption on its own. A caption\n// without its image is not a draft — a reviewer cannot approve what they cannot see, and\n// an approval given against a missing image is an approval of whatever gets rendered later.\n//\n// Set RENDER_PROVIDER and RENDER_URL in config. Browserless next to n8n in the same\n// docker-compose file is the shipped answer; README has the service block.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _html_bytes: s._html_bytes }, {\n    _stopped: 'renderer not configured',\n    _mode: cfg.mode,\n    _reason: '[BLOCKED] RENDER_PROVIDER or RENDER_URL is blank in config, so there is no way to turn '\n    + 'the template into an image. The caption is written and the HTML is built — only the '\n    + 'picture is missing.',\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-render-cfg",
+      "name": "STOP: renderer not configured",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn the HTML into one HTTP request, shaped for whichever renderer is configured.\n//\n// n8n has no browser. Every other step in this pipeline is local; this is the one call that\n// has to go out, and it is worth keeping it swappable — the two providers below differ only\n// in a URL, an auth header and where the bytes come back.\n//\n//   browserless   POST {RENDER_URL}/screenshot   -> the PNG bytes, in the response\n//   hcti          POST https://hcti.io/v1/image  -> JSON { url }, downloaded in the next node\n//\n// Adding a third is this function plus a branch on the Switch. Do not add one that renders\n// from a URL instead of from a body: the template is not hosted anywhere, and putting it\n// somewhere fetchable to satisfy a renderer publishes an unapproved draft.\n\nconst cfg = $('config').first().json;\nconst p = $json;\n\nconst provider = cfg.render_provider;\nlet url = '';\nlet body = {};\nlet auth = '';\n\nif (provider === 'browserless') {\n  // The token is a query parameter, not a header. Browserless returns 401 with a bare body\n  // when it is missing, which reads as a network problem rather than an auth one.\n  url = cfg.render_url + '/screenshot' + (cfg.render_key ? '?token=' + encodeURIComponent(cfg.render_key) : '');\n  body = {\n    html: p._html,\n    options: { type: 'png', fullPage: false, omitBackground: false },\n    viewport: {\n      width: cfg.canvas_width,\n      height: cfg.canvas_height,\n      deviceScaleFactor: cfg.device_scale\n    },\n    // The document has no web fonts and no images to wait for, so networkidle would just\n    // add the timeout to every render. Fonts are the system stack by design.\n    gotoOptions: { waitUntil: 'load' }\n  };\n} else if (provider === 'hcti') {\n  url = 'https://hcti.io/v1/image';\n  body = {\n    html: p._html,\n    viewport_width: cfg.canvas_width,\n    viewport_height: cfg.canvas_height,\n    device_scale: cfg.device_scale,\n    ms_delay: 300\n  };\n  // Basic, user:key. btoa exists in the n8n Code sandbox; Buffer does not, reliably.\n  auth = 'Basic ' + btoa(cfg.render_user + ':' + cfg.render_key);\n}\n\nreturn [{\n  json: Object.assign({}, p, {\n    _provider: provider,\n    _render_url: url,\n    _render_body: body,\n    _render_auth: auth,\n    _expect_bytes: provider === 'browserless',\n    _reason: 'rendering ' + cfg.canvas_width + 'x' + cfg.canvas_height + ' at '\n      + cfg.device_scale + 'x through ' + provider\n  })\n}];"
+      },
+      "id": "render-req",
+      "name": "build the render request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "which-render-r0",
+                    "leftValue": "={{ $json._provider }}",
+                    "rightValue": "browserless",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "browserless"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "which-render-r1",
+                    "leftValue": "={{ $json._provider }}",
+                    "rightValue": "hcti",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "hcti"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "id": "which-render",
+      "name": "which renderer?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2400,
+        -140
+      ],
+      "notes": "Adding a provider is a branch here plus a block in 'build the render request'. Never add one that renders from a URL - the template is not hosted anywhere, and hosting it to satisfy a renderer publishes an unapproved draft."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._render_url }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._render_body) }}"
+      },
+      "id": "render-bl",
+      "name": "[cred] Browserless - HTML to PNG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        -240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Returns the PNG bytes directly. Self-host it beside n8n - the docker-compose service block is in the README."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._render_url }}",
+        "options": {
+          "timeout": 120000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json._render_auth }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._render_body) }}"
+      },
+      "id": "render-hcti",
+      "name": "[cred] HCTI - HTML to image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        -40
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Returns JSON { url }. The next node downloads it."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "render-dl",
+      "name": "download the rendered image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2840,
+        -40
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-png",
+      "name": "one image",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3060,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Confirm the renderer actually returned a picture, before a human is asked to look at it.\n//\n// A render can fail in three ways that all look like success to the HTTP node:\n//\n//   * the provider answers 200 with a JSON error body instead of bytes\n//   * it answers with a real PNG that is a blank canvas — the template threw and the\n//     screenshot caught an empty page\n//   * it answers with something that is not a PNG at all (an HTML error page, a JPEG)\n//\n// So the bytes are checked rather than the status code. The PNG signature and the IHDR\n// dimensions are in the first 24 bytes of the file and are read straight out of the header,\n// which is also how render.sh in the drafts repo proved a render was not a stale file.\n\nconst cfg = $('config').first().json;\nconst post = $('build the render request').first().json;\n\nconst binary = $binary || {};\nconst key = Object.keys(binary)[0];\nconst problems = [];\n\nlet bytes = 0;\nlet width = 0;\nlet height = 0;\nlet mime = '';\n\nif (!key) {\n  problems.push('the renderer returned no binary data. Response: '\n    + JSON.stringify($json).slice(0, 400));\n} else {\n  const b = binary[key];\n  mime = b.mimeType || '';\n  bytes = Number(b.fileSize) || 0;\n\n  // n8n reports fileSize as a human string (\"142 kB\") on some versions, so measure the\n  // buffer rather than trusting the field.\n  const buf = await this.helpers.getBinaryDataBuffer(0, key);\n  bytes = buf.length;\n\n  const isPng = buf.length > 24\n    && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;\n\n  if (!isPng) {\n    problems.push('what came back is not a PNG. First bytes: '\n      + buf.slice(0, 16).toString('utf8').replace(/[^\\x20-\\x7e]/g, '.'));\n  } else {\n    // IHDR is always the first chunk: width at byte 16, height at 20, big-endian.\n    width = buf.readUInt32BE(16);\n    height = buf.readUInt32BE(20);\n\n    const expectW = cfg.canvas_width * cfg.device_scale;\n    const expectH = cfg.canvas_height * cfg.device_scale;\n    if (width !== expectW || height !== expectH) {\n      problems.push('the PNG is ' + width + 'x' + height + ', expected ' + expectW + 'x'\n        + expectH + '. LinkedIn will letterbox anything that is not the 4:5 canvas.');\n    }\n    if (bytes < cfg.min_png_bytes) {\n      problems.push('the PNG is only ' + bytes + ' bytes, under the ' + cfg.min_png_bytes\n        + ' floor. A render this small is a blank or half-drawn canvas, not a post.');\n    }\n  }\n}\n\nreturn [{\n  json: Object.assign({}, post, {\n    _png_ok: problems.length === 0,\n    _png_bytes: bytes,\n    _png_width: width,\n    _png_height: height,\n    _png_mime: mime,\n    _binary_key: key || '',\n    _problems: problems,\n    _reason: problems.length ? problems[0]\n      : 'rendered ' + width + 'x' + height + ', ' + bytes + ' bytes'\n  }),\n  binary: binary\n}];"
+      },
+      "id": "check-png",
+      "name": "check the PNG",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        -140
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "png-ok-c",
+              "leftValue": "={{ $json._png_ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "png-ok",
+      "name": "image usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3500,
+        -140
+      ],
+      "notes": "Checks the PNG signature and the IHDR dimensions in the bytes, not the HTTP status. A renderer that answers 200 with a JSON error, or with a blank canvas, is a failure that looks like success."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The renderer answered, but not with a usable picture.\n//\n// A failed render is a failure, not a reason to retry in a loop or to fall back to a\n// generated image. An image model cannot be trusted with a logo, a headline or small body\n// copy, which is the entire content of this canvas — so there is no fallback here on\n// purpose. Escalate, fix the renderer, run again.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _bytes: s._png_bytes, _dimensions: s._png_width + 'x' + s._png_height, _problems: s._problems }, {\n    _stopped: 'no image',\n    _mode: cfg.mode,\n    _reason: '[FAILED] ' + (s._problems || []).join('; '),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-no-image",
+      "name": "STOP: no image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3720,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the message the reviewer sees, and nothing else.\n//\n// What leaves the system here is the caption and the image — the draft, exactly as it would\n// be published. No internal paths, no slot numbers, no run ids, no reasoning about why this\n// post was chosen. A reviewer approving a draft should be looking at the post, not at the\n// workflow that made it.\n//\n// The caption travels in the message body rather than as an attached file so that what is\n// read and what is published are the same string. If it will not fit in one Discord message\n// the draft is HELD — never truncated. A caption cut at 2000 characters ends mid-sentence\n// and still reads fine at the top, which is exactly how it gets approved.\n\nconst cfg = $('config').first().json;\nconst p = $json;\n\nconst INSTRUCTION = 'Reply **post** to publish, or **cancel** to discard.';\n\n// Discord counts UTF-16 code units, the same thing String.length counts.\nconst body = p._caption + '\\n\\n' + INSTRUCTION;\nconst overBy = body.length - cfg.discord_message_limit;\n\nconst problems = [];\nif (overBy > 0) {\n  problems.push('the caption plus the approval line is ' + body.length + ' characters, '\n    + overBy + ' over Discord\\'s ' + cfg.discord_message_limit + ' limit. Shorten the '\n    + 'caption in the bank — it is not truncated here, because a caption cut mid-sentence '\n    + 'still reads fine at the top and gets approved.');\n}\n\nreturn [{\n  json: Object.assign({}, p, {\n    _message: body,\n    _message_length: body.length,\n    _file_name: p._today + '_' + p.slug + '.png',\n    _message_ok: problems.length === 0,\n    _problems: problems,\n    _reason: problems.length ? problems[0]\n      : 'draft ready for ' + (cfg.test_delivery ? 'the TEST channel' : 'review') + ', '\n        + body.length + ' characters and a ' + p._png_bytes + ' byte image'\n  })\n}];"
+      },
+      "id": "approval-msg",
+      "name": "build the approval message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3720,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "msg-ok-c",
+              "leftValue": "={{ $json._message_ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "msg-ok",
+      "name": "message fits?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3940,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The caption will not fit in one Discord message, so the draft is held.\n//\n// Splitting it across two messages is worse than holding it: the watcher anchors on one\n// message id, and a caption in two halves is one a reviewer approves having read the first.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _length: s._message_length, _limit: cfg.discord_message_limit }, {\n    _stopped: 'message too long',\n    _mode: cfg.mode,\n    _reason: '[HELD] ' + (s._problems || []).join('; '),\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-too-long",
+      "name": "STOP: message too long",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4160,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "deliver-on-c",
+              "leftValue": "={{ $('config').first().json.deliver_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "deliver-on",
+      "name": "deliver it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4160,
+        -340
+      ],
+      "notes": "False in PREVIEW, which is how this ships. Everything above has already run, so the rendered PNG is in this execution to look at."
+    },
+    {
+      "parameters": {
+        "jsCode": "// PREVIEW mode. Everything was built and rendered; nothing left the building.\n//\n// This is the shipped default and the state a first run after import lands in. The draft\n// exists in this execution — open the render node's output to look at the actual PNG,\n// which is the point of previewing.\n//\n// To deliver to a test channel: set TEST_CHANNEL_ID. To go live: set TEST_RUN = false.\n// Those are two separate acts, and only the second can ever publish.\nconst cfg = $('config').first().json;\nconst s = $json;\n\nreturn [{\n  json: Object.assign({}, { _slug: s.slug, _caption_words: s._caption_words, _png_bytes: s._png_bytes, _png: s._png_width + 'x' + s._png_height }, {\n    _stopped: 'preview - not delivered',\n    _mode: cfg.mode,\n    _reason: cfg.forced_preview\n      ? '[PREVIEW] Forced into preview because the demo bank is in use (SHEET_ID is '\n        + 'blank). Demo content can never reach the company page, whatever TEST_RUN says.'\n      : '[PREVIEW] TEST_RUN is true and TEST_CHANNEL_ID is blank, so the draft was built '\n        + 'and rendered but delivered nowhere.',\n    _at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "stop-preview",
+      "name": "STOP: preview - not delivered",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4380,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "guildId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.channel_id }}"
+        },
+        "content": "={{ $json._message }}",
+        "options": {}
+      },
+      "id": "discord-send",
+      "name": "[cred] Discord - deliver the draft",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        4380,
+        -440
+      ],
+      "notes": "The draft and nothing else goes here. No slot number, no run id, no reasoning about why this post was chosen - the reviewer is looking at the post, not at the workflow. ATTACH THE PNG: set the node's 'Files' option to the binary property `data`. A draft that arrives without its image means the bot is missing Attach Files, and the reviewer is approving something they cannot see."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The log row that makes tomorrow's run correct.\n//\n// This is the state machine's only write. It records that a draft was delivered and is now\n// waiting on a human — `awaiting` — along with the Discord message id, which is how workflow\n// 02 finds the reply, and the caption fingerprint, which is how it proves the thing it is\n// about to publish is the thing that was approved.\n//\n// Written AFTER the Discord delivery succeeds, never before. A row that says a draft is\n// awaiting approval when no draft was ever delivered silences tomorrow's run too, and\n// nothing ever clears it.\n\nconst cfg = $('config').first().json;\nconst p = $('build the approval message').first().json;\nconst L = cfg.log_columns;\n\n// The Discord node returns the created message. Its id is the one thing from this response\n// that matters — it is the anchor workflow 02 scans forward from.\nconst sent = $json || {};\nconst messageId = String(sent.id || (sent.message && sent.message.id) || '');\n\nconst row = {};\nrow[L.date] = p._today;\nrow[L.slug] = p.slug;\nrow[L.slot] = p.slot;\nrow[L.status] = 'awaiting';\nrow[L.channel_id] = cfg.channel_id;\nrow[L.message_id] = messageId;\nrow[L.caption_fp] = p._caption_fp;\nrow[L.urn] = '';\nrow[L.note] = 'delivered for approval in ' + cfg.mode + ' mode, ' + p._caption_words\n  + ' words, caption from the ' + p._caption_source + ', ' + p._png_bytes + ' byte image';\nrow[L.at] = new Date().toISOString();\n\nreturn [{\n  json: Object.assign(row, {\n    _message_id: messageId,\n    _delivered: messageId !== '',\n    _reason: messageId\n      ? 'logged slot ' + p.slot + ' as awaiting approval (message ' + messageId + ')'\n      : 'Discord returned no message id — the draft may not have been delivered, so nothing '\n        + 'is being marked as awaiting'\n  })\n}];"
+      },
+      "id": "log-row",
+      "name": "row for the log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4600,
+        -440
+      ],
+      "notes": "Written AFTER the delivery succeeds, never before. A row saying a draft is awaiting approval when none was delivered silences tomorrow too, and nothing ever clears it."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.log_tab }}"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "operation": "append",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": []
+        }
+      },
+      "id": "write-log1",
+      "name": "[cred] Sheets - append the log row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4820,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-end1",
+      "name": "one outcome",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        5040,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One line per run, for the optional Slack webhook.\n//\n// Every path through both workflows arrives here, including the ones that did nothing. A\n// summary that only fires on success is a summary that goes quiet exactly when something is\n// wrong, which is the failure mode this exists to catch: the job silently stopped drafting\n// three weeks ago and nobody noticed because nothing was ever broken enough to alert.\n//\n// The caption is NOT included. It goes to the approval channel and nowhere else — a draft\n// that reaches a second audience before it is approved has left the approval gate behind.\n\nconst cfg = $('config').first().json;\nconst s = $json;\n\nconst stopped = s._stopped || '';\nconst outcome = s._outcome || '';\n\nconst icon = outcome === 'POSTED' ? ':white_check_mark:'\n  : outcome === 'FAILED' || outcome === 'UNKNOWN' || stopped === 'no image' ? ':x:'\n  : stopped === 'still awaiting approval' || stopped === 'nothing awaiting' ? ':hourglass:'\n  : ':information_source:';\n\nconst headline = outcome === 'POSTED'\n  ? 'Published: ' + (s._slug || 'unknown')\n  : stopped\n    ? 'No post: ' + stopped\n    : 'Draft delivered for approval: ' + (s.slug || s._slug || 'unknown');\n\nconst lines = [\n  icon + ' *LinkedIn daily* — ' + headline,\n  '*Mode:* ' + cfg.mode + (cfg.forced_preview ? ' (forced — demo bank in use)' : ''),\n  s._reason ? '*Why:* ' + s._reason : '',\n  s._post_url ? '*Post:* ' + s._post_url : '',\n  s._approver ? '*Approved by:* ' + s._approver : '',\n  (s._warnings && s._warnings.length) ? '*Warnings:* ' + s._warnings.join('; ') : ''\n].filter(Boolean);\n\nconst text = lines.join('\\n');\n\nreturn [{\n  json: {\n    _summary: text,\n    _slack_body: { text: text },\n    _notify: cfg.report_enabled,\n    _outcome: outcome || stopped || 'delivered',\n    _reason: s._reason || ''\n  }\n}];"
+      },
+      "id": "summary1",
+      "name": "build the run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5260,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "report1-c",
+              "leftValue": "={{ $('config').first().json.report_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "report1",
+      "name": "report configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5480,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.report_webhook_url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._slack_body) }}"
+      },
+      "id": "slack1",
+      "name": "[cred] Slack - post the summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5700,
+        -240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Never carries the caption. A draft that reaches a second audience before it is approved has left the approval gate behind."
+    },
+    {
+      "parameters": {},
+      "id": "done1",
+      "name": "done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        5700,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 of 2 — draft and approve\n\nEvery weekday at 08:00 this picks the next post from the bank, writes or reads its caption,\nrenders the image, and puts the draft in Discord for a human to approve.\n\n**It never publishes.** Publishing is `02-publish-on-approval.json`, and it only happens\nafter somebody replies `post`.\n\n**Ships in PREVIEW.** Nothing leaves the building until you set `TEST_CHANNEL_ID`, and\nnothing reaches LinkedIn until `TEST_RUN = false` in workflow 02. Two separate acts.",
+        "height": 280,
+        "width": 460,
+        "color": 4
+      },
+      "id": "s1",
+      "name": "Sticky Note s1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1580,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### The image\n\nThere is no browser in n8n, so this is one call out to a renderer.\n\n`browserless` self-hosted next to n8n is the shipped answer — the compose service block is\nin the README.\n\n**No fallback to an image model.** This canvas is a logo, a headline and small body copy,\nwhich is exactly what an image model cannot be trusted with. A failed render is a failure.",
+        "height": 250,
+        "width": 420,
+        "color": 3
+      },
+      "id": "s2",
+      "name": "Sticky Note s2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### The approval gate\n\nAnyone who can send a message in this channel can publish to the company page. Use a private\nchannel made for this and nothing else.\n\nSet the Discord node's **Files** option to the binary property `data` so the PNG is attached.\nA draft with no image is one the reviewer cannot actually review.",
+        "height": 240,
+        "width": 440,
+        "color": 6
+      },
+      "id": "s3",
+      "name": "Sticky Note s3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4340,
+        -720
+      ]
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday, 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the log": {
+      "main": [
+        [
+          {
+            "node": "resolve todays state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resolve todays state": {
+      "main": [
+        [
+          {
+            "node": "draft today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "draft today?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the bank",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: silent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: silent": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the bank": {
+      "main": [
+        [
+          {
+            "node": "pick todays post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pick todays post": {
+      "main": [
+        [
+          {
+            "node": "anything to post?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything to post?": {
+      "main": [
+        [
+          {
+            "node": "caption needed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: bank exhausted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: bank exhausted": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "caption needed?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - write the caption",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "one caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - write the caption": {
+      "main": [
+        [
+          {
+            "node": "one caption",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one caption": {
+      "main": [
+        [
+          {
+            "node": "apply the caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply the caption": {
+      "main": [
+        [
+          {
+            "node": "caption ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "caption ok?": {
+      "main": [
+        [
+          {
+            "node": "build the HTML template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: caption held",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: caption held": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "build the HTML template": {
+      "main": [
+        [
+          {
+            "node": "validate the layout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate the layout": {
+      "main": [
+        [
+          {
+            "node": "layout ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "layout ok?": {
+      "main": [
+        [
+          {
+            "node": "renderer configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: layout failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: layout failed": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "renderer configured?": {
+      "main": [
+        [
+          {
+            "node": "build the render request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: renderer not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: renderer not configured": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "build the render request": {
+      "main": [
+        [
+          {
+            "node": "which renderer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "which renderer?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Browserless - HTML to PNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "[cred] HCTI - HTML to image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: renderer not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Browserless - HTML to PNG": {
+      "main": [
+        [
+          {
+            "node": "one image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] HCTI - HTML to image": {
+      "main": [
+        [
+          {
+            "node": "download the rendered image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "download the rendered image": {
+      "main": [
+        [
+          {
+            "node": "one image",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one image": {
+      "main": [
+        [
+          {
+            "node": "check the PNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check the PNG": {
+      "main": [
+        [
+          {
+            "node": "image usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "image usable?": {
+      "main": [
+        [
+          {
+            "node": "build the approval message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no image": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "build the approval message": {
+      "main": [
+        [
+          {
+            "node": "message fits?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "message fits?": {
+      "main": [
+        [
+          {
+            "node": "deliver it?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: message too long",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: message too long": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "deliver it?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Discord - deliver the draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - not delivered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: preview - not delivered": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] Discord - deliver the draft": {
+      "main": [
+        [
+          {
+            "node": "row for the log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "row for the log": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - append the log row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - append the log row": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "one outcome": {
+      "main": [
+        [
+          {
+            "node": "build the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the run summary": {
+      "main": [
+        [
+          {
+            "node": "report configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "report configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Slack - post the summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "acme"
+    },
+    {
+      "name": "linkedin"
+    }
+  ]
+}

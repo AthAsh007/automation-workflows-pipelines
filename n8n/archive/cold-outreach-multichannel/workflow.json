@@ -1,0 +1,278 @@
+{
+  "name": "13 Multichannel Cadence (email, LinkedIn and call, one conductor)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "0 30 7 * * 1-5"}]}
+      },
+      "id": "schedule",
+      "name": "Weekday 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-900, 300],
+      "notes": "Ahead of every lane, so each one finds its work already queued."
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-leads",
+      "name": "[cred] Sheets - read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-680, 300],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// The conductor. One place decides what happens to a lead next, across every channel.\n// Without this, email and LinkedIn run as two separate habits and a prospect gets a\n// connection request the same morning as a break-up email.\nconst DEFAULT_CADENCE = [\n  { day: 0,  channel: 'email',    action: 'opener' },\n  { day: 2,  channel: 'linkedin', action: 'view_profile' },\n  { day: 4,  channel: 'email',    action: 'follow_up_1' },\n  { day: 6,  channel: 'linkedin', action: 'connect' },\n  { day: 9,  channel: 'call',     action: 'call_attempt' },\n  { day: 12, channel: 'email',    action: 'break_up' }\n];\n\nlet cadence = DEFAULT_CADENCE;\nif ($env.CADENCE_JSON) {\n  try { cadence = JSON.parse($env.CADENCE_JSON); } catch (e) {\n    throw new Error('CADENCE_JSON is not valid JSON: ' + String(e.message));\n  }\n}\n\nconst CAPS = {\n  email: Number($env.DAILY_SEND_CAP || 80),\n  linkedin: Math.min(Number($env.LI_DAILY_CAP || 20), 25),\n  call: Number($env.DAILY_CALL_CAP || 15)\n};\n\nconst MIN_CONFIDENCE = Number($env.MIN_CONFIDENCE || 70);\nconst today = new Date();\nconst todayStr = today.toISOString().slice(0, 10);\n\n// Business days only. A cadence that counts weekends lands the follow-up on a Sunday.\nconst businessDaysBetween = (fromIso) => {\n  const start = new Date(fromIso);\n  if (isNaN(start.getTime())) return 0;\n  let count = 0;\n  const cursor = new Date(start.getTime());\n  while (cursor < today) {\n    cursor.setDate(cursor.getDate() + 1);\n    const dow = cursor.getDay();\n    if (dow !== 0 && dow !== 6) count++;\n  }\n  return count;\n};\n\nconst dropped = { suppressed: 0, replied: 0, finished: 0, not_due: 0, no_channel: 0, low_confidence: 0, over_cap: 0 };\nconst due = [];\n\nfor (const item of $input.all()) {\n  const lead = item.json;\n  const stage = String(lead.stage || '').trim();\n\n  if (stage === 'suppressed') { dropped.suppressed++; continue; }\n  if (['replied', 'booked'].indexOf(stage) !== -1) { dropped.replied++; continue; }\n\n  const step = Number(lead.cadence_step || 0);\n  if (step >= cadence.length) { dropped.finished++; continue; }\n\n  const plan = cadence[step];\n  const startedAt = lead.cadence_started_at || lead.updated_at || lead.enriched_at || '';\n\n  // A lead with no start date is entering the cadence today at step 0.\n  const elapsed = startedAt ? businessDaysBetween(startedAt) : 0;\n  if (startedAt && elapsed < Number(plan.day)) { dropped.not_due++; continue; }\n\n  if (plan.channel === 'email') {\n    if (!lead.email) { dropped.no_channel++; continue; }\n    if (Number(lead.confidence || 0) < MIN_CONFIDENCE) { dropped.low_confidence++; continue; }\n  }\n  if (plan.channel === 'linkedin' && !lead.linkedin_url) { dropped.no_channel++; continue; }\n  if (plan.channel === 'call' && !lead.phone) { dropped.no_channel++; continue; }\n\n  due.push({ lead: lead, plan: plan, step: step });\n}\n\n// Best leads first, then apply a separate cap per channel.\ndue.sort((a, b) => Number(b.lead.fit_score || 0) - Number(a.lead.fit_score || 0));\n\nconst used = { email: 0, linkedin: 0, call: 0 };\nconst out = [];\n\nfor (const entry of due) {\n  const ch = entry.plan.channel;\n  if (used[ch] >= CAPS[ch]) { dropped.over_cap++; continue; }\n  used[ch]++;\n\n  out.push({ json: Object.assign({}, entry.lead, {\n    channel: ch,\n    action: entry.plan.action,\n    cadence_step: entry.step,\n    next_step: entry.step + 1,\n    cadence_started_at: entry.lead.cadence_started_at || todayStr,\n    task_date: todayStr,\n    caps: CAPS,\n    used: used,\n    dropped: dropped\n  })});\n}\n\n// Nothing due: return nothing. The lanes and the summary simply do not run, which is\n// the right kind of quiet - a daily post saying 'zero touches' trains people to ignore it.\nreturn out;"
+      },
+      "id": "conduct",
+      "name": "decide the next touch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "email",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "is-email",
+      "name": "email lane?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Email Queue", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task_date": "={{ $json.task_date }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "email": "={{ $json.email }}",
+            "action": "={{ $json.action }}",
+            "fit_score": "={{ $json.fit_score }}",
+            "status": "queued"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "queue-email",
+      "name": "[cred] Sheets - queue email touch",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [-20, 160],
+      "notes": "Template 12 writes the copy and sends. This lane only decides who and when."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2},
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "linkedin",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "is-linkedin",
+      "name": "LinkedIn lane?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-20, 420]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "LinkedIn Tasks", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task_date": "={{ $json.task_date }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "name": "={{ $json.first_name }} {{ $json.last_name }}",
+            "company": "={{ $json.company }}",
+            "linkedin_url": "={{ $json.linkedin_url }}",
+            "action": "={{ $json.action }}",
+            "copy": "",
+            "done": "no"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "queue-linkedin",
+      "name": "[cred] Sheets - queue LinkedIn touch",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [200, 340],
+      "notes": "Template 05 writes the note and posts the checklist."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Call Tasks", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task_date": "={{ $json.task_date }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "name": "={{ $json.first_name }} {{ $json.last_name }}",
+            "company": "={{ $json.company }}",
+            "phone": "={{ $json.phone }}",
+            "context": "={{ $json.visible_pain || $json.fit_reason }}",
+            "outcome": ""
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "queue-call",
+      "name": "[cred] Sheets - queue call task",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [200, 540],
+      "notes": "Includes the one line of context, so the caller is not reading a name off a list."
+    },
+    {
+      "parameters": {"mode": "append", "numberInputs": 3, "options": {}},
+      "id": "merge",
+      "name": "merge lanes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [640, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Advance the cadence for everyone we queued, in one write.\nconst touched = $('decide the next touch').all();\nconst now = new Date().toISOString();\n\nreturn touched.map((item) => ({ json: {\n  lead_id: item.json.lead_id,\n  cadence_step: item.json.next_step,\n  cadence_started_at: item.json.cadence_started_at,\n  last_channel: item.json.channel,\n  last_action: item.json.action,\n  updated_at: now\n}}));"
+      },
+      "id": "advance",
+      "name": "advance the cadence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 340],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "={{ $env.LEADS_SHEET_ID }}", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Leads", "mode": "name"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["lead_id"],
+          "value": {},
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "write-state",
+      "name": "[cred] Sheets - write cadence state",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1080, 340],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// One line per lane, plus why the rest were skipped.\nconst first = $('decide the next touch').first().json;\nconst used = first.used || { email: 0, linkedin: 0, call: 0 };\nconst caps = first.caps || {};\nconst d = first.dropped || {};\n\nconst total = used.email + used.linkedin + used.call;\n\nconst lines = [\n  ':twisted_rightwards_arrows: *Cadence ' + first.task_date + '* - ' + total + ' touches queued',\n  '  email ' + used.email + '/' + caps.email + '   linkedin ' + used.linkedin + '/' + caps.linkedin + '   calls ' + used.call + '/' + caps.call,\n  '',\n  '_Skipped: ' + (d.not_due || 0) + ' not due, ' + (d.replied || 0) + ' already replying, ' + (d.finished || 0) + ' finished the sequence, ' + (d.no_channel || 0) + ' missing that channel, ' + (d.low_confidence || 0) + ' low confidence, ' + (d.suppressed || 0) + ' suppressed, ' + (d.over_cap || 0) + ' held by a cap._'\n];\n\nreturn [{ json: { text: lines.join('\\n') } }];"
+      },
+      "id": "summary",
+      "name": "cadence summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 340],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "notify",
+      "name": "[cred] Post the cadence",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 340],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 13 Multichannel Cadence\n\n**One conductor for three lanes.** This workflow decides *who gets touched, on which channel, today*. It does not write copy and it does not send - template 12 owns email, template 05 owns LinkedIn, a human owns the phone.\n\nWithout a conductor, email and LinkedIn run as two separate habits and a prospect gets a connection request the same morning as a break-up email. That is the single most common way a multichannel sequence looks amateur.\n\n**Default cadence** (business days, weekends never counted):\nday 0 email opener, day 2 LinkedIn profile view, day 4 email follow-up, day 6 LinkedIn connect, day 9 call, day 12 break-up email. Override with `CADENCE_JSON`.\n\n**Separate cap per channel.** Email 80, LinkedIn 20 (clamped to 25), calls 15. One channel running out never starves another.\n\n**Env:** `LEADS_SHEET_ID`, `CADENCE_JSON`, `DAILY_SEND_CAP`, `LI_DAILY_CAP`, `DAILY_CALL_CAP`, `MIN_CONFIDENCE`, `ALERT_WEBHOOK_URL`.\n\n**Sheet tabs:** `Email Queue`, `LinkedIn Tasks`, `Call Tasks`, plus `cadence_step`, `cadence_started_at`, `last_channel`, `last_action` on `Leads`.",
+        "height": 560,
+        "width": 470,
+        "color": 4
+      },
+      "id": "sticky-setup",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -400]
+    }
+  ],
+  "connections": {
+    "Weekday 07:30": {"main": [[{"node": "[cred] Sheets - read leads", "type": "main", "index": 0}]]},
+    "[cred] Sheets - read leads": {"main": [[{"node": "decide the next touch", "type": "main", "index": 0}]]},
+    "decide the next touch": {"main": [[{"node": "email lane?", "type": "main", "index": 0}]]},
+    "email lane?": {
+      "main": [
+        [{"node": "[cred] Sheets - queue email touch", "type": "main", "index": 0}],
+        [{"node": "LinkedIn lane?", "type": "main", "index": 0}]
+      ]
+    },
+    "LinkedIn lane?": {
+      "main": [
+        [{"node": "[cred] Sheets - queue LinkedIn touch", "type": "main", "index": 0}],
+        [{"node": "[cred] Sheets - queue call task", "type": "main", "index": 0}]
+      ]
+    },
+    "[cred] Sheets - queue email touch": {"main": [[{"node": "merge lanes", "type": "main", "index": 0}]]},
+    "[cred] Sheets - queue LinkedIn touch": {"main": [[{"node": "merge lanes", "type": "main", "index": 1}]]},
+    "[cred] Sheets - queue call task": {"main": [[{"node": "merge lanes", "type": "main", "index": 2}]]},
+    "merge lanes": {"main": [[{"node": "advance the cadence", "type": "main", "index": 0}]]},
+    "advance the cadence": {"main": [[{"node": "[cred] Sheets - write cadence state", "type": "main", "index": 0}]]},
+    "[cred] Sheets - write cadence state": {"main": [[{"node": "cadence summary", "type": "main", "index": 0}]]},
+    "cadence summary": {"main": [[{"node": "[cred] Post the cadence", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": false},
+  "tags": ["acme", "outbound"]
+}
