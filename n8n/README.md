@@ -1,7 +1,11 @@
 # n8n workflows
 
-Six workflows that run end to end on import, before a single credential exists,
-plus fourteen older ones in [`archive/`](archive/).
+Twelve workflows that run end to end on import, before a single credential exists,
+plus six single-file starters in [`starters/`](starters/) and fourteen older ones in
+[`archive/`](archive/).
+
+[`../docs/WORKFLOWS.md`](../docs/WORKFLOWS.md) indexes every one of them by mechanism,
+which is the faster way in if you are looking for a technique rather than an industry.
 
 | Workflow | What it does | Trigger |
 | --- | --- | --- |
@@ -11,6 +15,12 @@ plus fourteen older ones in [`archive/`](archive/).
 | [personalised-outbound-email](personalised-outbound-email/) | One personalised email per sheet row with real deliverables attached, then the outcome written back to the row. | Weekdays 09:00 and manual |
 | [social-post-with-approval](social-post-with-approval/) | Caption drafted, graphic rendered from a deterministic HTML template, draft posted to a chat channel, published only after a human replies. Two workflows. | Daily and on approval |
 | [recruiting-candidate-engine](recruiting-candidate-engine/) | ATS job order, scored candidates, an SMS and voice contact ladder, qualification, recruiter booking, ATS write-back. State in Postgres. Three workflows. | ATS webhook, every 15 minutes, inbound webhook |
+| [ghl-lead-intake-router](ghl-lead-intake-router/) | A lead from any source, read in whatever shape it arrived, routed to an owner, stage and tags by a first-match rule table, then written to the CRM as one payload built in one place. A second workflow walks unanswered leads down an ordered ladder and stops on a reply, a stage move or the cap, saying which. Two workflows. | Webhook, manual and weekdays 08:00 |
+| [order-to-ship-engine](order-to-ship-engine/) | Store order parsed and deduplicated, written to the production board first, confirmed with a shipping window the rules can support, then tracking and a personalised shipping and installation email from per-product rules. Two workflows. | Store webhook, weekdays 08:30 and 16:30 |
+| [brand-deal-outreach-engine](brand-deal-outreach-engine/) | Creator-partnership outreach at volume where the quality claims are gates rather than promises. A personalisation audit holds any pitch with an invented number or a template tell; deliverability fails closed per mailbox and per domain. Two workflows. | Weekdays 08:00 and hourly |
+| [pipedrive-referral-network](pipedrive-referral-network/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. A question about absence, which is why nothing event-driven answers it. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
+| [voice-avatar-reply-engine](voice-avatar-reply-engine/) | An enquiry triaged into a written reply, a synthesised voice note or an avatar video. Rendering has to be earned; complaints, legal and press get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
+| [trello-sms-notifier](trello-sms-notifier/) | A card on a watched list, its fields read from the card name, the description text or a custom field, composed into an SMS and sent. The smallest complete example of the conventions here. | Trello webhook |
 
 ## Importing one
 
@@ -68,6 +78,17 @@ it reaches an n8n instance.
 address is at a `.example` domain and every phone number is in the `555-01xx`
 range, so importing a workflow and running it against its own fixtures cannot
 contact anyone. See [`../NOTICE`](../NOTICE).
+
+## starters/
+
+Six single-file workflows: an RSS digest, B2B sourcing, cold email with reply triage,
+a Mailchimp signup, an applicant sync, and one WhatsApp number doing three jobs. One
+`.json` each, nothing to compile.
+
+They do **not** follow [`../docs/CONFIG-NODE.md`](../docs/CONFIG-NODE.md): most have no
+`config` node and none have a `STOP:` gate, so the first run of an unedited file can
+send. [`starters/README.md`](starters/README.md) says what to do about that, and
+[`../docs/CONFIG-NODE.md`](../docs/CONFIG-NODE.md) section 9 is the conversion.
 
 ## archive/
 

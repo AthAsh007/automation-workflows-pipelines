@@ -1,0 +1,614 @@
+{
+  "name": "Whatsapp AI System Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "com.twilio.messaging.inbound-message.received"
+        ]
+      },
+      "type": "n8n-nodes-base.twilioTrigger",
+      "typeVersion": 1,
+      "position": [
+        -752,
+        -48
+      ],
+      "id": "1c991db8-4ee0-40d9-97d7-2199995cd019",
+      "name": "Twilio Trigger",
+      "webhookId": "5ac464f5-3b72-484f-ad5d-d9a787a3b52c",
+      "credentials": {
+        "twilioApi": {
+          "id": "PODYuA8Xp1BnA8VC",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Please give this leads from Twilio ratings\n\n<twilio_message>\n{{ $json.data.body }}\n</twilio_message>",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are lead specialist that give ratings\n\nRatings must be 0 to 100\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -400,
+        -48
+      ],
+      "id": "f536fcb2-5965-4cba-9953-4d8d5e9358fa",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"name\": \"John Doe\",\n  \"address\": \"User address\",\n  \"needed\": \"User needed\",\n  \"leadRatings\": 70\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -256,
+        160
+      ],
+      "id": "e2c69c94-b5dd-45cf-ad39-2acd39a113bd",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        336
+      ],
+      "id": "d86e9658-e336-4acd-b4b7-56ffbb929f6b",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "41pawOiBqlqQm0mZ",
+          "name": "OpenRouter Acme"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "from": "={{ $('Twilio Trigger').item.json.data.to.replace(\"whatsapp:\",\"\") }}",
+        "to": "={{ $('Twilio Trigger').item.json.data.from.replace(\"whatsapp:\",\"\") }}",
+        "toWhatsapp": true,
+        "message": "Thank you for reaching us",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        576,
+        -48
+      ],
+      "id": "950fda37-801d-47c7-a273-536b0f1c06d7",
+      "name": "Send an SMS/MMS/WhatsApp message",
+      "credentials": {
+        "twilioApi": {
+          "id": "PODYuA8Xp1BnA8VC",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Lead Capture",
+        "height": 704,
+        "width": 1744,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -864,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "64773ab0-10e5-494f-b18e-9f74908cf536",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        1232,
+        256
+      ],
+      "id": "41902189-10b5-4835-9bc8-bec330eb09da",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1232,
+        32
+      ],
+      "id": "0e7da60a-dc87-4208-abea-70893a5f723e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "DAUqQi5jRaXHaYMa",
+          "mode": "list",
+          "cachedResultName": "invoices",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/DAUqQi5jRaXHaYMa"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paid",
+              "condition": "isFalse"
+            },
+            {
+              "keyName": "dueDate",
+              "condition": "lt",
+              "keyValue": "={{$now}}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        128
+      ],
+      "id": "361cdc1b-e06f-455b-aa3c-02d423d85474",
+      "name": "Get Invoices"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "bfbi67uLZF6UtMik",
+          "mode": "list",
+          "cachedResultName": "whatsapp_users",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/bfbi67uLZF6UtMik"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phoneNumber",
+              "keyValue": "={{ $('Twilio Trigger').item.json.data.from.replace(\"whatsapp:\",\"\") }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phoneNumber": "={{ $('Twilio Trigger').item.json.data.from.replace(\"whatsapp:\",\"\") }}",
+            "leadScoring": "={{ $json.output.leadRatings }}",
+            "name": "={{ $json.output.name }}",
+            "address": "={{ $json.output.address }}",
+            "needed": "={{ $json.output.needed }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phoneNumber",
+              "displayName": "phoneNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "leadScoring",
+              "displayName": "leadScoring",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "needed",
+              "displayName": "needed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        -48
+      ],
+      "id": "a1d3e7a5-ea17-43f9-845c-3c09190a8ef9",
+      "name": "Upsert Lead Scoring"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "bfbi67uLZF6UtMik",
+          "mode": "list",
+          "cachedResultName": "whatsapp_users",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/bfbi67uLZF6UtMik"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phoneNumber",
+              "keyValue": "={{ $json.clientWhatsapp }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1888,
+        128
+      ],
+      "id": "2591c6fb-8077-4814-a46d-1449f80b9fe2",
+      "name": "Get User"
+    },
+    {
+      "parameters": {
+        "from": "+14155238886",
+        "to": "={{ $json.phoneNumber }}",
+        "toWhatsapp": true,
+        "message": "={{`You have overdue invoices\n\n${$('Get Invoices').item.json.itemName} | $${$('Get Invoices').item.json.total.format()}\n\nDue Date: ${$('Get Invoices').item.json.dueDate.toDateTime().format('yyyy-MM-dd')}\n\nPlease pay it`}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        2192,
+        128
+      ],
+      "id": "e338f1f3-4b00-407f-9eb8-ef6e46d1d174",
+      "name": "Send an SMS/MMS/WhatsApp message1",
+      "credentials": {
+        "twilioApi": {
+          "id": "PODYuA8Xp1BnA8VC",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Collections - Invoice Overdue Reminders",
+        "height": 640,
+        "width": 1744,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        992,
+        -112
+      ],
+      "typeVersion": 1,
+      "id": "8772c395-1ea4-4beb-abd1-24c98800b74f",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "formTitle": "Onboarding",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Tenant Name"
+            },
+            {
+              "fieldLabel": "Phone Number",
+              "placeholder": "+62823xxxxxx"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        432,
+        880
+      ],
+      "id": "64a1fb7a-d8ce-4fd1-a2bb-56ad20ee6d55",
+      "name": "On form submission",
+      "webhookId": "02043731-f47a-4dd9-9777-e94f2c3a82d0",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        880
+      ],
+      "id": "de5e2909-b5ef-4fc4-a85b-6718802df56d",
+      "name": "Tenant Creation"
+    },
+    {
+      "parameters": {
+        "from": "+14155238886",
+        "to": "={{ $('On form submission').item.json['Phone Number'] }}",
+        "toWhatsapp": true,
+        "message": "=Hi {{ $('On form submission').item.json['Tenant Name'] }},\n\nWelcome and congratulations for joining!",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        880
+      ],
+      "id": "7153fac5-f743-4a6d-9ebd-583643f7aa8b",
+      "name": "Send an SMS/MMS/WhatsApp message2",
+      "credentials": {
+        "twilioApi": {
+          "id": "PODYuA8Xp1BnA8VC",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Onboarding",
+        "height": 528,
+        "width": 1744,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        80,
+        688
+      ],
+      "typeVersion": 1,
+      "id": "977af611-a788-46b6-99a0-7bbfbf386d60",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {
+    "Twilio Trigger": [
+      {
+        "json": {
+          "specversion": "1.0",
+          "type": "com.twilio.messaging.inbound-message.received",
+          "source": "/2010-04-01/Accounts/ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/Messages/SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.json",
+          "id": "EZxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "dataschema": "https://events-schemas.twilio.com/Messaging.InboundMessageV1/8",
+          "datacontenttype": "application/json",
+          "time": "2026-09-01T08:19:09.000Z",
+          "data": {
+            "numMedia": 0,
+            "timestamp": "2026-09-01T08:19:09.000Z",
+            "recipients": [],
+            "accountSid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "to": "whatsapp:+14155238886",
+            "numSegments": 1,
+            "messageSid": "SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "eventName": "com.twilio.messaging.inbound-message.received",
+            "body": "Aku mau order\nNama: Juno\nAlamat: Indonesia\nKebutuhan: AI services",
+            "externalUserId": "whatsapp:ID.998150313236840",
+            "from": "whatsapp:+15555550123"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "AI Agent": [
+      {
+        "json": {
+          "output": {
+            "name": "Juno",
+            "address": "Indonesia",
+            "needed": "AI services",
+            "leadRatings": 75
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "On form submission": [
+      {
+        "json": {
+          "Tenant Name": "Juno",
+          "Phone Number": "+15555550123",
+          "submittedAt": "2026-09-01T15:51:25.619+07:00",
+          "formMode": "test"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Twilio Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Upsert Lead Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Lead Scoring": {
+      "main": [
+        [
+          {
+            "node": "Send an SMS/MMS/WhatsApp message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Invoices": {
+      "main": [
+        [
+          {
+            "node": "Get User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User": {
+      "main": [
+        [
+          {
+            "node": "Send an SMS/MMS/WhatsApp message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Tenant Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tenant Creation": {
+      "main": [
+        [
+          {
+            "node": "Send an SMS/MMS/WhatsApp message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "240f348b-e8e2-45bd-8f62-9660da3f44bc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4de688815039b145d6ed15564956ae9b609eadd764f5406eca51846489ad254c"
+  },
+  "nodeGroups": [],
+  "id": "aNC9Sk87nDQOgkOs",
+  "tags": []
+}

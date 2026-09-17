@@ -1,0 +1,9 @@
+﻿Reply class,Route
+unsubscribe,suppress
+auto-reply,ignore
+bounce,reroute
+wrong-person,nurture
+not-now,close
+not-interested,handover
+interested,
+unclear,

@@ -33,7 +33,11 @@ row[C.status]        = sent
   : settle(cfg.status_no_deliverables, j.status);
 row[C.next_action] = sent
   ? 'Follow up in 3 days if no reply'
-  : 'Build deliverables for ' + j.domain + ' and push to ' + cfg.github_branch;
+  : j._outcome === 'send_failed'
+    // The deliverables exist and the copy built fine - only the send failed, so telling
+    // anyone to go build deliverables would send them after work that is already done.
+    ? 'Retry send - last attempt was rejected by the mail server'
+    : 'Build deliverables for ' + j.domain + ' and push to ' + cfg.github_branch;
 row[C.email_title]   = sent ? j.subject : (j.existing_title || '');
 row[C.email_content] = sent ? j.text : (j.existing_body || '');
 row[C.notes]         = notes;

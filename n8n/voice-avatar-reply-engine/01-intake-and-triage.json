@@ -1,0 +1,853 @@
+{
+  "name": "01-intake-and-triage",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "clone-intake",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "hook1",
+      "name": "When an enquiry arrives",
+      "webhookId": "clone-intake"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "man1",
+      "name": "Run it now"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================================\n// DIGITAL CLONE - INTAKE AND TRIAGE - CONFIG\n// Everything you might want to change lives in this one node. No environment\n// variables, so this runs on n8n Cloud unchanged.\n//\n// A blank key means that step is SKIPPED, never that the run fails. That is what\n// lets the whole pipeline be demonstrated before a single credential exists.\n// ============================================================================\n\n// ---------------------------------------------------------------- Safety\n// Ships in PREVIEW. Nothing is answered and nothing is queued for rendering\n// until you set this to false. Read STOP: preview - nothing queued first.\nconst DRY_RUN = true;\n\n// ---------------------------------------------------------------- The clone\n// Who the clone is. This is prepended to the triage prompt so the model answers\n// as a named person with a stated remit, not as a generic assistant.\nconst CLONE_NAME   = 'Alex Rivera';\nconst CLONE_ROLE   = 'Founder, replying to inbound enquiries';\nconst CLONE_SCOPE  = 'pricing, availability, what we do, booking a call';\n\n// ---------------------------------------------------------------- Triage\n// The low-latency model. GPT-4o-mini class is the brief's own suggestion: this\n// step is a classifier, not a writer, and latency here is felt by the caller.\nconst LLM_BASE_URL = 'https://api.openai.com/v1';\nconst LLM_API_KEY  = '';              // blank -> keyword rules only\nconst LLM_MODEL    = 'gpt-4o-mini';\nconst LLM_TIMEOUT_MS = 8000;\n\n// How an enquiry is answered. The triage step picks one of these.\n//   text   - a written reply, no synthesis at all\n//   voice  - ElevenLabs audio only\n//   video  - ElevenLabs audio driving a HeyGen avatar\n// Rendering costs money and takes time, so the default is deliberately 'text'\n// and an enquiry has to earn its way up to video.\nconst MODE_FOR = {\n  booking:   'video',   // worth a face\n  pricing:   'voice',   // worth a voice\n  question:  'text',\n  complaint: 'text',    // a person answers these, see HANDOFF_INTENTS\n  spam:      'none',\n};\nconst DEFAULT_MODE = 'text';\n\n// Anything in this list never gets an automated answer of any kind. It is\n// flagged for a human instead. Keep complaints and legal here.\nconst HANDOFF_INTENTS = ['complaint', 'legal', 'press'];\n\n// Keyword fallback, used when LLM_API_KEY is blank or the call times out.\n// First match wins.\nconst KEYWORD_RULES = [\n  { intent: 'booking',   any: ['book', 'call', 'meeting', 'demo', 'schedule', 'calendar'] },\n  { intent: 'pricing',   any: ['price', 'pricing', 'cost', 'quote', 'how much', 'budget'] },\n  { intent: 'complaint', any: ['complaint', 'refund', 'unhappy', 'terrible', 'lawyer'] },\n  { intent: 'spam',      any: ['seo services', 'guest post', 'backlink', 'crypto'] },\n];\n\n// ---------------------------------------------------------------- Scheduling\n// A booking enquiry gets a slot offered rather than a question asked back.\nconst BOOKING_URL       = '';         // blank -> the reply says a human will follow up\nconst OFFICE_HOURS      = { start: 9, end: 17 };   // 24h, clone's local time\nconst CLONE_TIMEZONE    = 'America/New_York';\n// Outside office hours the reply still goes out, it just does not promise\n// a same-day call. Nobody is left without an answer because it is 02:00.\nconst OUT_OF_HOURS_NOTE = 'I will confirm a time in the morning.';\n\n// ---------------------------------------------------------------- Render queue\n// Where a voice/video request is handed to workflow 02. This is the production\n// webhook URL of 02's \"When a render is requested\" node.\nconst RENDER_WEBHOOK_URL = '';        // blank -> queued to the log only, nothing renders\n\n// ---------------------------------------------------------------- Reporting\nconst REPORT_WEBHOOK_URL = '';        // Slack or Discord incoming webhook, optional\n\n// ============================================================================\nreturn [{ json: {\n  DRY_RUN, CLONE_NAME, CLONE_ROLE, CLONE_SCOPE,\n  LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TIMEOUT_MS,\n  MODE_FOR, DEFAULT_MODE, HANDOFF_INTENTS, KEYWORD_RULES,\n  BOOKING_URL, OFFICE_HOURS, CLONE_TIMEZONE, OUT_OF_HOURS_NOTE,\n  RENDER_WEBHOOK_URL, REPORT_WEBHOOK_URL,\n  llm_enabled:      LLM_API_KEY.length > 0,\n  render_enabled:   RENDER_WEBHOOK_URL.length > 0,\n  booking_enabled:  BOOKING_URL.length > 0,\n  report_enabled:   REPORT_WEBHOOK_URL.length > 0,\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "config",
+      "name": "config"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise whatever arrived into one shape, so nothing downstream cares whether\n// this came from the email trigger, the webhook or the demo button.\nconst cfg = $('config').first().json;\n\nconst SAMPLE = {\n  from: 'jordan.blake@example.com',\n  name: 'Jordan Blake',\n  subject: 'Can you do a call this week?',\n  body: 'Hi - saw your site. Could we book 20 minutes this week to talk pricing? Thanks, Jordan',\n};\n\nconst src = $input.first().json || {};\nconst raw = {\n  from:    src.from || src.email || src.sender || SAMPLE.from,\n  name:    src.name || src.fromName || '',\n  subject: src.subject || src.title || SAMPLE.subject,\n  body:    src.body || src.text || src.message || src.snippet || SAMPLE.body,\n  id:      src.id || src.messageId || src.threadId || `demo-${Date.now()}`,\n};\n\n// A name is nice to have, never required. Guessing one from an address is worse\n// than not using one at all - \"Hi Info\" is how an automated reply announces itself.\nconst guess = raw.name || '';\nconst text = `${raw.subject}\\n\\n${raw.body}`.trim();\n\nreturn [{ json: {\n  request_id: raw.id,\n  from: raw.from,\n  name: guess,\n  subject: raw.subject,\n  body: raw.body,\n  text,\n  words: text.split(/\\s+/).filter(Boolean).length,\n  received_at: new Date().toISOString(),\n  usable: text.length > 5 && /@/.test(raw.from),\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "read the request",
+      "name": "read the request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request usable?-c",
+              "leftValue": "={{ $json.usable }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "request usable?",
+      "name": "request usable?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No sender address or no text - there is nothing to answer.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'unreadable enquiry', reason: `No sender address or no text - there is nothing to answer.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: unreadable enquiry",
+      "name": "STOP: unreadable enquiry"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "LLM configured?-c",
+              "leftValue": "={{ $('config').first().json.llm_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "LLM configured?",
+      "name": "LLM configured?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('config').first().json.LLM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.LLM_MODEL, temperature: 0, messages: [ { role: \"system\", content: \"You triage inbound email for \" + $('config').first().json.CLONE_NAME + \", \" + $('config').first().json.CLONE_ROLE + \". Their remit: \" + $('config').first().json.CLONE_SCOPE + \". Reply ONLY with JSON: {\\\"intent\\\":one of booking|pricing|question|complaint|spam,\\\"confidence\\\":0-1,\\\"reason\\\":string}.\" }, { role: \"user\", content: $('read the request').first().json.text } ] }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] LLM - classify the enquiry",
+      "name": "[cred] LLM - classify the enquiry"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read the model's answer, and refuse to trust it blindly. A classifier that\n// returns something unparseable is a classifier that did not answer - falling\n// back to the keyword verdict is correct, inventing an intent is not.\nconst cfg = $('config').first().json;\nconst r = $('read the request').first().json;\nconst res = $input.first().json;\n\nlet parsed = null;\ntry {\n  const txt = res?.choices?.[0]?.message?.content ?? '';\n  parsed = JSON.parse(txt.replace(/^```json\\s*|\\s*```$/g, '').trim());\n} catch (e) { parsed = null; }\n\nconst known = Object.keys(cfg.MODE_FOR);\nconst ok = parsed && typeof parsed.intent === 'string' && known.includes(parsed.intent);\n\nreturn [{ json: {\n  ...r,\n  intent:     ok ? parsed.intent : 'question',\n  confidence: ok ? Number(parsed.confidence ?? 0.7) : 0.3,\n  reason:     ok ? String(parsed.reason || 'model').slice(0, 200)\n                 : 'model returned nothing usable, defaulted to question',\n  classifier: ok ? 'llm' : 'llm-failed',\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "apply the classification",
+      "name": "apply the classification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The fallback classifier. Runs when there is no LLM key, or when the call failed\n// or timed out. It is deliberately simple and deliberately explainable: an intent\n// you can point at a matched word for is one you can defend to the client.\nconst cfg = $('config').first().json;\nconst r = $('read the request').first().json;\nconst hay = r.text.toLowerCase();\n\nlet intent = 'question';\nlet matched = null;\nfor (const rule of cfg.KEYWORD_RULES) {\n  const hit = rule.any.find(w => hay.includes(w));\n  if (hit) { intent = rule.intent; matched = hit; break; }\n}\n\nreturn [{ json: {\n  ...r,\n  intent,\n  confidence: matched ? 0.6 : 0.3,\n  reason: matched ? `keyword \"${matched}\"` : 'no rule matched, defaulted to question',\n  classifier: 'keywords',\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "classify by keywords",
+      "name": "classify by keywords"
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "m1",
+      "name": "one classification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn an intent into a decision: who answers, in what medium, and what the\n// reply actually says. This is the node a client edits, so everything it reads\n// comes from config rather than from anywhere else.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\n\nconst handoff = cfg.HANDOFF_INTENTS.includes(r.intent);\nlet mode = handoff ? 'none' : (cfg.MODE_FOR[r.intent] || cfg.DEFAULT_MODE);\n\n// Low confidence never buys an expensive medium. If we are not sure what they\n// asked, we do not spend a render on answering it - and we do not guess at a\n// human handoff either; a written reply is the safe middle.\nif (!handoff && r.confidence < 0.5 && mode !== 'text') {\n  mode = 'text';\n}\n\n// Office hours change what the reply promises, never whether it is sent.\nconst now = new Date();\nconst hour = Number(new Intl.DateTimeFormat('en-GB', {\n  hour: 'numeric', hour12: false, timeZone: cfg.CLONE_TIMEZONE,\n}).format(now));\nconst in_hours = hour >= cfg.OFFICE_HOURS.start && hour < cfg.OFFICE_HOURS.end;\n\nconst greet = r.name ? `Hi ${r.name.split(' ')[0]},` : 'Hi,';\nconst lines = [greet];\nif (handoff) {\n  lines.push(`Thanks for writing. This one is going straight to a person on the team rather than to me - you will hear from them directly.`);\n} else if (r.intent === 'booking') {\n  lines.push(`Happy to find a time.`);\n  lines.push(cfg.booking_enabled\n    ? `You can grab a slot here: ${cfg.BOOKING_URL}`\n    : `Someone will come back with a couple of times that work.`);\n  if (!in_hours) lines.push(cfg.OUT_OF_HOURS_NOTE);\n} else if (r.intent === 'pricing') {\n  lines.push(`Good question - pricing depends on scope, so let me give you the short version and we can go deeper on a call.`);\n} else if (r.intent === 'spam') {\n  lines.push(``);\n} else {\n  lines.push(`Thanks for getting in touch - here is the short answer.`);\n}\nlines.push('', `- ${cfg.CLONE_NAME}`);\n\nconst script = lines.filter(l => l !== undefined).join('\\n').trim();\n\nreturn [{ json: {\n  ...r,\n  mode,\n  handoff,\n  in_hours,\n  script,\n  // what workflow 02 needs, if this is going to be rendered\n  render_request: {\n    request_id: r.request_id,\n    mode,\n    script,\n    reply_to: r.from,\n  },\n  queued: mode === 'voice' || mode === 'video',\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "decide the reply and the medium",
+      "name": "decide the reply and the medium"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a person should answer?-c",
+              "leftValue": "={{ $json.handoff }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a person should answer?",
+      "name": "a person should answer?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// A complaint, legal or press enquiry. No automated answer of any kind.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'handed to a person', reason: `A complaint, legal or press enquiry. No automated answer of any kind.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: handed to a person",
+      "name": "STOP: handed to a person"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs rendering?-c",
+              "leftValue": "={{ $json.queued }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "needs rendering?",
+      "name": "needs rendering?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Answered in writing. No synthesis was needed, so none was paid for.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'text reply only', reason: `Answered in writing. No synthesis was needed, so none was paid for.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: text reply only",
+      "name": "STOP: text reply only"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "queue configured?-c",
+              "leftValue": "={{ $('config').first().json.render_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "queue configured?",
+      "name": "queue configured?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// RENDER_WEBHOOK_URL is blank, so nothing was handed to workflow 02.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'render queue not configured', reason: `RENDER_WEBHOOK_URL is blank, so nothing was handed to workflow 02.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: render queue not configured",
+      "name": "STOP: render queue not configured"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sending it?-c",
+              "leftValue": "={{ !$('config').first().json.DRY_RUN }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "sending it?",
+      "name": "sending it?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// DRY_RUN is true. Open this node to read the whole decision before anything is spent.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'preview - nothing queued', reason: `DRY_RUN is true. Open this node to read the whole decision before anything is spent.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: preview - nothing queued",
+      "name": "STOP: preview - nothing queued"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.RENDER_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('decide the reply and the medium').first().json.render_request) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] Queue the render job",
+      "name": "[cred] Queue the render job"
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "m2",
+      "name": "one outcome"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The node to read after a preview run. It is the whole outcome of the pass in\n// one object: what came in, what it was classified as, what would have happened.\nconst r = $input.first().json;\nconst cfg = $('config').first().json;\nconst lines = [\n  `Clone intake - ${r.request_id || 'no id'}`,\n  `  from       ${r.from || '-'}`,\n  `  intent     ${r.intent || '-'} (${r.classifier || '-'}, confidence ${r.confidence ?? '-'})`,\n  `  reason     ${r.reason || '-'}`,\n  `  mode       ${r.mode || '-'}${r.handoff ? '  [HANDOFF - a person answers]' : ''}`,\n  `  queued     ${r.queued ? 'yes' : 'no'}${cfg.DRY_RUN ? '   (DRY_RUN - nothing left the building)' : ''}`,\n];\nreturn [{ json: { text: lines.join('\\n'), ...r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "build the run summary",
+      "name": "build the run summary"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "report configured?-c",
+              "leftValue": "={{ $('config').first().json.report_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "report configured?",
+      "name": "report configured?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.REPORT_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "Post the run summary",
+      "name": "Post the run summary"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "End",
+      "name": "End"
+    }
+  ],
+  "connections": {
+    "When an enquiry arrives": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the request": {
+      "main": [
+        [
+          {
+            "node": "request usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "request usable?": {
+      "main": [
+        [
+          {
+            "node": "LLM configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unreadable enquiry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: unreadable enquiry": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] LLM - classify the enquiry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "classify by keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] LLM - classify the enquiry": {
+      "main": [
+        [
+          {
+            "node": "apply the classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply the classification": {
+      "main": [
+        [
+          {
+            "node": "one classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "classify by keywords": {
+      "main": [
+        [
+          {
+            "node": "one classification",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one classification": {
+      "main": [
+        [
+          {
+            "node": "decide the reply and the medium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "decide the reply and the medium": {
+      "main": [
+        [
+          {
+            "node": "a person should answer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "a person should answer?": {
+      "main": [
+        [
+          {
+            "node": "STOP: handed to a person",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "needs rendering?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: handed to a person": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "needs rendering?": {
+      "main": [
+        [
+          {
+            "node": "queue configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: text reply only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: text reply only": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "queue configured?": {
+      "main": [
+        [
+          {
+            "node": "sending it?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: render queue not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: render queue not configured": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "sending it?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Queue the render job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: preview - nothing queued": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "[cred] Queue the render job": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "one outcome": {
+      "main": [
+        [
+          {
+            "node": "build the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the run summary": {
+      "main": [
+        [
+          {
+            "node": "report configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "report configured?": {
+      "main": [
+        [
+          {
+            "node": "Post the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the run summary": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

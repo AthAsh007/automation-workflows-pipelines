@@ -43,6 +43,7 @@ docs/          the conventions every template follows
 | You want to | Read |
 | --- | --- |
 | Import a workflow and watch it run | [`n8n/README.md`](n8n/README.md) |
+| Find the workflow that proves a mechanism | [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) |
 | Understand why nothing reads `$env` | [`docs/CONFIG-NODE.md`](docs/CONFIG-NODE.md) |
 | Run an agent on a schedule | [`agents/README.md`](agents/README.md) |
 | Build a prompt pipeline that returns typed output | [`prompts/README.md`](prompts/README.md) |
@@ -85,10 +86,24 @@ in `sample/` with no network access at all. Edit the `.js` file, rebuild, import
 | [personalised-outbound-email](n8n/personalised-outbound-email/) | Sends a personalised email per sheet row with real deliverables attached, then writes the outcome back to the row. Facts are assembled in code; the model rewrites only the subject line and the opening sentence. | Weekdays 09:00 and manual |
 | [social-post-with-approval](n8n/social-post-with-approval/) | Drafts a caption, renders a graphic from a deterministic HTML template, posts the draft to a chat channel, and publishes only after a human replies. | Daily and on approval |
 | [recruiting-candidate-engine](n8n/recruiting-candidate-engine/) | ATS job order, scored candidates, an SMS and voice contact ladder, qualification, recruiter booking, ATS write-back. State lives in Postgres. Three workflows. | ATS webhook, every 15 minutes, inbound webhook |
+| [ghl-lead-intake-router](n8n/ghl-lead-intake-router/) | A lead from any source, read in whatever shape it arrived, routed to an owner, stage and tags by a first-match rule table, then written to the CRM as one payload. A follow-up ladder stops on a reply, a stage move or the cap, and says which. Two workflows. | Webhook, manual and weekdays 08:00 |
+| [order-to-ship-engine](n8n/order-to-ship-engine/) | Store order captured once and written to the production board first, confirmed with a shipping window the rules can support, then tracking and a personalised installation email built from per-product rules. Two workflows. | Store webhook, weekdays 08:30 and 16:30 |
+| [brand-deal-outreach-engine](n8n/brand-deal-outreach-engine/) | Creator-partnership outreach where the quality claims are gates: a personalisation audit holds any pitch with an invented number, and deliverability fails closed per mailbox and per domain. Replies routed, weekly report shows what the gates cost. Two workflows. | Weekdays 08:00 and hourly |
+| [pipedrive-referral-network](n8n/pipedrive-referral-network/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. Overdue deals escalate rather than stack. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
+| [voice-avatar-reply-engine](n8n/voice-avatar-reply-engine/) | An enquiry triaged into a written reply, a voice note or an avatar video. Rendering has to be earned, low confidence drops back to text, and complaints get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
+| [trello-sms-notifier](n8n/trello-sms-notifier/) | A card on a watched list, its fields read from the card name, the description or a custom field, composed into an SMS and sent. The smallest complete example of the conventions. | Trello webhook |
+
+[`n8n/starters/`](n8n/starters/) holds six single-file workflows: an RSS digest, B2B
+sourcing, cold email with reply triage, a Mailchimp signup, an applicant sync and a
+WhatsApp number doing three jobs. They are short and readable, and they do **not**
+follow the config-node rule, so read their README before running one.
 
 [`n8n/archive/`](n8n/archive/) holds fourteen more, one per brief shape. They are
 older, most still read `$env`, and they are kept because they show the range of
 graph shapes rather than because they are current.
+
+[`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) indexes all of them by mechanism, which is
+the faster way in if you are looking for a technique rather than an industry.
 
 ## Agent profiles
 

@@ -1,0 +1,116 @@
+{
+  "source": "demo",
+  "read_at": "2026-09-02T16:18:04.388Z",
+  "failures": [],
+  "replies": [
+    {
+      "reply_id": "R-1000",
+      "pitch_id": "P-ST-01-BR-001-20260902",
+      "from_name": "Sofie Brandt",
+      "from": "sofie.brandt@kestrelliving.example",
+      "brand": "Kestrel Living",
+      "student": "Nadia Osei",
+      "subject": "Re: the modular sofa line",
+      "text": "This is interesting — can you send over rates and the last two campaigns she ran? Happy to jump on a call next week.",
+      "received_at": "2026-09-02T15:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1001",
+      "pitch_id": "P-ST-02-BR-011-20260902",
+      "from_name": "Elena Ruiz",
+      "from": "elena.ruiz@copperpotsauces.example",
+      "brand": "Copper Pot Sauces",
+      "student": "Tomas Ferreira",
+      "subject": "Re: Tesco listing",
+      "text": "Thanks but we are not interested at the moment, our influencer budget is committed through the autumn.",
+      "received_at": "2026-09-02T14:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1002",
+      "pitch_id": "P-ST-03-BR-026-20260902",
+      "from_name": "Beth Okoye",
+      "from": "beth.okoye@rowansupplements.example",
+      "brand": "Rowan Supplements",
+      "student": "Priya Raman",
+      "subject": "Re: the reformulated protein line",
+      "text": "Please unsubscribe me from this list and do not contact me again.",
+      "received_at": "2026-09-02T13:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1003",
+      "pitch_id": "P-ST-04-BR-031-20260902",
+      "from_name": "Marc Dubois",
+      "from": "marc.dubois@hexlineperipherals.example",
+      "brand": "Hexline Peripherals",
+      "student": "Leo Hartmann",
+      "subject": "Automatic reply: Re: the wireless mouse",
+      "text": "I am out of office until the 14th with limited access to email.",
+      "received_at": "2026-09-02T12:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1004",
+      "pitch_id": "P-ST-05-BR-041-20260902",
+      "from_name": "Aisha Rahman",
+      "from": "aisha.rahman@lumenskin.example",
+      "brand": "Lumen Skin",
+      "student": "Amara Chike",
+      "subject": "Re: fragrance-free serum",
+      "text": "I have left Lumen — please forward this to Dan who now handles partnerships.",
+      "received_at": "2026-09-02T11:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1005",
+      "pitch_id": "P-ST-06-BR-051-20260902",
+      "from_name": "Mei Tanaka",
+      "from": "mei.tanaka@paperfoldstudio.example",
+      "brand": "Paperfold Studio",
+      "student": "Iris Vandermeer",
+      "subject": "Re: the watercolour set",
+      "text": "Budget is set for this year. Worth revisiting in January if she is still available.",
+      "received_at": "2026-09-02T10:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1006",
+      "pitch_id": "P-ST-01-BR-002-20260902",
+      "from_name": "postmaster",
+      "from": "postmaster@northwoodceramics.example",
+      "brand": "Northwood Ceramics",
+      "student": "Nadia Osei",
+      "subject": "Undeliverable: Partnership with Nadia Osei",
+      "text": "Your message could not be delivered. The address was not found at this domain.",
+      "received_at": "2026-09-02T09:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1007",
+      "pitch_id": "P-ST-02-BR-012-20260902",
+      "from_name": "Tom Aldridge",
+      "from": "tom.aldridge@grainhousebakery.example",
+      "brand": "Grainhouse Bakery",
+      "student": "Tomas Ferreira",
+      "subject": "Re: shipping nationwide",
+      "text": "Who is this for exactly? We had someone else email us about the same thing yesterday.",
+      "received_at": "2026-09-02T08:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    },
+    {
+      "reply_id": "R-1008",
+      "pitch_id": "P-ST-04-BR-032-20260902",
+      "from_name": "Sara Lindholm",
+      "from": "sara.lindholm@nightfallstudios.example",
+      "brand": "Nightfall Studios",
+      "student": "Leo Hartmann",
+      "subject": "Re: early access",
+      "text": "Depends entirely on the numbers.",
+      "received_at": "2026-09-02T07:18:04.388Z",
+      "inbox": "outreach@northbeam-outreach.example"
+    }
+  ],
+  "_note": "DEMO REPLIES — nine fabricated replies, two of which match no rule on purpose."
+}
