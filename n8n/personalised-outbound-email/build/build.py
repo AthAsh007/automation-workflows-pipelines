@@ -124,8 +124,9 @@ user_msg = (
     "'Business: ' + $json.business + " + NL +
     " + 'Domain: ' + $json.domain + " + NL +
     " + 'Sector: ' + $json.type + " + NL +
+    # The pitch angle is how we plan to sell to them and is deliberately NOT sent to the
+    # model: it only rewrites the opening, and anything in its prompt can surface there.
     " + 'Our note on their current site: ' + $json._parsed.diagnosis + " + NL +
-    " + 'Our pitch angle: ' + $json._parsed.pitch_angle + " + NL +
     " + 'Current subject: ' + $json.subject + " + NL +
     " + 'Current intro: ' + $json.intro"
 )
@@ -200,9 +201,18 @@ nodes.append({"parameters": {
                     "replyTo": "={{ %s.reply_to }}" % CFG,
                     "bccEmail": "={{ %s.test_send ? '' : %s.bcc_email }}" % (CFG, CFG)}},
     "id": "smtp-send", "name": "[cred] SMTP - send deliverables",
-    "type": "n8n-nodes-base.emailSend", "typeVersion": 2.1, "position": [3440, 200]})
+    "type": "n8n-nodes-base.emailSend", "typeVersion": 2.1, "position": [3440, 200],
+    # Gmail answers a burst of attachment-heavy mail with "451-4.3.0 Mail server
+    # temporarily rejected message". It is explicitly a temporary error, so retry it.
+    # Without onError the throw aborts the whole execution: the loop never gets its
+    # return trip through "record outcome", and every lead after the failed one is
+    # silently dropped. continueErrorOutput costs one lead instead of the batch.
+    "retryOnFail": True, "maxTries": 3, "waitBetweenTries": 5000,
+    "onError": "continueErrorOutput"})
 
 nodes.append(code("mark-sent", "mark sent", [3660, 200], "mark-sent.js"))
+nodes.append(code("mark-send-failed", "mark send failed", [3660, 380],
+                  "mark-send-failed.js"))
 
 nodes.append(code("prep-update", "prepare sheet update", [3880, 280], "prepare-sheet-update.js"))
 nodes.append(if_bool("write-back", "write back?", [4100, 280], "live_send"))
@@ -318,7 +328,12 @@ connections = {
     "STOP: no attachments": main("send this one?"),
     "send this one?": branch(["[cred] SMTP - send deliverables"], ["STOP: preview - not sent"]),
     "STOP: preview - not sent": main("prepare sheet update"),
-    "[cred] SMTP - send deliverables": main("mark sent"),
+    # Output 0 is a successful send; output 1 is the error branch opened by
+    # onError=continueErrorOutput. A permanent failure skips "mark sent" (so the row is
+    # never written back as Contacted) but still reaches "prepare sheet update", which
+    # keeps the loop turning for the leads behind it.
+    "[cred] SMTP - send deliverables": branch(["mark sent"], ["mark send failed"]),
+    "mark send failed": main("prepare sheet update"),
     "mark sent": main("prepare sheet update"),
     "STOP: no deliverables in repo": main("prepare sheet update"),
     "prepare sheet update": main("write back?"),

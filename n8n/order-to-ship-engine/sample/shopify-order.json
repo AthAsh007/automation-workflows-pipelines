@@ -1,0 +1,25 @@
+{
+  "id": 5103,
+  "name": "#5103",
+  "created_at": "2026-09-09T09:30:00Z",
+  "email": "dana.whitfield@example.com",
+  "customer": {
+    "first_name": "Dana",
+    "last_name": "Whitfield",
+    "email": "dana.whitfield@example.com"
+  },
+  "note": "Matte oil finish, please",
+  "line_items": [
+    {
+      "sku": "DIN-TBL-WALNUT-6",
+      "title": "Walnut dining table, 6-seat",
+      "quantity": 1,
+      "properties": [{ "name": "Finish", "value": "Matte oil" }]
+    },
+    {
+      "sku": "BRK-STEEL-L",
+      "title": "Steel L-bracket set (pair)",
+      "quantity": 2
+    }
+  ]
+}

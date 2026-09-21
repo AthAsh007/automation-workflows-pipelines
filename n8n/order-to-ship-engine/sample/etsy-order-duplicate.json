@@ -1,0 +1,18 @@
+{
+  "receipt_id": 2218,
+  "create_timestamp": 1756987320,
+  "name": "Marlon Reyes",
+  "buyer_email": "marlon.reyes@example.com",
+  "transactions": [
+    {
+      "title": "Oak wall shelf, 120 cm",
+      "quantity": 1,
+      "product_data": { "sku": "SHLF-OAK-120" }
+    },
+    {
+      "title": "Steel L-bracket set (pair)",
+      "quantity": 1,
+      "product_data": { "sku": "BRK-STEEL-L" }
+    }
+  ]
+}

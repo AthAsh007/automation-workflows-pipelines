@@ -11,7 +11,9 @@ Rules enforced:
      or one of the allowed literals (example.com and friends, RFC 2606).
   2. Hostnames are either a known vendor API, a reserved TLD, or an allowed
      literal. Anything else is a domain someone could register.
-  3. Phone numbers with a North American shape use the 555-01xx range.
+  3. Phone numbers with a North American shape use the 555-01xx range, unless
+     they are a number the vendor publishes for everyone to test against
+     (VENDOR_PHONES) or a constant that only looks like one (NOT_PHONE).
 
 Exit code 0 if clean, 1 if not.
 """
@@ -52,6 +54,29 @@ VENDOR_HOSTS = {
     "registry.gitlab.com", "docs.github.com", "developer.mozilla.org",
     "json-schema.org", "www.apache.org", "opensource.org",
     "localhost", "127.0.0.1",
+    # Boards, stores, carriers and model hosts the newer templates call.
+    "trello.com", "api.trello.com", "twilio.com", "events-schemas.twilio.com",
+    "api.shipstation.com", "ssapi.shipstation.com",
+    "airtable.com", "api.airtable.com",
+    "app.notion.com", "api.notion.com",
+    "console.apify.com", "api.apify.com",
+    "api.coresignal.com", "api.pipedrive.com", "pipedrive.com",
+    "api.mailchimp.com", "api.elevenlabs.io", "api.heygen.com",
+    "browserless.io", "chrome.browserless.io",
+}
+
+# Numbers that match the North American shape without being phone numbers:
+# a PRNG modulus, a bit mask, a port range. Kept as an explicit list so a real
+# number can never be waved through by loosening the pattern.
+NOT_PHONE = {
+    "2147483648",  # 2**31, the modulus in the deterministic demo generators
+    "2147483647",
+}
+
+# Numbers a vendor publishes for everyone to test against. They belong to the
+# vendor, not to a person, so the 555-01xx rule does not apply.
+VENDOR_PHONES = {
+    "+14155238886",  # Twilio's shared WhatsApp sandbox number
 }
 
 # Free-mail and disposable-mail providers appear in classification lists, never
@@ -79,8 +104,10 @@ HOST = re.compile(
     r"(?:com|org|net|io|ai|gov|edu|co|sg|uk|xyz|dev|app|us|biz|info"
     r"|ae|sa|qa|bh|om|de|fr|nl|au|ca))\b(?!\s*\()"
 )
-# A North American number, however it is punctuated.
-PHONE = re.compile(r"(?<![0-9])(?:\+?1[-. ]?)?\(?([2-9][0-9]{2})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})(?![0-9])")
+# A North American number, however it is punctuated. The boundaries exclude
+# letters as well as digits, so the tail of a hex id or a slug is not read as a
+# phone number.
+PHONE = re.compile(r"(?<![0-9A-Za-z])(?:\+?1[-. ]?)?\(?([2-9][0-9]{2})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})(?![0-9A-Za-z])")
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
 SKIP_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip", ".ico",
@@ -90,9 +117,17 @@ SKIP_FILES = {"check-fixtures.py", "NOTICE", "SANITIZATION.md", "COMPLIANCE.md",
               "SAFETY.md", "SECURITY.md", "CONTRIBUTING.md"}
 
 
+# RFC 2606 reserves these names and everything under them, so a subdomain of
+# one is as unroutable as the name itself.
+RESERVED_SUFFIXES = tuple(
+    "." + d for d in ("example.com", "example.org", "example.net", "example.co.uk")
+)
+
+
 def reserved(host):
     h = host.lower().rstrip(".")
-    return h.endswith(RESERVED_TLDS) or h in ALLOWED_LITERAL
+    return (h.endswith(RESERVED_TLDS) or h in ALLOWED_LITERAL
+            or h.endswith(RESERVED_SUFFIXES))
 
 
 def allowed_host(host):
@@ -137,8 +172,11 @@ def check(path, rel):
             if not allowed_host(m.group(1)):
                 problems.append((rel, n, "registerable hostname: " + m.group(1)))
         for m in PHONE.finditer(line):
+            raw = m.group(0)
+            if raw in NOT_PHONE or raw in VENDOR_PHONES:
+                continue
             if m.group(2) != "555" or not m.group(3).startswith("01"):
-                problems.append((rel, n, "phone outside the 555-01xx range: " + m.group(0)))
+                problems.append((rel, n, "phone outside the 555-01xx range: " + raw))
     return problems
 
 

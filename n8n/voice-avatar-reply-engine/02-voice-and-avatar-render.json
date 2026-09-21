@@ -1,0 +1,1102 @@
+{
+  "name": "02-voice-and-avatar-render",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "clone-render",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "hook2",
+      "name": "When a render is requested",
+      "webhookId": "clone-render"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "man2",
+      "name": "Run it now"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================================\n// DIGITAL CLONE - VOICE AND AVATAR RENDER - CONFIG\n// Milestone 1 of the brief: ElevenLabs audio output driving HeyGen avatar\n// synthesis. Workflow 01 hands work to this one; it can also be called directly.\n//\n// Blank key -> that step is SKIPPED, never a failed run.\n// ============================================================================\n\n// ---------------------------------------------------------------- Safety\n// Ships in PREVIEW: the audio and the video are produced, but nothing is\n// delivered to the requester. Read STOP: preview - not delivered first.\nconst DRY_RUN = true;\n\n// ---------------------------------------------------------------- ElevenLabs\nconst ELEVENLABS_API_KEY  = '';                       // blank -> nothing is synthesised\nconst ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io';\nconst ELEVENLABS_VOICE_ID = '';                       // your cloned voice id\nconst ELEVENLABS_MODEL    = 'eleven_turbo_v2_5';      // turbo: lowest latency\nconst VOICE_SETTINGS      = { stability: 0.5, similarity_boost: 0.75 };\n\n// The brief asks for latency to be measured. Every stage stamps its own\n// duration and the summary prints them; this is the budget it compares against.\nconst LATENCY_BUDGET_MS = { speech: 6000, render: 180000 };\n\n// ---------------------------------------------------------------- HeyGen\nconst HEYGEN_API_KEY   = '';                          // blank -> audio only, no video\nconst HEYGEN_BASE_URL  = 'https://api.heygen.com';\nconst HEYGEN_AVATAR_ID = '';                          // your avatar id\nconst HEYGEN_DIMENSION = { width: 1280, height: 720 };\n\n// A render is asynchronous. These bound the wait so a stuck job fails loudly\n// instead of holding an execution open forever.\nconst POLL_SECONDS  = 10;\nconst POLL_MAX_TRIES = 18;        // 18 x 10s = 3 minutes, then it gives up\n\n// Where the finished audio/video is sent. Blank -> produced and logged only.\nconst DELIVERY_WEBHOOK_URL = '';\n\n// A public URL for the synthesised audio. HeyGen fetches the audio rather than\n// receiving the bytes, so it must be reachable from the internet. Leave blank\n// and the workflow uses HeyGen's own text-to-speech instead of the clone voice -\n// which is a real downgrade, and the summary says so rather than hiding it.\nconst AUDIO_PUBLIC_BASE_URL = '';\n\n// ============================================================================\nreturn [{ json: {\n  DRY_RUN,\n  ELEVENLABS_API_KEY, ELEVENLABS_BASE_URL, ELEVENLABS_VOICE_ID, ELEVENLABS_MODEL,\n  VOICE_SETTINGS, LATENCY_BUDGET_MS,\n  HEYGEN_API_KEY, HEYGEN_BASE_URL, HEYGEN_AVATAR_ID, HEYGEN_DIMENSION,\n  POLL_SECONDS, POLL_MAX_TRIES,\n  DELIVERY_WEBHOOK_URL, AUDIO_PUBLIC_BASE_URL,\n  voice_enabled:    ELEVENLABS_API_KEY.length > 0 && ELEVENLABS_VOICE_ID.length > 0,\n  avatar_enabled:   HEYGEN_API_KEY.length > 0 && HEYGEN_AVATAR_ID.length > 0,\n  delivery_enabled: DELIVERY_WEBHOOK_URL.length > 0,\n  audio_hosted:     AUDIO_PUBLIC_BASE_URL.length > 0,\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "config",
+      "name": "config"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One shape, whether this came from workflow 01, a direct call, or the demo button.\nconst SAMPLE = {\n  request_id: 'demo-001',\n  mode: 'video',\n  script: 'Hi Jordan - happy to find a time. You can grab a slot on my calendar and I will confirm in the morning.',\n  reply_to: 'jordan.blake@example.com',\n};\n\nconst src = $input.first().json || {};\nconst body = src.body && typeof src.body === 'object' ? src.body : src;\n\nconst script = (body.script || body.text || SAMPLE.script).toString().trim();\nconst mode = ['voice', 'video'].includes(body.mode) ? body.mode : SAMPLE.mode;\n\n// ElevenLabs bills per character. A runaway script is the expensive failure here,\n// so it is refused rather than truncated - a half-sentence reply is worse than none.\nconst MAX_CHARS = 1200;\n\nreturn [{ json: {\n  request_id: body.request_id || SAMPLE.request_id,\n  reply_to: body.reply_to || SAMPLE.reply_to,\n  mode,\n  script,\n  chars: script.length,\n  too_long: script.length > MAX_CHARS,\n  usable: script.length > 0 && script.length <= MAX_CHARS,\n  started_at: Date.now(),\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "read the render request",
+      "name": "read the render request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "script usable?-c",
+              "leftValue": "={{ $json.usable }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "script usable?",
+      "name": "script usable?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Empty, or over the character cap. ElevenLabs bills per character, so a runaway script is refused rather than truncated.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'script rejected', reason: `Empty, or over the character cap. ElevenLabs bills per character, so a runaway script is refused rather than truncated.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: script rejected",
+      "name": "STOP: script rejected"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "voice configured?-c",
+              "leftValue": "={{ $('config').first().json.voice_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "voice configured?",
+      "name": "voice configured?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No API key or no voice id. Nothing was synthesised and nothing was charged.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'ElevenLabs not configured', reason: `No API key or no voice id. Nothing was synthesised and nothing was charged.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: ElevenLabs not configured",
+      "name": "STOP: ElevenLabs not configured"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ELEVENLABS_BASE_URL }}/v1/text-to-speech/{{ $('config').first().json.ELEVENLABS_VOICE_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "={{ $('config').first().json.ELEVENLABS_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": "file"
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $('read the render request').first().json.script, model_id: $('config').first().json.ELEVENLABS_MODEL, voice_settings: $('config').first().json.VOICE_SETTINGS }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] ElevenLabs - synthesise the speech",
+      "name": "[cred] ElevenLabs - synthesise the speech"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prove the bytes are really audio before anything downstream trusts them.\n// A 200 with an error body is the normal way a TTS call fails, and an \"audio\"\n// file that is actually JSON is the thing that breaks the avatar render with\n// an unreadable message two nodes later.\nconst cfg = $('config').first().json;\nconst r = $('read the render request').first().json;\nconst item = $input.first();\nconst bin = item.binary && (item.binary.data || Object.values(item.binary)[0]);\n\nconst size = bin ? Number(bin.fileSize || 0) || (bin.data ? Buffer.from(bin.data, 'base64').length : 0) : 0;\nconst mime = bin ? (bin.mimeType || '') : '';\nconst looks_audio = /audio|mpeg|mp3|wav/i.test(mime) && size > 1024;\n\nconst elapsed = Date.now() - r.started_at;\n\nreturn [{\n  json: {\n    ...r,\n    audio_bytes: size,\n    audio_mime: mime,\n    audio_ok: looks_audio,\n    speech_ms: elapsed,\n    speech_over_budget: elapsed > cfg.LATENCY_BUDGET_MS.speech,\n    audio_reason: looks_audio ? 'ok'\n      : (size === 0 ? 'no audio returned' : `unexpected content type \"${mime}\" (${size} bytes)`),\n  },\n  binary: item.binary,\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "check the audio",
+      "name": "check the audio"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "audio usable?-c",
+              "leftValue": "={{ $json.audio_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "audio usable?",
+      "name": "audio usable?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The TTS call returned something that is not audio. A 200 with an error body is the normal way this fails.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'no usable audio', reason: `The TTS call returned something that is not audio. A 200 with an error body is the normal way this fails.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: no usable audio",
+      "name": "STOP: no usable audio"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "video wanted?-c",
+              "leftValue": "={{ $json.mode === 'video' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "video wanted?",
+      "name": "video wanted?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// mode = voice. The audio is the finished article; no avatar render is needed.\nconst r = $input.first().json;\nreturn [{ json: { ...r, deliverable: 'audio', succeeded: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "audio is the deliverable",
+      "name": "audio is the deliverable"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "avatar configured?-c",
+              "leftValue": "={{ $('config').first().json.avatar_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "avatar configured?",
+      "name": "avatar configured?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No API key or no avatar id, so the video half is skipped. The audio still exists.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'HeyGen not configured', reason: `No API key or no avatar id, so the video half is skipped. The audio still exists.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: HeyGen not configured",
+      "name": "STOP: HeyGen not configured"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.HEYGEN_BASE_URL }}/v2/video/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $('config').first().json.HEYGEN_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ video_inputs: [ { character: { type: 'avatar', avatar_id: $('config').first().json.HEYGEN_AVATAR_ID }, voice: ($('config').first().json.audio_hosted ? { type: 'audio', audio_url: $('config').first().json.AUDIO_PUBLIC_BASE_URL } : { type: 'text', input_text: $('read the render request').first().json.script }) } ], dimension: $('config').first().json.HEYGEN_DIMENSION }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] HeyGen - start the avatar render",
+      "name": "[cred] HeyGen - start the avatar render"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read HeyGen's acknowledgement. It returns a job id, not a video - the render\n// happens on their side and we poll for it below.\nconst r = $('check the audio').first().json;\nconst res = $input.first().json || {};\nconst id = res?.data?.video_id || res?.video_id || null;\n\nreturn [{ json: {\n  ...r,\n  video_id: id,\n  render_started_at: Date.now(),\n  tries: 0,\n  accepted: Boolean(id),\n  accept_reason: id ? 'accepted' : `HeyGen did not return a video id: ${JSON.stringify(res).slice(0, 300)}`,\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "read the render job",
+      "name": "read the render job"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "render accepted?-c",
+              "leftValue": "={{ $json.accepted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "render accepted?",
+      "name": "render accepted?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HeyGen did not return a video id, so there is nothing to poll for.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'render not accepted', reason: `HeyGen did not return a video id, so there is nothing to poll for.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: render not accepted",
+      "name": "STOP: render not accepted"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('config').first().json.POLL_SECONDS }}",
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "wait2",
+      "name": "Wait for the render",
+      "webhookId": "clone-render-wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.HEYGEN_BASE_URL }}/v1/video_status.get?video_id={{ $('read the render job').first().json.video_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $('config').first().json.HEYGEN_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] HeyGen - check the render",
+      "name": "[cred] HeyGen - check the render"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One poll. Counts its own attempts so the loop is bounded by config rather\n// than by hope, and carries the elapsed time so the summary can report latency.\nconst cfg = $('config').first().json;\nconst prev = $('read the render job').first().json;\nconst seen = $input.first().json || {};\n\nconst st = (seen?.data?.status || seen?.status || 'unknown').toLowerCase();\nconst tries = Number($runIndex || 0) + 1;\nconst elapsed = Date.now() - prev.render_started_at;\n\nconst done = ['completed', 'failed', 'error'].includes(st);\nconst ok = st === 'completed';\n\nreturn [{ json: {\n  ...prev,\n  tries,\n  status: st,\n  finished: done || tries >= cfg.POLL_MAX_TRIES,\n  succeeded: ok,\n  timed_out: !done && tries >= cfg.POLL_MAX_TRIES,\n  render_ms: elapsed,\n  render_over_budget: elapsed > cfg.LATENCY_BUDGET_MS.render,\n  video_url: seen?.data?.video_url || seen?.video_url || null,\n  render_reason: ok ? 'completed'\n    : (!done && tries >= cfg.POLL_MAX_TRIES\n        ? `gave up after ${tries} polls (${Math.round(elapsed / 1000)}s)`\n        : `HeyGen reported \"${st}\"`),\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "read the render status",
+      "name": "read the render status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "render finished?-c",
+              "leftValue": "={{ $json.finished }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "render finished?",
+      "name": "render finished?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "render succeeded?-c",
+              "leftValue": "={{ $json.succeeded }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "render succeeded?",
+      "name": "render succeeded?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HeyGen reported a failure, or the poll gave up. The reason and the elapsed time are on the item.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'render failed', reason: `HeyGen reported a failure, or the poll gave up. The reason and the elapsed time are on the item.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: render failed",
+      "name": "STOP: render failed"
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "m3",
+      "name": "one deliverable"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "delivering it?-c",
+              "leftValue": "={{ !$('config').first().json.DRY_RUN && $('config').first().json.delivery_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "delivering it?",
+      "name": "delivering it?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// DRY_RUN is true, or no delivery URL is set. The audio and video were produced - nothing was sent.\nconst r = $input.first().json;\nreturn [{ json: { stopped_at: 'preview - not delivered', reason: `DRY_RUN is true, or no delivery URL is set. The audio and video were produced - nothing was sent.`, request: r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "STOP: preview - not delivered",
+      "name": "STOP: preview - not delivered"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.DELIVERY_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, reply_to: $json.reply_to, mode: $json.mode, video_url: $json.video_url || null }) }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "[cred] Deliver the reply",
+      "name": "[cred] Deliver the reply"
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "m4",
+      "name": "one outcome"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The latency report the brief asks for, plus the outcome. This is the node to\n// open after any run - preview or live.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst s = (ms) => ms === undefined || ms === null ? '-' : `${Math.round(ms)}ms`;\n\nconst lines = [\n  `Clone render - ${r.request_id || 'no id'}  [${r.mode || '-'}]`,\n  `  script      ${r.chars ?? '-'} chars`,\n  `  speech      ${s(r.speech_ms)}   budget ${cfg.LATENCY_BUDGET_MS.speech}ms${r.speech_over_budget ? '   OVER' : ''}`,\n];\nif (r.mode === 'video') {\n  lines.push(`  render      ${s(r.render_ms)}   budget ${cfg.LATENCY_BUDGET_MS.render}ms${r.render_over_budget ? '   OVER' : ''}`);\n  lines.push(`  polls       ${r.tries ?? '-'} of ${cfg.POLL_MAX_TRIES}`);\n  lines.push(`  status      ${r.status || '-'}  ${r.render_reason || ''}`);\n  if (!cfg.audio_hosted) {\n    lines.push(`  NOTE        AUDIO_PUBLIC_BASE_URL is blank, so HeyGen used its own voice,`);\n    lines.push(`              not the ElevenLabs clone. Set it to use the cloned voice.`);\n  }\n}\nlines.push(`  delivered   ${cfg.DRY_RUN ? 'no  (DRY_RUN)' : (cfg.delivery_enabled ? 'yes' : 'no  (no delivery URL)')}`);\n\nreturn [{ json: { text: lines.join('\\n'), ...r } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "build the render summary",
+      "name": "build the render summary"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, summary: $json.text }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "resp2",
+      "name": "Respond to the caller"
+    }
+  ],
+  "connections": {
+    "When a render is requested": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "read the render request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the render request": {
+      "main": [
+        [
+          {
+            "node": "script usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "script usable?": {
+      "main": [
+        [
+          {
+            "node": "voice configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: script rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: script rejected": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "voice configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] ElevenLabs - synthesise the speech",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: ElevenLabs not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: ElevenLabs not configured": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] ElevenLabs - synthesise the speech": {
+      "main": [
+        [
+          {
+            "node": "check the audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check the audio": {
+      "main": [
+        [
+          {
+            "node": "audio usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "audio usable?": {
+      "main": [
+        [
+          {
+            "node": "video wanted?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no usable audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no usable audio": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "video wanted?": {
+      "main": [
+        [
+          {
+            "node": "avatar configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "audio is the deliverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "audio is the deliverable": {
+      "main": [
+        [
+          {
+            "node": "one deliverable",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "avatar configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] HeyGen - start the avatar render",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: HeyGen not configured",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: HeyGen not configured": {
+      "main": [
+        [
+          {
+            "node": "one deliverable",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] HeyGen - start the avatar render": {
+      "main": [
+        [
+          {
+            "node": "read the render job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the render job": {
+      "main": [
+        [
+          {
+            "node": "render accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "render accepted?": {
+      "main": [
+        [
+          {
+            "node": "Wait for the render",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: render not accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: render not accepted": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait for the render": {
+      "main": [
+        [
+          {
+            "node": "[cred] HeyGen - check the render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] HeyGen - check the render": {
+      "main": [
+        [
+          {
+            "node": "read the render status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the render status": {
+      "main": [
+        [
+          {
+            "node": "render finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "render finished?": {
+      "main": [
+        [
+          {
+            "node": "render succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for the render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "render succeeded?": {
+      "main": [
+        [
+          {
+            "node": "one deliverable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: render failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: render failed": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one deliverable": {
+      "main": [
+        [
+          {
+            "node": "delivering it?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "delivering it?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Deliver the reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - not delivered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: preview - not delivered": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[cred] Deliver the reply": {
+      "main": [
+        [
+          {
+            "node": "one outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "one outcome": {
+      "main": [
+        [
+          {
+            "node": "build the render summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the render summary": {
+      "main": [
+        [
+          {
+            "node": "Respond to the caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

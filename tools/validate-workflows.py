@@ -3,14 +3,17 @@
 
   1. The file parses, and has `nodes` and `connections`.
   2. Node names are unique, and every connection points at a node that exists.
-  3. Live workflows (outside archive/) have exactly one node named `config`.
+  3. Live workflows (outside archive/ and starters/) have exactly one node
+     named `config`.
   4. Live workflows do not read `$env` or `$vars`.
   5. No node holds a value that looks like a real credential.
   6. A workflow with a send, publish, write or call node also has a gate: a
      `STOP:` node, or a `preview`/`test_run`/`dry_run` key in its config node.
 
-Archive workflows are checked for 1, 2 and 5 only. They predate the config-node
-rule and are kept as they were.
+Workflows under archive/ and starters/ are checked for 1, 2 and 5 only. The
+archive predates the config-node rule. The starters are single-file templates
+built to n8n's own library conventions, which do not require a config node or a
+STOP gate; docs/CONFIG-NODE.md section 9 is what converting one takes.
 
 Exit code 0 if clean, 1 if not.
 """
@@ -39,7 +42,11 @@ def load(path):
         return json.loads(f.read().decode("utf-8-sig"))
 
 
-def check(path, rel, is_archive):
+# Directories held to rules 1, 2 and 5 only.
+RELAXED = {"archive", "starters"}
+
+
+def check(path, rel, relaxed):
     out = []
 
     def bad(msg):
@@ -81,7 +88,7 @@ def check(path, rel, is_archive):
         if not PLACEHOLDER.match(value):
             bad("looks like a committed credential near %r" % m.group(1))
 
-    if is_archive:
+    if relaxed:
         return out
 
     configs = [n for n in nodes if n.get("name") == "config"]
@@ -117,7 +124,7 @@ def main(root="."):
             if parts[0] != "n8n" or "sample" in parts or "demo" in parts:
                 continue
             count += 1
-            problems += check(path, rel, "archive" in parts)
+            problems += check(path, rel, bool(RELAXED & set(parts)))
     if not problems:
         print("validate-workflows: %d workflow file(s) clean" % count)
         return 0

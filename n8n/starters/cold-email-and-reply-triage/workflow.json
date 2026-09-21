@@ -1,0 +1,1134 @@
+{
+  "name": "Email Outreach Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Lead Imports",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Import File",
+              "fieldType": "file"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -512,
+        0
+      ],
+      "id": "5ec099fb-622f-41d8-a480-701d00308a1d",
+      "name": "On form submission",
+      "webhookId": "955d694e-18c6-4b8e-b915-979daf7e145d"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "Import_File",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        0
+      ],
+      "id": "c752f7f4-5a40-4fa4-8fa1-798e0885ff17",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "mnwo0HdXVaTL8Jn7",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_leads",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/mnwo0HdXVaTL8Jn7"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $json.email }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "status": "new_leads"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "handoff",
+              "displayName": "handoff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        0
+      ],
+      "id": "e6d10013-288e-406f-8f8e-3a7d3aeb2538",
+      "name": "Upsert row(s)"
+    },
+    {
+      "parameters": {
+        "content": "## Import Leads",
+        "height": 528,
+        "width": 1184
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -704,
+        -208
+      ],
+      "typeVersion": 1,
+      "id": "a9edf2df-05c6-4645-bdb1-88294f290237",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        816,
+        96
+      ],
+      "id": "4e7a376a-2db8-4d1c-beae-06acafe5f273",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        816,
+        -96
+      ],
+      "id": "6e183b7b-d03a-41cc-8c8c-473f6efc2f08",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "mnwo0HdXVaTL8Jn7",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_leads",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/mnwo0HdXVaTL8Jn7"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "new_leads"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1472,
+        -32
+      ],
+      "id": "55d44e9c-dd78-46da-b548-72e36aa5d59d",
+      "name": "Get New Leads"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $('Outreach Offer Config').item.json.email_title }}",
+        "emailType": "text",
+        "message": "={{ $('Outreach Offer Config').item.json.email_content.replaceAll(\"[name]\",$json.name ) }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1776,
+        -32
+      ],
+      "id": "ad2e2e41-3a5e-4e04-8653-5f68e619e27d",
+      "name": "Send outreach message",
+      "webhookId": "6061714d-d0d9-481f-924e-9b104a071bf1",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YBQKv4RPXJuZdCao",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Send Outreach Email for New Leads",
+        "height": 528,
+        "width": 2112,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        608,
+        -208
+      ],
+      "typeVersion": 1,
+      "id": "59b37266-cb92-4670-bb8a-5ca1f63789da",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "0JI3sN6Zq9wrRqPU",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_email_inboxes",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/0JI3sN6Zq9wrRqPU"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success_sent": "={{ $json.labelIds[0] === 'SENT' }}",
+            "email": "={{ $('Get New Leads').item.json.email }}",
+            "inbox_type": "sent",
+            "title": "={{ $('Outreach Offer Config').item.json.email_title }}",
+            "content": "={{ $('Outreach Offer Config').item.json.email_content }}",
+            "external_id": "={{ $json.id }}",
+            "thread_external_id": "={{ $json.threadId }}",
+            "history_external_id": "1"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "inbox_type",
+              "displayName": "inbox_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success_sent",
+              "displayName": "success_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "thread_external_id",
+              "displayName": "thread_external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "receive_process_status",
+              "displayName": "receive_process_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "history_external_id",
+              "displayName": "history_external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        -32
+      ],
+      "id": "166b3f78-c946-45dc-b3ff-82d0ae6ab8c1",
+      "name": "Save newly sent email"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"email_title\": \"We have an offer for you\",\n  \"email_content\": \"\\nHi [name],\\n\\nWe have new offer for you.\\nYou can reply if you interested.\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1152,
+        -32
+      ],
+      "id": "9ee1f5ef-f8db-4a65-8cf7-8bb071bb6f28",
+      "name": "Outreach Offer Config"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "mnwo0HdXVaTL8Jn7",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_leads",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/mnwo0HdXVaTL8Jn7"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('Get New Leads').item.json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "first_offer"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "handoff",
+              "displayName": "handoff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2432,
+        -32
+      ],
+      "id": "32c89630-e94f-4350-aa16-d834a5d37d44",
+      "name": "Update row(s)"
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -432,
+        624
+      ],
+      "id": "7ea02320-3324-45a2-9d42-f8a3aac7cfbd",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YBQKv4RPXJuZdCao",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "mnwo0HdXVaTL8Jn7",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_leads",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/mnwo0HdXVaTL8Jn7"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $json.From.match(/<([^>]+)>/)?.[1] }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        624
+      ],
+      "id": "e525fd21-0468-4821-8b6d-41176be7216a",
+      "name": "Get and Check User Sender"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "0JI3sN6Zq9wrRqPU",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_email_inboxes",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/0JI3sN6Zq9wrRqPU"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $json.email }}"
+            },
+            {
+              "keyName": "thread_external_id",
+              "keyValue": "={{ $json.thread_external_id }}"
+            },
+            {
+              "keyName": "success_sent",
+              "condition": "isTrue"
+            }
+          ]
+        },
+        "limit": 20,
+        "orderBy": true,
+        "orderByColumn": "history_external_id"
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        624
+      ],
+      "id": "1c333e65-2adb-4ecb-b7ce-986020accec2",
+      "name": "Get Email Threads Messages"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "0JI3sN6Zq9wrRqPU",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_email_inboxes",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/0JI3sN6Zq9wrRqPU"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "success_sent": true,
+            "email": "={{ $json.email }}",
+            "inbox_type": "received",
+            "title": "={{ $('Gmail Trigger').item.json.Subject }}",
+            "content": "={{ $('Gmail Trigger').item.json.snippet.replace(/\\s*On\\s.+?wrote:.*$/s, \"\").trim() }}",
+            "external_id": "={{ $('Gmail Trigger').item.json.id }}",
+            "thread_external_id": "={{ $('Gmail Trigger').item.json.threadId }}",
+            "receive_process_status": "in_progress",
+            "history_external_id": "={{ $('Gmail Trigger').item.json.historyId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "inbox_type",
+              "displayName": "inbox_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "success_sent",
+              "displayName": "success_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "thread_external_id",
+              "displayName": "thread_external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "receive_process_status",
+              "displayName": "receive_process_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "history_external_id",
+              "displayName": "history_external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        624
+      ],
+      "id": "50996a3a-1a5c-4e23-9461-32b083bfbd7e",
+      "name": "Insert received message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const messages = []\n\nfor (const item of $input.all().reverse()) {\n  messages.push({\n    sender: item.json.inbox_type === 'received' ? 'User' : 'System',\n    title: item.json.title,\n    content: item.json.content\n  })\n}\n\nreturn {\n  messages,\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        624
+      ],
+      "id": "860e10c4-ec85-4e70-93e7-3dbbc388f1f9",
+      "name": "Filtering Messages"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Based on user messages, please define if user  prospect give signal that already interested with our offer. If already interested we can handoff to our salesperson.\n\n<email_messages>\n{{ JSON.stringify($json.messages) }}\n</email_messages>",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1184,
+        624
+      ],
+      "id": "72277560-da1d-4a2b-b07e-78824abfc06e",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        864
+      ],
+      "id": "3422fd9c-c5dc-40a0-b217-c2a069b70a0e",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "41pawOiBqlqQm0mZ",
+          "name": "OpenRouter Acme"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"alreadyInterested\": true\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1408,
+        864
+      ],
+      "id": "86167c23-e36c-4d65-ad79-d17bd33f6a65",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c89beeab-6ffc-453c-b285-611ff62cf62c",
+              "leftValue": "={{ $json.output.alreadyInterested }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1744,
+        624
+      ],
+      "id": "41bfd0aa-de4b-46c0-a973-4298abb49844",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "mnwo0HdXVaTL8Jn7",
+          "mode": "list",
+          "cachedResultName": "email_outreach_automation_leads",
+          "cachedResultUrl": "/projects/qW9Domi9xcM8GRlA/datatables/mnwo0HdXVaTL8Jn7"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('Get and Check User Sender').item.json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "handoff",
+            "handoff": "teams"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "handoff",
+              "displayName": "handoff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2208,
+        624
+      ],
+      "id": "b97f3075-8217-443c-b4e9-e912073be4fd",
+      "name": "Update for handoff"
+    },
+    {
+      "parameters": {
+        "content": "## Reply Detection and Handoff for interested prospects",
+        "height": 656,
+        "width": 3392,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -672,
+        416
+      ],
+      "typeVersion": 1,
+      "id": "998897ef-59fc-405c-b1a1-94e15e2e0a47",
+      "name": "Sticky Note2"
+    }
+  ],
+  "pinData": {
+    "Gmail Trigger": [
+      {
+        "json": {
+          "id": "1a061b0000000000",
+          "threadId": "1a061b0000000000",
+          "snippet": "Yes, I am interested. On Wed, 2 Sept 2026 at 17:46, technology acme &lt;technology@acme.example&gt; wrote: Hi Juno Setiawan, We have new offer for you. You can reply if you interested. --",
+          "payload": {
+            "mimeType": "multipart/alternative"
+          },
+          "sizeEstimate": 8302,
+          "historyId": "1614601",
+          "internalDate": "1788346243000",
+          "labels": [
+            {
+              "id": "INBOX",
+              "name": "INBOX"
+            },
+            {
+              "id": "IMPORTANT",
+              "name": "IMPORTANT"
+            },
+            {
+              "id": "CATEGORY_PERSONAL",
+              "name": "CATEGORY_PERSONAL"
+            },
+            {
+              "id": "UNREAD",
+              "name": "UNREAD"
+            }
+          ],
+          "From": "Juno S <j.setiawan@example.com>",
+          "Subject": "Re: We have an offer for you",
+          "To": "technology acme <technology@acme.example>"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Insert received message": [
+      {
+        "json": {
+          "email": "j.setiawan@example.com",
+          "inbox_type": "received",
+          "title": "Re: We have an offer for you",
+          "content": "Yes, I am interested.",
+          "success_sent": true,
+          "external_id": "1a061b0000000000",
+          "thread_external_id": "1a061b0000000000",
+          "receive_process_status": "in_progress",
+          "history_external_id": "1614601",
+          "id": 19,
+          "createdAt": "2026-09-02T10:51:37.771Z",
+          "updatedAt": "2026-09-02T10:51:37.771Z"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Upsert row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Outreach Offer Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Leads": {
+      "main": [
+        [
+          {
+            "node": "Send outreach message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send outreach message": {
+      "main": [
+        [
+          {
+            "node": "Save newly sent email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outreach Offer Config": {
+      "main": [
+        [
+          {
+            "node": "Get New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save newly sent email": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get and Check User Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get and Check User Sender": {
+      "main": [
+        [
+          {
+            "node": "Insert received message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert received message": {
+      "main": [
+        [
+          {
+            "node": "Get Email Threads Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email Threads Messages": {
+      "main": [
+        [
+          {
+            "node": "Filtering Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtering Messages": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Update for handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c4e910e8-7c97-43a6-b167-1de4e1d34524",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4de688815039b145d6ed15564956ae9b609eadd764f5406eca51846489ad254c"
+  },
+  "nodeGroups": [],
+  "id": "VzfUQuQMBvo6EkEo",
+  "tags": []
+}

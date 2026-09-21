@@ -6,14 +6,14 @@
 // "build the HTML template" node reads. It is exported rather than retyped so the n8n
 // workflow and the drafts repo cannot drift into two different versions of a headline.
 //
-// Default source: workspace/tutorials/scripts/drafts (build.js for the layout fields,
+// Default source: templates/linkdin-drafts (build.js for the layout fields,
 // <slug>/caption.txt for the caption).
 
 const fs = require('fs');
 const path = require('path');
 
 const DRAFTS = process.argv[2] || path.resolve(
-  __dirname, '..', '..', '..', '..', 'workspace', 'tutorials', 'scripts', 'drafts');
+  __dirname, '..', '..', '..', 'linkdin-drafts');
 const BUILD_JS = path.join(DRAFTS, 'render', 'build.js');
 const OUT = path.resolve(__dirname, '..', 'sheet', 'seed-bank.csv');
 

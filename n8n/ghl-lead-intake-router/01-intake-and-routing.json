@@ -1,0 +1,510 @@
+{
+  "name": "01-intake-and-routing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghl-lead",
+        "options": {}
+      },
+      "id": "b8c371f3-81a7-4483-8b61-88de34d9e7c3",
+      "name": "A lead arrives",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        30528,
+        15776
+      ],
+      "webhookId": "ghl-lead"
+    },
+    {
+      "parameters": {},
+      "id": "02ba356a-df89-4b19-8646-7b91553ce0ee",
+      "name": "Run the demo lead",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        30528,
+        16016
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The \"Run the demo lead\" trigger lands here. Three invented leads, one per source the\n// brief names — a website form, a forwarded email, and a phone call somebody typed up — so\n// pressing Execute shows all three being read, routed and filed without a webhook, a\n// GoHighLevel account or a single credential. The shapes are exactly what the real sources\n// post, which is the point: the parser below never knows the difference.\nreturn [\n  {\n    json: {\n      'your-name': 'Rachel Okonkwo',\n      'your-email': 'r.okonkwo@brightpath-dental.example',\n      'your-phone': '+44 7700 900123',\n      company: 'Brightpath Dental',\n      'your-message': 'We would like a quote to rebuild our website and set up the booking side.'\n    }\n  },\n  {\n    json: {\n      from: 'Tom Beasley <tom@beasleylogistics.example>',\n      subject: 'Booking form is broken and we are losing bookings',\n      text: 'Our booking form stopped working yesterday and customers cannot get through. Can someone look at this today?'\n    }\n  },\n  {\n    json: {\n      taken_by: 'Ben',\n      caller_name: 'Ravi Menon',\n      caller_phone: '07700 900456',\n      company: 'Menon & Co',\n      note: 'Called to ask about our services and left a number. He will ring back next week.'\n    }\n  }\n].map((l) => ({ json: l }));"
+      },
+      "id": "593d36a4-4bb4-440a-a01a-eaf4738910c6",
+      "name": "load a demo lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        30752,
+        16016
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GOHIGHLEVEL — LEAD INTAKE AND ROUTING — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows (\"01 intake and routing\" and\n// \"02 follow-up sequence\"). build.py regenerates both from this one file, and validate.py\n// fails if they drift apart — so you never paste it between them by hand.\n//\n// A blank id or key means that step is SKIPPED, never that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single GoHighLevel credential exists.\n\n// ---------------------------------------------------------------- The GoHighLevel sub-account\n// Location id: the Location ID on Settings -> Business Profile, or the id in the URL when\n// you are inside the sub-account.\nconst GHL_LOCATION_ID = '';\n\n// A Private Integration token (Settings -> Private Integrations -> create one, scope\n// contacts.write / opportunities.write / conversations.write), or a location API key. Both\n// blank -> the workflows build the exact payload and stop in front of the write, so you can\n// read what they would have sent. Neither is filled in here: this file ships to clients as a\n// work sample.\nconst GHL_API_KEY      = '';\nconst GHL_API_BASE     = 'https://services.leadconnectorhq.com';\nconst GHL_API_VERSION  = '2021-07-28';\n\n// ---------------------------------------------------------------- The pipeline\n// The pipeline a lead is filed into, and the stages it can be filed at. The workflow\n// decides WHICH stage a lead belongs in; the id is what makes that a real stage rather than\n// a label. Pipeline id: Pipelines -> your pipeline -> the id in the URL.\nconst GHL_PIPELINE_ID = '';\nconst STAGES = [\n  { stage: 'New lead',        id: '' },\n  { stage: 'Quote requested', id: '' },\n  { stage: 'Support',         id: '' }\n];\n\n// ---------------------------------------------------------------- Custom fields and tags\n// Custom field name -> its GoHighLevel field id (Settings -> Custom Fields). The value is\n// read off the lead by `from`. A blank id is skipped rather than written as an empty field,\n// so a half-mapped account still writes a clean contact.\nconst CUSTOM_FIELDS = [\n  { name: 'Lead source',  id: '', from: 'source'  },\n  { name: 'Enquiry type', id: '', from: 'wants'   },\n  { name: 'Summary',      id: '', from: 'summary' }\n];\n\n// On every contact this workflow writes. The routing rule adds its own.\nconst BASE_TAGS = ['automation-intake'];\n\n// ---------------------------------------------------------------- Who gets what\n// The rule table. First match wins. A rule may match on the intake source, on what the\n// person wants, on both — and the last rule matches nothing on purpose, so a lead that fits\n// no rule still lands somewhere rather than nowhere.\nconst OWNERS = [\n  { owner: 'Ada',  user_id: '' },\n  { owner: 'Ben',  user_id: '' },\n  { owner: 'Cara', user_id: '' }\n];\nconst ROUTING_RULES = [\n  { match: { wants: 'support' },  owner: 'Cara', stage: 'Support',         tags: ['support'] },\n  { match: { wants: 'quote' },    owner: 'Ben',  stage: 'Quote requested', tags: ['quote'] },\n  { match: { wants: 'demo' },     owner: 'Ben',  stage: 'New lead',        tags: ['demo'] },\n  { match: { source: 'phone' },   owner: 'Ben',  stage: 'New lead',        tags: ['phone'] },\n  { match: { source: 'email' },   owner: 'Ada',  stage: 'New lead',        tags: ['email'] },\n  { match: { source: 'website' }, owner: 'Ada',  stage: 'New lead',        tags: ['website'] },\n  { match: {},                    owner: 'Ada',  stage: 'New lead',        tags: ['unrouted'] }\n];\n\n// ---------------------------------------------------------------- Follow-up sequence\n// The ordered touches a lead receives if nobody has answered it. A lead gets touch 1 after\n// `after_hours` with no movement, then touch 2, then touch 3 — and stops the moment anyone\n// replies or the stage moves. The counter is `touches_sent` on the contact; the sequence is\n// only ever advanced by one per run, so a lead cannot be double-touched.\nconst SEQUENCE = [\n  { touch: 1, after_hours: 24, channel: 'email', label: 'check-in',\n    subject: 'Quick check-in on your enquiry',\n    line: 'Just making sure your message reached us and got a reply. Happy to pick this up whenever suits you.' },\n  { touch: 2, after_hours: 72, channel: 'email', label: 'value nudge',\n    subject: 'Something that might help',\n    line: 'I have put a short summary together covering what you asked about. Want me to send it over?' },\n  { touch: 3, after_hours: 120, channel: 'sms', label: 'last check-in',\n    line: 'Last one from me — shall I close this off, or keep it open for later?' }\n];\n\n// The hard stop, enforced in code rather than implied. A lead at this many touches is never\n// sent another, whatever the timings say.\nconst MAX_TOUCHES = 3;\n\n// The stages a lead can still be sequenced in. A lead that has left them is finished, and\n// the sequence stops rather than chasing a won or lost job.\nconst OPEN_STAGES = ['New lead', 'Quote requested', 'Support'];\nconst STOP_ON_STAGE_MOVE = true;\n\n// Signed on the end of each email. Blank -> no signature line.\nconst FROM_NAME = '';\n\n// Where the sequence's state lives on the contact. GoHighLevel's opportunities carry the stage,\n// but not how many touches have gone out or when the last one was — those live in custom fields,\n// and these are their ids (Settings -> Custom Fields). Point them at wherever you keep them and\n// the read is complete; leave them blank and the counter reads 0, which is honest rather than\n// invented.\nconst SEQ_TOUCHES_FIELD_ID    = '';\nconst SEQ_LAST_TOUCH_FIELD_ID = '';\nconst SEQ_LAST_REPLY_FIELD_ID = '';\n\n// How many opportunities one read pulls. GoHighLevel caps a page at 100. If there are more than\n// this, the run says so (see `more_pages` on the plan) rather than pretending it read them all.\nconst PIPELINE_PAGE_LIMIT = 100;\n\n// ---------------------------------------------------------------- What counts as a lead\n// A lead with no way to reach the person is not a lead. Whether a message is also required\n// is a judgement call, so it is a setting rather than an assumption.\nconst REQUIRE_CONTACT = true;    // an email address or a phone number\nconst REQUIRE_MESSAGE = false;   // false: a named contact with no message is still filed\n\n// ---------------------------------------------------------------- Safety switch\n//   DRY_RUN true  (how it ships) -> nothing is written and nothing is sent. The payloads are\n//                                   built in full and shown, so the first run after import\n//                                   is always safe.\n//   DRY_RUN false                -> the contact is created or updated and the touches send.\n// Both also need GHL_LOCATION_ID and GHL_API_KEY above; with either blank the workflows stay\n// in preview whatever this says.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\n// ---------------------------------------------------------------- The demo pipeline\n// The leads \"02 follow-up sequence\" runs against until GoHighLevel is wired up. Every person\n// here is invented. The mix is deliberate — it has to show every decision the sequence makes:\n//   * 30 h quiet, 0 touches                    -> due touch 1\n//   * one touch sent, 80 h quiet                -> due touch 2\n//   * 5 h quiet, 0 touches                      -> not due yet\n//   * replied 10 h ago                          -> STOP: they replied\n//   * stage is 'Won'                            -> STOP: left the sequence\n//   * three touches already sent                -> STOP: sequence finished\nconst DEMO_PIPELINE = [\n  { contact_key: 'rachel@brightpath-dental.example', name: 'Rachel Okonkwo', company: 'Brightpath Dental',\n    email: 'rachel@brightpath-dental.example', phone: '', contact_id: 'demo-1001', owner: 'Ben',\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 30, last_reply_hours_ago: -1 },\n  { contact_key: 'tom@beasleylogistics.example', name: 'Tom Beasley', company: 'Beasley Logistics',\n    email: 'tom@beasleylogistics.example', phone: '', contact_id: 'demo-1002', owner: 'Cara',\n    stage: 'Support', touches_sent: 1, last_touch_hours_ago: 80, last_reply_hours_ago: -1 },\n  { contact_key: '07700900456', name: 'Ravi Menon', company: 'Menon & Co',\n    email: '', phone: '07700 900456', contact_id: 'demo-1003', owner: 'Ben',\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 5, last_reply_hours_ago: -1 },\n  { contact_key: 'elena@example.com', name: 'Elena Rossi', company: '',\n    email: 'elena@example.com', phone: '', contact_id: 'demo-1004', owner: 'Ada',\n    stage: 'Quote requested', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: 10 },\n  { contact_key: 'june@example.com', name: 'June Park', company: '',\n    email: 'june@example.com', phone: '', contact_id: 'demo-1005', owner: 'Ada',\n    stage: 'Won', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: -1 },\n  { contact_key: 'dana@example.com', name: 'Dana Whitfield', company: '',\n    email: 'dana@example.com', phone: '', contact_id: 'demo-1006', owner: 'Ada',\n    stage: 'New lead', touches_sent: 3, last_touch_hours_ago: 200, last_reply_hours_ago: -1 }\n];\n\nconst SETTINGS = {\n  ghl_location_id: GHL_LOCATION_ID.trim(),\n  ghl_api_key:     GHL_API_KEY.trim(),\n  ghl_api_base:    GHL_API_BASE.trim().replace(/\\/+$/, ''),\n  ghl_api_version: GHL_API_VERSION.trim(),\n\n  ghl_pipeline_id: GHL_PIPELINE_ID.trim(),\n  stages:          STAGES,\n\n  custom_fields: CUSTOM_FIELDS,\n  base_tags:     BASE_TAGS,\n\n  owners:        OWNERS,\n  routing_rules: ROUTING_RULES,\n\n  sequence:            SEQUENCE,\n  max_touches:         Number(MAX_TOUCHES) || SEQUENCE.length,\n  open_stages:         OPEN_STAGES,\n  stop_on_stage_move:  STOP_ON_STAGE_MOVE === true,\n  from_name:           FROM_NAME.trim(),\n  demo_pipeline:       DEMO_PIPELINE,\n\n  seq_touches_field_id:    SEQ_TOUCHES_FIELD_ID.trim(),\n  seq_last_touch_field_id: SEQ_LAST_TOUCH_FIELD_ID.trim(),\n  seq_last_reply_field_id: SEQ_LAST_REPLY_FIELD_ID.trim(),\n  pipeline_page_limit:     Number(PIPELINE_PAGE_LIMIT) || 100,\n\n  require_contact: REQUIRE_CONTACT === true,\n  require_message: REQUIRE_MESSAGE === true,\n\n  stage_on_arrival: 'New lead',\n\n  // derived flags — the gates read these, never the raw constants\n  mode:        MODE,\n  dry_run:     MODE !== 'live',\n  ghl_enabled: MODE === 'live'\n    && GHL_LOCATION_ID.trim() !== ''\n    && GHL_API_KEY.trim() !== ''\n};\n\n// config passes the incoming payload through untouched under `lead`, so whichever trigger\n// fired the next node reads the payload from the same place. It runs once per incoming item.\nconst incoming = $input.all().length ? $input.all().map((i) => i.json || {}) : [{}];\nreturn incoming.map((lead) => ({ json: Object.assign({}, SETTINGS, { lead: lead }) }));"
+      },
+      "id": "789b9f6e-fc27-45fe-81fd-2e5b647ee0d5",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        30976,
+        15856
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One lead out of whatever arrived. A website form, a forwarded email and a phone note all\n// name their fields differently, so rather than hard-code one shape the parser detects the\n// source and digs the same facts out of each. Anything it cannot read is rejected WITH A\n// REASON, never half-read.\n//\n// Output per item: the common lead, `contact_key` (the dedupe key), `_ok` and `_problems`.\n\nconst cfg = $('config').first().json;\nconst T = (v) => String(v == null ? '' : v).trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/;\nconst PHONE_RE = /^[+(]?[0-9][0-9\\s().-]{6,}$/;\nconst SOURCE_LABELS = { website: 'Website form', email: 'Forwarded email', phone: 'Phone note' };\n\nfunction toObject(x) {\n  if (!x) return null;\n  if (typeof x === 'string') { try { return JSON.parse(x); } catch (e) { return null; } }\n  return (typeof x === 'object') ? x : null;\n}\n\n// One flat bag of lower-cased, punctuation-free keys, however deeply the source nested them.\n// body/data/fields wrappers disappear, which is the point.\nfunction flatten(obj, depth, out) {\n  out = out || {};\n  if (!obj || typeof obj !== 'object' || depth > 3) return out;\n  for (const k of Object.keys(obj)) {\n    const v = obj[k];\n    if (v && typeof v === 'object' && !Array.isArray(v)) flatten(v, depth + 1, out);\n    else out[String(k).toLowerCase().replace(/[^a-z0-9]/g, '')] = Array.isArray(v) ? v.join(', ') : v;\n  }\n  return out;\n}\n\nfunction detect(f) {\n  const has = (...n) => n.some((x) => f[x] !== undefined && T(f[x]) !== '');\n  if (has('takenby', 'callername', 'callerphone', 'callnote', 'callnotes')) return 'phone';\n  if (has('from') && (has('subject') || has('text') || has('body'))) return 'email';\n  if (has('yourname', 'youremail', 'yourphone', 'yourmessage', 'name', 'email', 'message')) return 'website';\n  const vals = Object.keys(f).map((k) => T(f[k])).filter(Boolean);\n  if (vals.some((v) => EMAIL_RE.test(v))) return 'website';\n  return '';\n}\n\nfunction readOne(json) {\n  const j = toObject(json) || {};\n  const lead = toObject(j.lead) || j;\n  const f = flatten(lead, 0);\n  const source = detect(f);\n\n  const pick = (...names) => {\n    for (const n of names) {\n      const v = f[n];\n      if (v !== undefined && v !== null && T(v) !== '') return T(v);\n    }\n    return '';\n  };\n  const values = Object.keys(f).map((k) => T(f[k])).filter((v) => v !== '');\n  const scan = (test, exclude) => {\n    for (const v of values) {\n      if ((exclude || []).indexOf(v) >= 0) continue;\n      if (test(v)) return v;\n    }\n    return '';\n  };\n\n  let name = '', email = '', phone = '', company = '', message = '', subject = '', honeypot = '';\n\n  if (source === 'website') {\n    name = pick('yourname', 'name', 'fullname', 'contactname', 'firstname');\n    email = pick('youremail', 'email', 'emailaddress', 'contactemail');\n    phone = pick('yourphone', 'phone', 'telephone', 'tel', 'mobile', 'contactnumber');\n    company = pick('company', 'companyname', 'business', 'businessname', 'organisation', 'organization');\n    message = pick('yourmessage', 'message', 'comments', 'enquiry', 'enquirydetails', 'details', 'notes', 'howcanwehelp');\n    honeypot = pick('honeypot', 'hp', 'website2', 'url2', 'nickname');\n  } else if (source === 'email') {\n    const fromRaw = pick('from', 'sender', 'replyto');\n    const m = fromRaw.match(/^\\s*\"?([^\"<]*)\"?\\s*<([^>]+)>\\s*$/);\n    if (m) { name = T(m[1]); email = T(m[2]); } else { email = fromRaw; name = ''; }\n    subject = pick('subject', 'title');\n    message = [subject, pick('text', 'body', 'plain', 'message', 'snippet')].filter(Boolean).join('\\n\\n');\n    company = pick('company', 'organisation', 'organization');\n  } else if (source === 'phone') {\n    name = pick('callername', 'caller', 'contactname', 'name');\n    phone = pick('callerphone', 'phone', 'number', 'telephone', 'mobile');\n    company = pick('company', 'business');\n    message = pick('note', 'callnote', 'callnotes', 'message', 'summary', 'details');\n  }\n\n  // Shape fallbacks, applied to every source: an unknown form still gets its message\n  // through, and a number typed anywhere is still found.\n  if (!email) email = scan((v) => EMAIL_RE.test(v), []);\n  if (!phone) phone = scan((v) => PHONE_RE.test(v) && v.replace(/[^0-9]/g, '').length >= 7, [email]);\n  if (!message) {\n    const taken = [email, phone, name, company, subject, honeypot];\n    message = values.filter((v) => taken.indexOf(v) < 0 && v.length > 25)\n      .sort((a, b) => b.length - a.length)[0] || '';\n  }\n  if (!email && EMAIL_RE.test(name)) { email = name.toLowerCase(); name = ''; }\n  email = email.toLowerCase();\n\n  // What they actually want, decided by keywords in what they wrote. This is a rule, not a\n  // model — the honest gap the README names, and the first thing to replace for a client.\n  const hay = (subject + ' ' + message).toLowerCase();\n  let wants = 'general';\n  if (/\\b(support|broken|not working|issue|problem|fix|error|urgent)\\b/.test(hay)) wants = 'support';\n  else if (/\\b(quote|quotation|price|pricing|cost|how much|estimate|budget)\\b/.test(hay)) wants = 'quote';\n  else if (/\\b(demo|trial|walkthrough|show me)\\b/.test(hay)) wants = 'demo';\n\n  const parts = name.split(/\\s+/).filter(Boolean);\n  const digits = phone.replace(/[^0-9]/g, '');\n  const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n\n  const problems = [];\n  if (honeypot) problems.push('honeypot field was filled in');\n  if (!source) problems.push('did not match a website form, a forwarded email or a phone note');\n  if (email && !EMAIL_RE.test(email)) problems.push('email address is not valid');\n  if (cfg.require_contact && !email && !phone) problems.push('no email address and no phone number to reach them on');\n  if (!name && !company && !message) problems.push('nothing in it but a way to get in touch');\n  if (cfg.require_message && !message) problems.push('no message');\n\n  const summary = [\n    SOURCE_LABELS[source] || 'Lead',\n    'from ' + (name || company || 'someone') + (name && company ? ' (' + company + ')' : ''),\n    '— wants ' + wants\n  ].join(' ');\n\n  return {\n    _ok: problems.length === 0,\n    _problems: problems,\n    contact_key: email || digits || slug(name + ' ' + company),\n    source,\n    source_label: SOURCE_LABELS[source] || '',\n    name,\n    first_name: parts[0] || '',\n    last_name: parts.slice(1).join(' '),\n    email,\n    phone,\n    company,\n    message: message.slice(0, 4000),\n    subject,\n    wants,\n    summary,\n    received: new Date().toISOString()\n  };\n}\n\nreturn $input.all().map((item) => ({ json: readOne(item.json) }));"
+      },
+      "id": "bf0210ea-a371-4a4d-a795-5e85081a045d",
+      "name": "read the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        31184,
+        15856
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "usable-c",
+              "leftValue": "={{ $json._ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "c9337fc0-e068-408d-9725-f0d6bcb73235",
+      "name": "a usable lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        31408,
+        15856
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Not a lead this workflow can file: no way to reach the person, or a bot. It is dropped\n// here rather than written to GoHighLevel, but the reason is kept so the execution list says\n// why instead of the lead just vanishing.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'rejected',\n    _reason: (i.json._problems || []).join('; ') || 'did not look like a lead',\n    contact_key: i.json.contact_key || '(none)',\n    source: i.json.source || '(unrecognised)'\n  }\n}));"
+      },
+      "id": "1387ed37-988b-4ae1-b60f-6ae8694d77c7",
+      "name": "STOP: not a usable lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        31632,
+        16032
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// First rule that matches wins. A lead that fits no rule still lands on the last rule, which\n// matches nothing on purpose — never nowhere. The chosen rule sets the owner, the pipeline\n// stage the lead belongs in, and the tags it carries.\nconst cfg = $('config').first().json;\n\nconst ownerIds = {};\nfor (const o of cfg.owners || []) ownerIds[o.owner] = o.user_id;\nconst stageIds = {};\nfor (const s of cfg.stages || []) stageIds[s.stage] = s.id;\n\nfunction matches(rule, lead) {\n  const m = rule.match || {};\n  if (m.source && m.source !== lead.source) return false;\n  if (m.wants && m.wants !== lead.wants) return false;\n  return true;\n}\n\nreturn $input.all().map((item) => {\n  const lead = item.json || {};\n  const rules = cfg.routing_rules || [];\n\n  let chosen = null;\n  for (const rule of rules) { if (matches(rule, lead)) { chosen = rule; break; } }\n  if (!chosen) chosen = rules[rules.length - 1] || {};\n\n  const stage = chosen.stage || cfg.stage_on_arrival || 'New lead';\n\n  const tags = [];\n  for (const t of (cfg.base_tags || []).concat(chosen.tags || [])) {\n    if (tags.indexOf(t) < 0) tags.push(t);\n  }\n\n  return {\n    json: Object.assign({}, lead, {\n      owner: chosen.owner || '',\n      owner_user_id: ownerIds[chosen.owner] || '',\n      stage,\n      stage_id: stageIds[stage] || '',\n      tags,\n      _routed_by: (chosen.match && Object.keys(chosen.match).length)\n        ? JSON.stringify(chosen.match) : 'the last rule (matches anything)'\n    })\n  };\n});"
+      },
+      "id": "305bb6a6-d565-43ab-99ef-16df0be4d2d0",
+      "name": "route the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        31632,
+        15712
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the exact GoHighLevel request, so the write is one object you can read and review\n// rather than parameters scattered across a node. NOTHING is sent from here — this node is\n// pure, and its output is what the two write nodes below either send or show.\n//\n// GoHighLevel wants a contact and its opportunity as two calls: the contact is upserted\n// first, and the opportunity is created against the contact id that comes back. Both bodies\n// are built here so the second call is visible even though only the first is wired up.\nconst cfg = $('config').first().json;\n\nconst base = String(cfg.ghl_api_base || '').replace(/\\/+$/, '');\nconst headers = {\n  Accept: 'application/json',\n  'Content-Type': 'application/json',\n  Version: cfg.ghl_api_version,\n  Authorization: 'Bearer ' + (cfg.ghl_api_key || '')\n};\n\nreturn $input.all().map((item) => {\n  const lead = item.json || {};\n\n  const customFields = [];\n  for (const cf of cfg.custom_fields || []) {\n    const value = lead[cf.from];\n    if (cf.id && value) customFields.push({ id: cf.id, value: String(value) });\n  }\n\n  const contactBody = {\n    locationId: cfg.ghl_location_id,\n    firstName: lead.first_name || '',\n    lastName: lead.last_name || '',\n    name: lead.name || '',\n    email: lead.email || '',\n    phone: lead.phone || '',\n    source: lead.source_label || lead.source || '',\n    tags: lead.tags || [],\n    customFields: customFields\n  };\n  // An empty string overwrites a good value on the contact — send only what we have.\n  for (const k of Object.keys(contactBody)) {\n    if (contactBody[k] === '') delete contactBody[k];\n  }\n  if (!customFields.length) delete contactBody.customFields;\n  if (!contactBody.tags || !contactBody.tags.length) delete contactBody.tags;\n\n  const opportunityBody = {\n    locationId: cfg.ghl_location_id,\n    pipelineId: cfg.ghl_pipeline_id,\n    pipelineStageId: lead.stage_id || '',\n    name: (lead.company || lead.name || 'New lead') + ' — ' + lead.stage,\n    status: 'open'\n  };\n  if (!opportunityBody.pipelineStageId) delete opportunityBody.pipelineStageId;\n\n  return {\n    json: Object.assign({}, lead, {\n      _ghl: {\n        contact: { method: 'POST', url: base + '/contacts/upsert', body: contactBody },\n        opportunity: { method: 'POST', url: base + '/opportunities/', body: opportunityBody }\n      },\n      _would_write: contactBody,\n      _then: 'create the opportunity at stage \"' + lead.stage +\n             '\" for the contact id the upsert returns'\n    })\n  };\n});"
+      },
+      "id": "a7de989d-1f2d-4c0c-a17c-d5b9407cd20c",
+      "name": "build the GoHighLevel payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        31856,
+        15712
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "connected-c",
+              "leftValue": "={{ $('config').first().json.ghl_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "dfcde71a-658b-4b7c-bdde-a7749ab2d3ce",
+      "name": "GoHighLevel connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        32064,
+        15712
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GoHighLevel is not configured (DRY_RUN is still true, or the location id / API key is\n// blank). Nothing was written — and this node's output IS the result: the exact contact body\n// that would have been sent, and where the lead was routed. Open it to read what GoHighLevel\n// would receive.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'preview — nothing written',\n    _reason: 'GoHighLevel not written: DRY_RUN is true or the location id / API key is blank',\n    contact_key: i.json.contact_key,\n    routed_to: i.json.owner,\n    stage: i.json.stage,\n    tags: i.json.tags,\n    would_post: i.json._ghl ? i.json._ghl.contact.body : null,\n    then: i.json._then || ''\n  }\n}));"
+      },
+      "id": "44a56c27-3917-42f3-9a0f-da8abb2f1f61",
+      "name": "STOP: GoHighLevel not configured - payload shown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32288,
+        15904
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._ghl.contact.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.ghl_api_key }}"
+            },
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._ghl.contact.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "87ee575a-6602-4807-a08f-39c0a1611dc1",
+      "name": "[cred] GoHighLevel - create the contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        32288,
+        15600
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Contact upsert. The key comes from the config node; a blank key means this node never executes."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The contact reached GoHighLevel. This node's output is the confirmation: whatever the API\n// returned for the contact it created or updated.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'filed',\n    _reason: 'the contact was written to GoHighLevel',\n    ghl_response: i.json\n  }\n}));"
+      },
+      "id": "81270819-5a01-4713-beb5-65f3c8b9f412",
+      "name": "STOP: filed in GoHighLevel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32528,
+        15472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GoHighLevel refused the write. This node exists so that refusal is a visible step with the\n// response on it, rather than a run that half-succeeded and said nothing — which is the whole\n// of \"failed automations visible, not silent\". Read `ghl_response` for what it said.\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const err = j.error || j;\n  const detail = (err && (err.message || err.description || err.error)) || j;\n  return {\n    json: {\n      _outcome: 'write failed',\n      _reason: 'GoHighLevel rejected the contact write — nothing was filed for this lead',\n      contact_key: j.contact_key,\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\n    }\n  };\n});"
+      },
+      "id": "3f608987-b566-4687-b2c8-eb386d3a9003",
+      "name": "STOP: GoHighLevel rejected the write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32528,
+        15760
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1f3c968-04fc-4c37-bf6f-080221894fc1",
+      "name": "End",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        32816,
+        15856
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1 of 2 — a lead in, filed and routed\n\nTwo ways in, one path through:\n\n* a form, an email forward or a phone note posts to **A lead arrives**\n* or press **Run the demo lead** for three invented leads, one per source\n\nIt then:\n\n1. reads the lead whatever shape it arrived in\n2. rejects a bot or anything with no way to reach the person\n3. routes it to an owner, a pipeline stage and a set of tags\n4. builds the exact GoHighLevel request\n5. writes it — or, with no credential, shows you the request\n\nEverything you edit is in the **config** node.",
+        "height": 404,
+        "width": 528,
+        "color": 4
+      },
+      "id": "e481e278-1dde-4530-9d48-fd78d4af2f95",
+      "name": "Sticky Note w1a",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        32256,
+        14624
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Nothing is written until you say so\n\n`DRY_RUN = true` (how it ships) builds the payload and stops in\n**STOP: GoHighLevel not configured**, where you can read the exact\nbody that would have been sent.\n\nFill in `GHL_LOCATION_ID` and `GHL_API_KEY` and set `DRY_RUN = false`\nto write for real.\n\nA refused write lands on **STOP: GoHighLevel rejected the write**\nwith the response on it — visible, not silent.",
+        "height": 260,
+        "width": 460,
+        "color": 3
+      },
+      "id": "6556f6f9-38bf-4e71-b703-26ecd85e746a",
+      "name": "Sticky Note w1b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        33008,
+        14752
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Intake & routing — start here\n\nThe first of two workflows. Import it alongside **02-follow-up-sequence** — both\nshare the same **config** node.\n\n**Run it before you configure anything.** Press **Execute Workflow** on the\n**Run the demo lead** trigger: three invented leads, one per source, through the\nwhole thing. No credential, no GoHighLevel account, nothing leaving the building.\nOpen **STOP: GoHighLevel not configured - payload shown** to read the exact\ncontact body it would have sent.\n\n**Setup, in order**\n1. **config** — `GHL_LOCATION_ID`, `GHL_PIPELINE_ID`, the `STAGES` ids, the\n   `OWNERS` user ids and the `CUSTOM_FIELDS` ids, from your own account.\n2. `GHL_API_KEY` — a Private Integration token with `contacts.write` and\n   `opportunities.write`.\n3. Point the form, the email forward and the phone note at the **production**\n   webhook URL (`/webhook/ghl-lead`).\n4. `DRY_RUN = false` — only then may a run write to a client's CRM.",
+        "height": 608,
+        "width": 560
+      },
+      "id": "4e45dca5-00cc-4669-96e9-d0dbab99fba2",
+      "name": "Sticky Note start1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        29440,
+        14832
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "A lead arrives": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run the demo lead": {
+      "main": [
+        [
+          {
+            "node": "load a demo lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "load a demo lead": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "read the lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the lead": {
+      "main": [
+        [
+          {
+            "node": "a usable lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "a usable lead?": {
+      "main": [
+        [
+          {
+            "node": "route the lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not a usable lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not a usable lead": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "route the lead": {
+      "main": [
+        [
+          {
+            "node": "build the GoHighLevel payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the GoHighLevel payload": {
+      "main": [
+        [
+          {
+            "node": "GoHighLevel connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GoHighLevel connected?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - create the contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: GoHighLevel not configured - payload shown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: GoHighLevel not configured - payload shown": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - create the contact": {
+      "main": [
+        [
+          {
+            "node": "STOP: filed in GoHighLevel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: GoHighLevel rejected the write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: filed in GoHighLevel": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: GoHighLevel rejected the write": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9d9bc14b-2e79-4c34-98ef-00ad030c4c91",
+  "meta": {
+    "instanceId": "4de688815039b145d6ed15564956ae9b609eadd764f5406eca51846489ad254c"
+  },
+  "nodeGroups": [],
+  "id": "NpbRUMldlRw8nQlj",
+  "tags": []
+}

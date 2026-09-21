@@ -941,6 +941,22 @@
     },
     {
       "parameters": {
+        "content": "## Inbound & qualify — start here\n\nThe third of three workflows. Import it alongside\n`01-job-order-to-campaign` and `02-outreach-runner` — all three share the\nsame **config** node and the same Supabase schema.\n\n**Run it before you configure anything.** `bash sample/test-webhooks.sh`\nfires six events into this webhook — six runs, each ending at a named\nnode. No credentials, no Supabase project, nothing leaving the building.\n\n**Setup, in order**\n1. `supabase/schema.sql`, then `supabase/seed.sql`.\n2. **config** — `CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.\n3. This workflow's **production** URL into the Twilio console and the Retell\n   dashboard, and the same value into `TWILIO_STATUS_CALLBACK` — Twilio\n   signs the exact public URL it posted to, so behind a proxy it never matches.\n4. Credentials on the `[cred]` nodes: Google Calendar, Gmail, Slack.\n5. `DEMO_MODE = false` **and** `TEST_RUN = false` — only then may a run\n   write to a client's ATS or a recruiter's real calendar.",
+        "height": 620,
+        "width": 540,
+        "color": 1
+      },
+      "id": "w3s",
+      "name": "Sticky Note w3s",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1660,
+        -980
+      ]
+    },
+    {
+      "parameters": {
         "content": "## 3 of 3 — inbound, qualification, booking, write-back\n\nOne public endpoint, three kinds of event: a candidate's SMS reply, a Twilio\ndelivery receipt, and Retell's `call_analyzed` webhook.\n\n**It is signed, and it fails closed.** This URL can opt a candidate out and\nwrite into the client's ATS, so an unsigned request is refused — and a *missing*\nsecret is refused too, not trusted. Only preview mode lets a curl through.\n\n**Any inbound message stops the sequence**, whatever it says. Someone who wrote\nback is a conversation, and a robot texting over the top of a human reply is the\nmost visible way this kind of system embarrasses an agency.",
         "height": 420,
         "width": 540,

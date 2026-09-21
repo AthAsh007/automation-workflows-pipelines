@@ -1,0 +1,25 @@
+{
+  "action": "createCard",
+  "idAction": "680a00000000000001",
+  "data": {
+    "card": {
+      "id": "680a00000000000001",
+      "name": "Jane Smith — Quote request",
+      "desc": "Customer: Jane Smith\nPhone: +1 555-0123\nEmail: jane@example.com\nCompany: Acme Co\nBudget: $5,000\nTimeline: ASAP\n\nNeed a quote for marketing automation.",
+      "shortLink": "abc123",
+      "idList": "680a00000000000010",
+      "idLabels": [],
+      "labels": [
+        { "name": "lead", "color": "green" },
+        { "name": "quote", "color": "purple" }
+      ],
+      "pos": 16384,
+      "idMembers": [],
+      "creation": "2026-09-16T12:00:00.000Z"
+    },
+    "list": { "id": "680a00000000000010", "name": "New Leads" },
+    "board": { "id": "680a00000000000000", "name": "Workfluxa Leads" }
+  },
+  "memberCreator": { "id": "680a000000000000ff", "username": "board-member", "fullName": "Sam" },
+  "date": "2026-09-16T12:00:00.000Z"
+}

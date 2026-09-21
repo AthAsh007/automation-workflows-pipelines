@@ -182,10 +182,19 @@ nothing irreversible.**
 - `STOP: <condition>`. A gate that intentionally drops items, so they appear in
   the execution list instead of vanishing.
 - Sticky notes carry the setup steps, so the canvas documents itself on import.
+- A yellow `## <workflow name> - start here` note, pinned top-left. It is the
+  topmost node on the canvas and `color: 1`. It names what to import it alongside,
+  the one trigger that proves it runs with no credential, and the setup steps in
+  order, ending in the switch that goes live. Someone opening a workflow cold
+  reads this first; without it the demo depends on the README being open next to
+  the canvas. [`../n8n/ghl-lead-intake-router/`](../n8n/ghl-lead-intake-router/)
+  is the pattern to copy.
 
 ## 8. Before a workflow ships
 
 - [ ] Exactly one node named `config`, and no `$env` anywhere in the JSON.
+- [ ] A yellow `start here` note is the topmost node, naming the run that proves
+      the workflow works before anything is configured.
 - [ ] Every key in `config` ships as `''`, and the secret grep in §2 returns nothing.
 - [ ] Every optional integration has a `*_enabled` flag and a named false branch.
 - [ ] `TEST_RUN = true`, `TEST_EMAIL = ''`, and a `STOP: preview` node in front of

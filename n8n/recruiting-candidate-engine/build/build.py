@@ -681,6 +681,27 @@ w3.append({"parameters": {"respondWith": "text",
            "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1,
            "position": [3900, 260]})
 
+# The yellow "start here" note n8n's template guidelines ask for: one main note,
+# in the default yellow, explaining the workflow and how to set it up. It sits
+# above the green section note, so it is the first thing on the canvas.
+w3.append(sticky("w3s", [-1660, -980], 540, 620, 1,
+    "## Inbound & qualify — start here\n\n"
+    "The third of three workflows. Import it alongside\n"
+    "`01-job-order-to-campaign` and `02-outreach-runner` — all three share the\n"
+    "same **config** node and the same Supabase schema.\n\n"
+    "**Run it before you configure anything.** `bash sample/test-webhooks.sh`\n"
+    "fires six events into this webhook — six runs, each ending at a named\n"
+    "node. No credentials, no Supabase project, nothing leaving the building.\n\n"
+    "**Setup, in order**\n"
+    "1. `supabase/schema.sql`, then `supabase/seed.sql`.\n"
+    "2. **config** — `CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.\n"
+    "3. This workflow's **production** URL into the Twilio console and the Retell\n"
+    "   dashboard, and the same value into `TWILIO_STATUS_CALLBACK` — Twilio\n"
+    "   signs the exact public URL it posted to, so behind a proxy it never matches.\n"
+    "4. Credentials on the `[cred]` nodes: Google Calendar, Gmail, Slack.\n"
+    "5. `DEMO_MODE = false` **and** `TEST_RUN = false` — only then may a run\n"
+    "   write to a client's ATS or a recruiter's real calendar."))
+
 w3.append(sticky("w3a", [-1660, -320], 540, 420, 4,
     "## 3 of 3 — inbound, qualification, booking, write-back\n\n"
     "One public endpoint, three kinds of event: a candidate's SMS reply, a Twilio\n"
