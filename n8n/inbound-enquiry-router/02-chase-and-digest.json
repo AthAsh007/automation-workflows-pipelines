@@ -2,6 +2,101 @@
   "name": "02-chase-and-digest",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Chase quiet enquiries and send a morning digest from a Google Sheet\n\n**Who it's for**\nTeams running enquiries out of a Google Sheet who keep losing the ones that go quiet, and do not want a CRM to fix it.\n\n**How it works**\nRuns every weekday at 08:30 and does two things from one read of the tracker.\n\n**Chases.** Anything still open that has not been touched for `CHASE_AFTER_HOURS` (48 by default) gets its owner one email listing everything of theirs that has gone quiet, not one email per enquiry. It stops after `CHASE_MAX` reminders (2 by default), so nobody gets a daily drip about the same job.\n\n**Digest.** One morning email: every open enquiry counted by stage, then everything that has gone quiet, oldest first. The subject line alone says how many need chasing.\n\nMoving a row out of `OPEN_STAGES` - to Won, Lost, whatever you call it - takes it out of both. Rows are matched on `Ref`, never on row number, so the sheet can be sorted and filtered freely.\n\n**How to set up**\n1. Paste the same `config` block you use in `01 capture and reply` into `config`. The two must match.\n2. Attach a Google Sheets credential to the two `[cred]` Sheets nodes and a Gmail credential to the two `[cred]` Gmail nodes.\n3. Set `DIGEST_TO` to whoever gets the morning summary. Blank disables the digest, not the chases.\n4. Run it once by hand with **Run it now**, read the preview, then set `TEST_RUN = false` and activate the schedule.\n\n**Requirements**\nGoogle Sheets and Gmail credentials, and `Ref` filled in on every row. `DIGEST_TO` is optional. It reads `Last touch` and `Chases sent`, so those columns need to be present and correct.\n\n**How to customise**\n`CHASE_AFTER_HOURS`, `CHASE_MAX`, `DIGEST_ALWAYS` and `OPEN_STAGES` live in `config`. The nudge wording is in `write the nudge`; the digest is in `build the morning digest`. The date parser in `find what has gone quiet` reads ISO dates, `31/08/2026` and raw Sheets serial numbers, so a reformatted cell does not stop a chase. If you rename the `Chases sent` column, change `COLUMNS.chases_sent` in `config` **and** the *Column to match on* in `[cred] Sheets - record the chase`, or the same job gets chased again every morning.",
+        "width": 520,
+        "height": 1340
+      },
+      "id": "w2note",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Read the tracker once\n\n`config` holds every setting. `[cred] Sheets - read the tracker` pulls the whole tab, and `find what has gone quiet` does the thinking: it counts the board by stage, then picks the rows that are still open, quiet for longer than `CHASE_AFTER_HOURS`, and under `CHASE_MAX` chases.",
+        "width": 880,
+        "height": 530,
+        "color": 7
+      },
+      "id": "w2c",
+      "name": "Sticky Note - Read the tracker",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1140,
+        30
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Chases, one email per owner\n\n`anything to chase?` takes the chase path only when something is genuinely stalled; otherwise `STOP: nothing stalled` ends that branch and the digest still goes out. `split by owner` turns the analysis into one item per person, so an owner with five quiet enquiries gets one email, not five.",
+        "width": 420,
+        "height": 570,
+        "color": 7
+      },
+      "id": "w2d",
+      "name": "Sticky Note - Chases",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        -90
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Nudge, send, record\n\n`write the nudge` builds the email: company, reference, how long it has been quiet, stage and the one-line next action. `[cred] Gmail - nudge the owner` sends it, and only then does `record the chase` bump `Chases sent` and add a dated line to `Notes`.",
+        "width": 1100,
+        "height": 550,
+        "color": 7
+      },
+      "id": "w2e",
+      "name": "Sticky Note - Nudge and record",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        220,
+        -170
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. The morning digest\n\n`build the morning digest` writes the at-a-glance email: every open enquiry counted by stage, then everything that has gone quiet, oldest first, plus a line naming any enquiry whose owner has no address. `send the digest?` respects `DIGEST_TO` and `DIGEST_ALWAYS`, so a blank `DIGEST_TO` means no digest at all.",
+        "width": 660,
+        "height": 470,
+        "color": 7
+      },
+      "id": "w2f",
+      "name": "Sticky Note - Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        530
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. Nothing is sent until you say so\n\n`TEST_RUN = true` with a blank `TEST_EMAIL` (how it ships) sends nothing and writes nothing back. Open `STOP: preview - nudges not sent` or `STOP: digest not sent` to read exactly what would have gone out. Put your own address in `TEST_EMAIL` and the emails really send, to you. `TEST_RUN = false` goes live. Both branches finish at `End`.",
+        "width": 1100,
+        "height": 300,
+        "color": 7
+      },
+      "id": "w2g",
+      "name": "Sticky Note - Safety switch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1140,
+        -560
+      ]
+    },
+    {
       "parameters": {},
       "id": "manual2",
       "name": "Run it now",
@@ -283,7 +378,7 @@
       "typeVersion": 2,
       "position": [
         -200,
-        440
+        680
       ]
     },
     {
@@ -318,7 +413,7 @@
       "typeVersion": 2.2,
       "position": [
         20,
-        440
+        680
       ]
     },
     {
@@ -331,7 +426,7 @@
       "typeVersion": 2,
       "position": [
         240,
-        580
+        820
       ]
     },
     {
@@ -352,7 +447,7 @@
       "typeVersion": 2.1,
       "position": [
         240,
-        440
+        680
       ],
       "onError": "continueRegularOutput",
       "notes": "Plain-text alternative is on the item as digest_text"
@@ -366,38 +461,6 @@
       "position": [
         1340,
         280
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## 2 of 2 — every weekday morning\n\nReads the whole tracker once and does two things:\n\n**Chases.** Anything still open that has not been touched for\n`CHASE_AFTER_HOURS` (48 by default) gets its owner a nudge — one email per\nperson listing all of theirs, not one per enquiry. It stops after\n`CHASE_MAX` reminders so nobody gets a daily drip.\n\n**A digest.** One email showing every open enquiry by stage, and what has\ngone quiet. That is the at-a-glance view.\n\nMoving a row to Won or Lost in the sheet takes it out of both.",
-        "height": 300,
-        "width": 460,
-        "color": 4
-      },
-      "id": "w2a",
-      "name": "Sticky Note w2a",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -1120,
-        -180
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## The counter matters\n\n**Chases sent** is bumped on every row that gets nudged, matched on **Ref**.\n\nThat column is what stops the same job being chased every morning forever.\nIf you rename it, change `COLUMNS.chases_sent` in the config node **and**\nthe *Column to match on* here.",
-        "height": 220,
-        "width": 420,
-        "color": 5
-      },
-      "id": "w2b",
-      "name": "Sticky Note w2b",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1080,
-        140
       ]
     }
   ],
