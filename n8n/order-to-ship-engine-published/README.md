@@ -144,7 +144,7 @@ into both — never edit them apart). For a real engagement:
 ## Files
 
 ```
-order-to-ship-engine/
+order-to-ship-engine-published/
 ├── 01-capture-and-confirm.json   generated — do not hand-edit
 ├── 02-progress-and-ship.json     generated — do not hand-edit
 ├── build/

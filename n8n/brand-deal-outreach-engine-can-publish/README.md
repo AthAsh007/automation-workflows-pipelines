@@ -182,7 +182,7 @@ never be emailed.
 ## Files
 
 ```
-brand-deal-outreach-engine/
+brand-deal-outreach-engine-can-publish/
 ├── 01-pitch-and-send.json          generated — do not hand-edit
 ├── 02-replies-and-reporting.json   generated — do not hand-edit
 ├── build/

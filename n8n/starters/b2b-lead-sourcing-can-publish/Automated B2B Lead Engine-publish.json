@@ -1,0 +1,1189 @@
+{
+  "name": "Source and verify B2B leads with Apify into Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Find your leads",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Industry",
+              "placeholder": "IT Agency, F&B, etc",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company Size",
+              "placeholder": "10 - 15 employees",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Region",
+              "placeholder": "United States",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company Results",
+              "fieldType": "number",
+              "placeholder": "20",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        190
+      ],
+      "id": "0703188e-13aa-4782-8dbb-3a7c1b76c9f4",
+      "name": "When the search brief is submitted",
+      "webhookId": "716daf4c-97ca-42f9-adfb-4202ed8bcfe5"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        560,
+        190
+      ],
+      "id": "7ae7ef49-fc2e-4535-8c9e-5b83a0697fb4",
+      "name": "split the companies"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.coresignal.com/cdapi/v2/agentic_search/fast",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": \"Find {{ $json['Company Results'] }} companies in {{ $json.Industry }}, that have {{ $json['Company Size'] }} in {{ $json.Region }}, and give me the decision makers with professional email. Make sure you choose 1 decision maker for 1 company that have a high score, so no duplicate.\",\n  \"return_data\": true,\n  \"threshold\": 0.92,\n  \"entity\": \"employee\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        280,
+        190
+      ],
+      "id": "2e2bf56b-e266-4139-8704-4255a4c707ed",
+      "name": "search for companies"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Company Name": "={{ $json.data.company_name }}",
+            "Person First Name": "={{ $json.data.full_name.split(\" \")[0] }}",
+            "Person Last Name": "={{ $json.data.full_name.split(\" \").slice(1).join() }}",
+            "Linkedin Url": "={{ $json.data.linkedin_url }}",
+            "Profile Score": "={{ $json.data.profile_score }}",
+            "Title": "={{ $json.data.active_experience_title }}"
+          },
+          "matchingColumns": [
+            "Linkedin Url"
+          ],
+          "schema": [
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person First Name",
+              "displayName": "Person First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Last Name",
+              "displayName": "Person Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Linkedin Url",
+              "displayName": "Linkedin Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Email",
+              "displayName": "Person Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Phone Number",
+              "displayName": "Person Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Profile Score",
+              "displayName": "Profile Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        840,
+        190
+      ],
+      "id": "9e881684-b348-4401-ac32-b246979e5dff",
+      "name": "[cred] Sheets - save the companies"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "Linkedin Url",
+              "renameField": true,
+              "outputFieldName": "linkedin_urls"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        190
+      ],
+      "id": "d4ee8bcf-8091-421c-bc25-8bd8f0b484e1",
+      "name": "collect the companies"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Linkedin Url": "={{ $json['06_Linkedin_url'].replace(\"http\", \"https\") }}",
+            "Person Phone Number": "={{ $json['05_Phone_number'] }}",
+            "Person Email": "={{ $json['04_Email'] }}",
+            "Person First Name": "={{ $json['02_First_name'] }}",
+            "Person Last Name": "={{ $json['03_Last_name'] }}",
+            "Company Name": "={{ $json['16_Company_name'] }}",
+            "Title": "={{ $json['07_Title'] }}"
+          },
+          "matchingColumns": [
+            "Linkedin Url"
+          ],
+          "schema": [
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person First Name",
+              "displayName": "Person First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Last Name",
+              "displayName": "Person Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Linkedin Url",
+              "displayName": "Linkedin Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Email",
+              "displayName": "Person Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Phone Number",
+              "displayName": "Person Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Profile Score",
+              "displayName": "Profile Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1960,
+        190
+      ],
+      "id": "8f6296e0-cffe-4a8d-800d-91171c622544",
+      "name": "[cred] Sheets - save the contacts"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "Person Email",
+              "renameField": true,
+              "outputFieldName": "emails"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        190
+      ],
+      "id": "643a2676-b914-4fd9-befd-9e34b899f29d",
+      "name": "collect the contacts"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Person Email": "={{ $json.email }}",
+            "Email Status": "={{ $json.status }}"
+          },
+          "matchingColumns": [
+            "Person Email"
+          ],
+          "schema": [
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person First Name",
+              "displayName": "Person First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person Last Name",
+              "displayName": "Person Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Linkedin Url",
+              "displayName": "Linkedin Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person Email",
+              "displayName": "Person Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Phone Number",
+              "displayName": "Person Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Profile Score",
+              "displayName": "Profile Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2800,
+        190
+      ],
+      "id": "41315c72-1f50-4d2c-8c4d-151148ecc788",
+      "name": "[cred] Sheets - save verified contacts"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9f31c215-2a7a-4d6b-91f7-c688be47582f",
+              "leftValue": "={{ $json['04_Email'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1680,
+        190
+      ],
+      "id": "ea219a27-5e6e-4a2e-856c-f28d6c5a60f6",
+      "name": "drop rows with no email"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9bb4545d-ec00-49ae-bb47-8dfe72cb92ec",
+      "name": "Run the outreach pass"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Outreach",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        280,
+        0
+      ],
+      "id": "2a7f7a1e-94f9-44d0-afb0-94a09b1d07b2",
+      "name": "[cred] Sheets - read the outreach log",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email Status",
+              "lookupValue": "good"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        840,
+        0
+      ],
+      "id": "3957c36d-9086-447c-ad70-e2f6b4c1b05f",
+      "name": "[cred] Sheets - read the verified leads"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        560,
+        0
+      ],
+      "id": "8df10374-f91c-4294-b457-0227b40d8bc8",
+      "name": "collect what was already sent"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "a6c4f8c5-19b9-42db-ab66-e1eeb5750e3d",
+      "name": "collect the leads"
+    },
+    {
+      "parameters": {
+        "jsCode": "const outreachEmails = $('collect what was already sent').first().json.data.map(item => item !== null && item.email !== null);\n\nconst filteredLeads = $(\"collect the leads\").first().json.data.filter(item => !item[\"Person Email\"].includes(outreachEmails));\n\nreturn filteredLeads"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        0
+      ],
+      "id": "b44d5700-f6ab-44b8-960f-d2bf56f47372",
+      "name": "drop leads already contacted",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Create outreach draft email to promote [YOUR COMPANY] and its services to this target company contact person. Our website is [YOUR WEBSITE].\n\n<target_company_contact_person>\n{{ JSON.stringify($('drop leads already contacted').item.json) }}\n</target_company_contact_person>",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "8e1ca49d-d99e-4b6e-94ba-c8033e97cc87",
+      "name": "write the outreach email"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Run Web Search using Apify",
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "VpVrm1iIlddRiCsVD",
+          "mode": "list",
+          "cachedResultName": "AI Search Tool - Real-Time Web Search (abotapi/ai-web-search-tool)",
+          "cachedResultUrl": "https://console.apify.com/actors/VpVrm1iIlddRiCsVD/input"
+        },
+        "customBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Input_JSON', `Example of input\n\\`\\`\\`\n{\n    \"dev_dataset_clear\": false,\n    \"maxResults\": 10,\n    \"proxy\": {\n        \"useApifyProxy\": false,\n        \"apifyProxyGroups\": [\n            \"RESIDENTIAL\"\n        ],\n        \"apifyProxyCountry\": \"\"\n    },\n    \"query\": \"Tesla\"\n}\n\\`\\`\\`\n\nJust update the \\`query\\` for search`, 'json') }}",
+        "timeout": {},
+        "maxTotalChargeUsd": {}
+      },
+      "type": "@apify/n8n-nodes-apify.apifyTool",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        340
+      ],
+      "id": "b1b9c5e2-27e6-45b8-a9ab-1a2878a2ea68",
+      "name": "Apify research tool"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        340
+      ],
+      "id": "e1ba830b-dc1b-4ea3-b8ee-0eb43c5496af",
+      "name": "OpenRouter model"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Outreach",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Person Email": "={{ $('drop leads already contacted').item.json['Person Email'] }}",
+            "Draft Outreach": "={{ $json.output }}",
+            "Status": "waiting confirmation",
+            "Company Name": "={{ $('drop leads already contacted').item.json['Company Name'] }}",
+            "Person First Name": "={{ $('drop leads already contacted').item.json['Person First Name'] }}",
+            "Person Last Name": "={{ $('drop leads already contacted').item.json['Person Last Name'] }}",
+            "Linkedin Url": "={{ $('drop leads already contacted').item.json['Linkedin Url'] }}",
+            "Title": "={{ $('drop leads already contacted').item.json.Title }}",
+            "Person Phone Number": "={{ $('drop leads already contacted').item.json['Person Phone Number'] }}"
+          },
+          "matchingColumns": [
+            "Person Email"
+          ],
+          "schema": [
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person First Name",
+              "displayName": "Person First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person Last Name",
+              "displayName": "Person Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Linkedin Url",
+              "displayName": "Linkedin Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Person Email",
+              "displayName": "Person Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Person Phone Number",
+              "displayName": "Person Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Draft Outreach",
+              "displayName": "Draft Outreach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1960,
+        0
+      ],
+      "id": "1c31b5c1-089a-4b79-9d7d-52f24d271e8b",
+      "name": "[cred] Sheets - save the drafted emails"
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "ddgw2oGFaH645BFAq",
+          "mode": "id"
+        },
+        "customBody": "={{\n  {\n    linkedin_url_or_ids: $json.linkedin_urls\n  }\n}}"
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        190
+      ],
+      "id": "a763c9fc-502c-4129-9ad0-ae67583e49bb",
+      "name": "[cred] Apify - find emails on LinkedIn"
+    },
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "u0sG3Wiy5pdt9mIfU",
+          "mode": "list",
+          "cachedResultName": "Email Verifier & Validator | Bulk Email Verification (michael.g/email-verifier-validator)",
+          "cachedResultUrl": "https://console.apify.com/actors/u0sG3Wiy5pdt9mIfU/input"
+        },
+        "customBody": "={{\n{\n  \"emails\": $json.emails.filter(item => item)\n}\n}}"
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        2520,
+        190
+      ],
+      "id": "5fafaf52-60d5-4b27-ae90-4e11fd9047fc",
+      "name": "[cred] Apify - verify the addresses"
+    },
+    {
+      "parameters": {
+        "content": "## Source and verify B2B leads with Apify into Google Sheets\n\n**Who's it for**\nB2B sales and lead-generation teams who want a repeatable pipeline from \"the kind of company I\nwant\" to a verified contact list with a drafted first email, all recorded in Google Sheets.\n\n**How it works**\nTwo passes that share one spreadsheet.\n\n**Sourcing** starts when you submit the search brief. Companies are sourced, split one per row and\nsaved. The batch is sent to an Apify actor that finds contact emails from LinkedIn, rows with no\nemail are dropped rather than carried forward, and what remains is passed to a second Apify actor\nthat verifies each address. Only verified contacts reach the final tab, so the list you work from\nhas already had the bounces taken out.\n\n**Outreach** is a separate pass you run when you are ready. It reads the verified leads and the log\nof what has already been sent, drops anyone previously contacted, and asks an AI agent - with an\nApify research tool available to it - to draft a first email per lead. The drafts are written back\nto the sheet for review rather than sent, so a human approves before anything leaves.\n\n**How to set up**\n1. Attach Google Sheets credentials and point each sheet node at your spreadsheet and tab.\n2. Attach an Apify credential to the three Apify nodes and set your actor ids.\n3. Attach an OpenRouter credential to the model node.\n4. Submit the form once with a small search to watch a batch flow through end to end.\n\n**Requirements**\nAn Apify account with actors for company sourcing, LinkedIn email lookup and email verification, an\nOpenRouter API key, and a Google Sheet.\n\n**How to customize**\nThe tone and structure of the first email is the prompt on **`write the outreach email`**. To change\nwhat counts as a usable lead, edit **`drop rows with no email`**.",
+        "height": 1126,
+        "width": 660,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -1466
+      ],
+      "id": "sticky-00",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "### 1. Source the companies\n\nThe form carries the search brief. **`split the companies`** turns the response into one item per company so each is saved as its own row.\n\n**`collect the companies`** batches them back up, because the LinkedIn lookup is far cheaper called once with many companies than once per company.",
+        "height": 224,
+        "width": 1040,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        -264
+      ],
+      "id": "sticky-01",
+      "name": "1. Source the companies"
+    },
+    {
+      "parameters": {
+        "content": "### 2. Drop what you cannot use, early\n\n**`drop rows with no email`** removes contacts the lookup could not resolve.\n\nThis sits *before* verification on purpose: verification is charged per address, and paying to verify a blank is the easiest money to waste in a pipeline like this.",
+        "height": 202,
+        "width": 1040,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        480
+      ],
+      "id": "sticky-02",
+      "name": "2. Drop what you cannot use"
+    },
+    {
+      "parameters": {
+        "content": "### 3. Verify before it counts as a lead\n\nOnly addresses that pass verification reach the final tab.\n\nThat tab is what the outreach pass reads, so the bounces are taken out of the list before anyone writes to it - rather than discovered afterwards in a sending tool's bounce report.",
+        "height": 268,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2520,
+        -118
+      ],
+      "id": "sticky-03",
+      "name": "3. Verify before it counts"
+    },
+    {
+      "parameters": {
+        "content": "### 4. Never contact the same person twice\n\nThe outreach pass reads **both** the verified leads and the log of what has already gone out, then **`drop leads already contacted`** removes the overlap.\n\nThe log is the memory. Without it, re-running this pass would draft a fresh first email to everybody you already approached.",
+        "height": 202,
+        "width": 1320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        750
+      ],
+      "id": "sticky-04",
+      "name": "4. Never contact twice"
+    },
+    {
+      "parameters": {
+        "content": "### 5. Drafted, not sent\n\n**`write the outreach email`** has an Apify research tool available, so it can look something up about a company before writing rather than guessing from the row.\n\nThe drafts are written back to the sheet. **Nothing is sent from this workflow** - a human reads the column and approves, which is the right default for a first email to a stranger.",
+        "height": 312,
+        "width": 480,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        -352
+      ],
+      "id": "sticky-05",
+      "name": "5. Drafted, not sent"
+    }
+  ],
+  "connections": {
+    "When the search brief is submitted": {
+      "main": [
+        [
+          {
+            "node": "search for companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split the companies": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - save the companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search for companies": {
+      "main": [
+        [
+          {
+            "node": "split the companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - save the companies": {
+      "main": [
+        [
+          {
+            "node": "collect the companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect the companies": {
+      "main": [
+        [
+          {
+            "node": "[cred] Apify - find emails on LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - save the contacts": {
+      "main": [
+        [
+          {
+            "node": "collect the contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect the contacts": {
+      "main": [
+        [
+          {
+            "node": "[cred] Apify - verify the addresses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "drop rows with no email": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - save the contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run the outreach pass": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the outreach log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the outreach log": {
+      "main": [
+        [
+          {
+            "node": "collect what was already sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect what was already sent": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the verified leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the verified leads": {
+      "main": [
+        [
+          {
+            "node": "collect the leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect the leads": {
+      "main": [
+        [
+          {
+            "node": "drop leads already contacted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "drop leads already contacted": {
+      "main": [
+        [
+          {
+            "node": "write the outreach email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify research tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "write the outreach email",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "write the outreach email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "write the outreach email": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - save the drafted emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Apify - find emails on LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "drop rows with no email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Apify - verify the addresses": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - save verified contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}

@@ -10,12 +10,12 @@ difference between these and the workflows in [`../`](../).
 
 | Workflow | What it does | Trigger |
 | --- | --- | --- |
-| [ai-news-digest](ai-news-digest/) | Several RSS feeds merged, judged for relevance by one model, and only the survivors fetched and summarised by a second. Rows appended to a sheet. | Manual |
-| [b2b-lead-sourcing](b2b-lead-sourcing/) | A search brief in, companies sourced, contact addresses found and verified, then a first email drafted per lead and written back for review. | Form and manual |
-| [cold-email-and-reply-triage](cold-email-and-reply-triage/) | A lead list imported and upserted, the first touch sent, and incoming replies matched to a lead and classified against a fixed schema. | Form, schedule, Gmail |
-| [newsletter-signup-to-mailchimp](newsletter-signup-to-mailchimp/) | A signup validated before anything else happens, an existing address updated rather than re-added, a welcome email sent, and the form answered either way. | Webhook |
-| [applicant-tracking-sync](applicant-tracking-sync/) | New applicants read from a sheet, deduplicated against Notion, added, and stage-change emails sent from templates held in Notion. | Schedule and Notion |
-| [whatsapp-lead-and-reminders](whatsapp-lead-and-reminders/) | Three flows on one WhatsApp number: an inbound enquiry scored by a model, overdue invoices chased, and a new customer welcomed. | WhatsApp, schedule, form |
+| [ai-news-digest-can-publish](ai-news-digest-can-publish/) | Several RSS feeds merged, judged for relevance by one model, and only the survivors fetched and summarised by a second. Rows appended to a sheet. | Manual |
+| [b2b-lead-sourcing-can-publish](b2b-lead-sourcing-can-publish/) | A search brief in, companies sourced, contact addresses found and verified, then a first email drafted per lead and written back for review. | Form and manual |
+| [cold-email-and-reply-triage-can-publish](cold-email-and-reply-triage-can-publish/) | A lead list imported and upserted, the first touch sent, and incoming replies matched to a lead and classified against a fixed schema. | Form, schedule, Gmail |
+| [newsletter-signup-to-mailchimp-can-publish](newsletter-signup-to-mailchimp-can-publish/) | A signup validated before anything else happens, an existing address updated rather than re-added, a welcome email sent, and the form answered either way. | Webhook |
+| [applicant-tracking-sync-can-publish](applicant-tracking-sync-can-publish/) | New applicants read from a sheet, deduplicated against Notion, added, and stage-change emails sent from templates held in Notion. | Schedule and Notion |
+| [whatsapp-lead-and-reminders-can-publish](whatsapp-lead-and-reminders-can-publish/) | Three flows on one WhatsApp number: an inbound enquiry scored by a model, overdue invoices chased, and a new customer welcomed. | WhatsApp, schedule, form |
 
 ## Before you run one
 
@@ -29,7 +29,7 @@ press Execute.
 [`../../docs/CONFIG-NODE.md`](../../docs/CONFIG-NODE.md) section 9 is the five-step
 conversion: collect the settings into one `config` node, read them downstream, give each
 optional integration a named skip, add the `TEST_RUN` gate, and check that the shipped
-default does nothing irreversible. [`../crm-data-hygiene/workflow.json`](../crm-data-hygiene/workflow.json)
+default does nothing irreversible. [`../crm-data-hygiene-published/workflow.json`](../crm-data-hygiene-published/workflow.json)
 is what the result looks like.
 
 ## Fixtures

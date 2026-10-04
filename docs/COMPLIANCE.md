@@ -108,6 +108,6 @@ changed twice in recent years. Check them rather than trusting this page:
 - Templates that enrich a record store the provider and the timestamp alongside
   the value, so a record's provenance survives into the CRM and a bad batch can be
   traced and removed.
-- Verification results carry an expiry. `crm-data-hygiene` re-verifies addresses
+- Verification results carry an expiry. `crm-data-hygiene-published` re-verifies addresses
   older than `REVERIFY_AFTER_DAYS` and suppresses what fails, rather than treating
   a two-year-old "valid" as still true.

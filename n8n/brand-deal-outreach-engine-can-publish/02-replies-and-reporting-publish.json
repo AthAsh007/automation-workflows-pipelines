@@ -1,0 +1,1417 @@
+{
+  "name": "Classify outreach replies and report weekly from Airtable to Slack",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// BRAND DEAL OUTREACH ENGINE — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows and is generated from one file, so the\n// sender and the reply handler can never disagree about which inbox belongs to which\n// student, or about what counts as a booked deal.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single credential exists.\n\n// ---------------------------------------------------------------- Airtable: the database\n// The student dashboard. Blank = the run uses the built-in demo roster\n// and writes nothing.\n//   API key:  airtable.com/create/tokens (a PAT with data.records:read and :write)\n//   Base id:  the \"app...\" segment of the base's URL\nconst AIRTABLE_API_KEY = '';\nconst AIRTABLE_BASE_ID = '';\nconst AIRTABLE_URL     = 'https://api.airtable.com/v0';\n\nconst STUDENTS_TABLE = 'Students';   // one row per creator we send for\nconst BRANDS_TABLE   = 'Brands';     // the target list, per niche\nconst PITCHES_TABLE  = 'Pitches';    // one row per pitch. Written same day, always.\nconst INBOXES_TABLE  = 'Inboxes';    // sending accounts and their health\n\n// Field names, exactly as they appear in Airtable.\nconst STUDENT_FIELDS = {\n  student_id:   'Student id',\n  name:         'Name',\n  handle:       'Handle',\n  niche:        'Niche',\n  platform:     'Platform',\n  followers:    'Followers',\n  avg_views:    'Average views',\n  rate_card:    'Rate card',\n  min_rate:     'Minimum rate',\n  deliverables: 'Deliverables',\n  proof:        'Proof points',\n  status:       'Status',\n  started_on:   'Engagement start',\n  monthly_target: 'Monthly pitch target'\n};\n\nconst BRAND_FIELDS = {\n  brand_id:     'Brand id',\n  brand:        'Brand',\n  niche:        'Niche',\n  contact_name: 'Contact name',\n  contact_email: 'Contact email',\n  role:         'Role',\n  budget_band:  'Budget band',\n  recent_signal: 'Recent signal',\n  product:      'Product',\n  region:       'Region',\n  status:       'Status'\n};\n\nconst PITCH_FIELDS = {\n  pitch_id:    'Pitch id',\n  student_id:  'Student id',\n  student:     'Student',\n  brand_id:    'Brand id',\n  brand:       'Brand',\n  contact:     'Contact',\n  email:       'Email',\n  inbox:       'Sent from',\n  subject:     'Subject',\n  body:        'Body',\n  facts_used:  'Facts used',\n  sent_at:     'Sent at',\n  state:       'State',\n  hold_reason: 'Hold reason',\n  reply_at:    'Replied at',\n  reply_class: 'Reply',\n  booked_at:   'Booked at',\n  deal_value:  'Deal value'\n};\n\nconst INBOX_FIELDS = {\n  inbox_id:     'Inbox id',\n  email:        'Email',\n  domain:       'Domain',\n  student_id:   'Student id',\n  warmed_days:  'Days warming',\n  daily_cap:    'Daily cap',\n  sent_today:   'Sent today',\n  bounce_rate:  'Bounce rate',\n  spam_rate:    'Spam complaint rate',\n  health_score: 'Health score',\n  state:        'State'\n};\n\n// Only students in these states are pitched for.\nconst ACTIVE_STUDENT_STATES = ['Active', 'Onboarding complete', ''];\n// Only brands in these states are pitched. Anything else has been contacted or ruled out.\nconst OPEN_BRAND_STATES = ['New', 'Researched', ''];\n\n// ---------------------------------------------------------------- Volume\n// A typical target is 10,000+ pitches a month across all students. That is a per-student\n// daily figure once you divide it by working days, and it is the figure that has to be\n// enforced — a month's target is not a thing you can rate-limit against.\nconst PITCHES_PER_STUDENT_PER_DAY = 25;\nconst DAILY_CAP                   = 400;  // hard ceiling across all students, per run\nconst MAX_PER_BRAND_PER_STUDENT   = 1;    // never pitch the same brand twice for one creator\nconst REPITCH_AFTER_DAYS          = 90;   // a brand that said no is left alone this long\n\n// ---------------------------------------------------------------- Deliverability\n// The second of their three hard gates. This is the part that fails CLOSED: an inbox that\n// cannot be proved healthy does not send. Every other mistake in cold outreach is\n// recoverable; a burnt sending domain is not, and it takes the student's name with it.\nconst MIN_WARMUP_DAYS   = 14;    // an inbox younger than this sends nothing\nconst MAX_BOUNCE_RATE   = 0.03;  // 3% — above this the inbox is pulled from rotation\nconst MAX_SPAM_RATE     = 0.001; // 0.1%\nconst MIN_HEALTH_SCORE  = 70;    // whatever your sending platform reports, 0-100\nconst MAX_PER_INBOX_DAY = 40;    // per mailbox, not per domain\nconst MAX_PER_DOMAIN_DAY = 120;  // across every mailbox on one domain\n\n// An inbox whose health the platform will not tell us about. true = do not send from it.\n// Leave it true: an unknown inbox is not a healthy one.\nconst HOLD_UNKNOWN_INBOX = true;\n\n// ---------------------------------------------------------------- Personalisation\n// Their third hard gate: \"pitches read human and personal from line one. Never templated.\"\n//\n// A pitch must carry at least MIN_FACTS specific, verifiable details drawn from the BRAND\n// and STUDENT records — not from the model. If the record does not contain enough to say\n// something true and specific, the pitch is HELD, not sent with a generic line in its place.\n// That is the difference between personalisation and mail-merge, and it is checkable.\nconst MIN_FACTS = 3;\n\n// And at least this many of them about the BRAND. Creator numbers are facts too, but a\n// pitch made only of them is a CV — MIN_FACTS alone would let one through on the strength\n// of the follower count.\nconst MIN_BRAND_FACTS = 2;\n\n// Which brand record fields count as a usable fact. A blank field is not a fact.\n//\n// `budget_band` is deliberately NOT here. It is real, and it gates the match upstream, and\n// it must never appear in an email — telling a company what you think their budget is, is\n// the single fastest way to lose the deal you were quoting into.\nconst FACT_FIELDS = ['recent_signal', 'product', 'role'];\n\n// Phrases that give a template away. A pitch containing any of these is held and rewritten.\n// This list is the single most useful thing in this config — add to it every time you read\n// a sent pitch and wince.\nconst BANNED_PHRASES = [\n  'i hope this email finds you well', 'i hope this finds you well', 'quick question',\n  'just following up', 'circling back', 'touching base', 'i wanted to reach out',\n  'i came across your', 'i stumbled upon', 'love what you are doing',\n  'love what you’re doing', 'we are a leading', 'synergy', 'game-changing',\n  'revolutionary', 'to whom it may concern', 'dear sir or madam', 'per my last email',\n  'as per', 'kindly revert', 'i am reaching out to you today'\n];\n\n// A pitch outside this range is held. Short enough to read on a phone, long enough to say\n// something.\nconst MIN_WORDS = 60;\nconst MAX_WORDS = 160;\n\n// Never send to these. Domains or full addresses. Anything that replies \"remove me\" is\n// added here by workflow 02.\nconst SUPPRESSION = [];\n\n// Role mailboxes nobody owns. Held — these are where bounce rates come from.\nconst ROLE_PREFIXES = ['info', 'hello', 'contact', 'support', 'admin', 'sales', 'help',\n  'noreply', 'no-reply', 'press', 'careers', 'jobs', 'legal', 'billing', 'webmaster'];\n\n// ---------------------------------------------------------------- The writer\n// The model rewrites the SUBJECT and the OPENING LINE around facts that were assembled in\n// code. It is never handed the rate card and asked to improvise a number.\n// Blank = the skeleton pitch is produced and held for a human to finish. Nothing is sent\n// unwritten.\nconst AI_API_KEY = '';\nconst AI_URL     = 'https://api.anthropic.com/v1/messages';\nconst AI_MODEL   = 'claude-opus-5';\n\n// ---------------------------------------------------------------- The sending engine\n// Instantly by default. Smartlead works the same way: change SEND_URL and the body built in\n// \"payload for the campaign\".\nconst SEND_API_KEY  = '';\nconst SEND_URL      = 'https://api.instantly.ai/api/v2/leads';\nconst REPLIES_URL   = 'https://api.instantly.ai/api/v2/emails';\nconst CAMPAIGN_ID   = '';\n\n// Optional: a different campaign per niche, so a skincare brand and a gaming brand are not\n// sent the same sequence. Anything not listed here goes to CAMPAIGN_ID.\nconst CAMPAIGN_BY_NICHE = {\n  // 'Beauty': 'campaign-uuid-here',\n  // 'Gaming': 'campaign-uuid-here'\n};\n\n// ---------------------------------------------------------------- Replies (workflow 02)\n// How a reply is classified. First rule whose words appear wins, so put the specific ones\n// first. Anything that matches nothing is 'unclear' and goes to a human — never guessed.\nconst REPLY_RULES = [\n  { klass: 'unsubscribe', route: 'suppress',\n    words: ['unsubscribe', 'remove me', 'take me off', 'do not contact', 'opt out',\n            'stop emailing'] },\n  { klass: 'auto-reply', route: 'ignore',\n    words: ['out of office', 'automatic reply', 'auto-reply', 'annual leave',\n            'on holiday', 'currently away', 'parental leave'] },\n  { klass: 'bounce', route: 'suppress',\n    words: ['undeliverable', 'delivery failed', 'address not found', 'mailbox full',\n            'recipient rejected', 'does not exist'] },\n  { klass: 'wrong-person', route: 'reroute',\n    words: ['no longer with', 'has left', 'not the right person', 'forward this to',\n            'my colleague handles', 'wrong department'] },\n  { klass: 'not-now', route: 'nurture',\n    words: ['next quarter', 'next year', 'budget is set', 'revisit', 'not right now',\n            'circle back in', 'check back'] },\n  { klass: 'not-interested', route: 'close',\n    words: ['not interested', 'no thanks', 'we will pass', 'we’ll pass', 'not a fit',\n            'not for us', 'declining'] },\n  { klass: 'interested', route: 'handover',\n    words: ['interested', 'tell me more', 'send over', 'rates', 'media kit', 'happy to chat',\n            'set up a call', 'what would', 'pricing', 'sounds good', 'let’s talk'] }\n];\n\n// A reply routed 'handover' is a human's job — a person is paid to work the replies,\n// and this workflow's job is to put the right ones in front of them fast, not to negotiate.\nconst HANDOVER_WEBHOOK_URL = '';   // Slack channel for interested replies. Blank = summary only.\n\n// ---------------------------------------------------------------- Weekly report\n// \"Report weekly — clean numbers so students and the team can see progress.\"\n// Runs on the hourly trigger, on this day and hour only.\nconst REPORT_DAY  = 1;   // 0 Sunday … 6 Saturday\nconst REPORT_HOUR = 9;   // 24h, in the n8n instance's timezone\nconst REPORT_WINDOW_DAYS = 7;\n\nconst ALERT_WEBHOOK_URL = '';   // Slack incoming webhook for the run summaries.\n\n// ---------------------------------------------------------------- Demo mode\n// With no Airtable key set, builds a deterministic roster — six students, sixty brands,\n// four inboxes with a realistic spread of health — so the whole engine can be watched end\n// to end before an account exists. While this is on the run is FORCED into preview: a\n// fabricated brand contact can never be emailed.\nconst DEMO_ROSTER = true;\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_EMAIL blank -> PREVIEW. Every pitch is written, audited and\n//                                       assigned an inbox, and NOTHING is sent or logged.\n//                                       Ships this way.\n//   TEST_RUN true,  TEST_EMAIL set   -> TEST. Pitches really are sent, all redirected to\n//                                       that address, so you can read what a brand would get.\n//   TEST_RUN false                   -> LIVE.\nconst TEST_RUN   = true;\nconst TEST_EMAIL = '';\n\nconst DEMO_DATA = DEMO_ROSTER === true && AIRTABLE_API_KEY.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\n// A fabricated brand contact is not a lead. It cannot open the send gate, whatever\n// TEST_RUN says.\nconst FORCED_PREVIEW = DEMO_DATA && MODE !== 'preview';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst now = new Date();\nconst REPORT_DUE = now.getDay() === Number(REPORT_DAY) &&\n                   now.getHours() === Number(REPORT_HOUR);\n\nreturn [{\n  json: {\n    airtable_url:  AIRTABLE_URL,\n    airtable_key:  AIRTABLE_API_KEY.trim(),\n    airtable_base: AIRTABLE_BASE_ID.trim(),\n    students_table: STUDENTS_TABLE,\n    brands_table:   BRANDS_TABLE,\n    pitches_table:  PITCHES_TABLE,\n    inboxes_table:  INBOXES_TABLE,\n    student_fields: STUDENT_FIELDS,\n    brand_fields:   BRAND_FIELDS,\n    pitch_fields:   PITCH_FIELDS,\n    inbox_fields:   INBOX_FIELDS,\n    active_student_states: ACTIVE_STUDENT_STATES,\n    open_brand_states:     OPEN_BRAND_STATES,\n\n    pitches_per_student_per_day: Number(PITCHES_PER_STUDENT_PER_DAY) || 25,\n    daily_cap:                   Number(DAILY_CAP) || 0,\n    max_per_brand_per_student:   Number(MAX_PER_BRAND_PER_STUDENT) || 1,\n    repitch_after_days:          Number(REPITCH_AFTER_DAYS) || 90,\n\n    min_warmup_days:    Number(MIN_WARMUP_DAYS) || 0,\n    max_bounce_rate:    Number(MAX_BOUNCE_RATE) || 0,\n    max_spam_rate:      Number(MAX_SPAM_RATE) || 0,\n    min_health_score:   Number(MIN_HEALTH_SCORE) || 0,\n    max_per_inbox_day:  Number(MAX_PER_INBOX_DAY) || 0,\n    max_per_domain_day: Number(MAX_PER_DOMAIN_DAY) || 0,\n    hold_unknown_inbox: HOLD_UNKNOWN_INBOX !== false,\n\n    min_facts:       Number(MIN_FACTS) || 0,\n    min_brand_facts: Number(MIN_BRAND_FACTS) || 0,\n    fact_fields: FACT_FIELDS,\n    banned_phrases: BANNED_PHRASES.map(function (p) { return String(p).toLowerCase(); }),\n    min_words:   Number(MIN_WORDS) || 0,\n    max_words:   Number(MAX_WORDS) || 9999,\n    suppression: SUPPRESSION.map(function (s) { return String(s).trim().toLowerCase(); })\n      .filter(Boolean),\n    role_prefixes: ROLE_PREFIXES,\n\n    ai_api_key: AI_API_KEY.trim(),\n    ai_url:     AI_URL,\n    ai_model:   AI_MODEL,\n\n    send_api_key: SEND_API_KEY.trim(),\n    send_url:     SEND_URL,\n    replies_url:  REPLIES_URL,\n    campaign_id:  CAMPAIGN_ID.trim(),\n    campaign_by_niche: CAMPAIGN_BY_NICHE,\n\n    reply_rules: REPLY_RULES,\n    handover_webhook_url: HANDOVER_WEBHOOK_URL.trim(),\n\n    report_day:  Number(REPORT_DAY),\n    report_hour: Number(REPORT_HOUR),\n    report_window_days: Number(REPORT_WINDOW_DAYS) || 7,\n    alert_webhook_url:  ALERT_WEBHOOK_URL.trim(),\n    test_email: TEST_EMAIL.trim(),\n\n    // derived flags — the gates read these, never the raw constants\n    mode:         MODE,\n    preview_only: MODE === 'preview',\n    test_send:    MODE === 'test',\n    live_send:    MODE === 'live',\n\n    airtable_enabled: AIRTABLE_API_KEY.trim() !== '' && AIRTABLE_BASE_ID.trim() !== '',\n    log_enabled:      MODE !== 'preview' && AIRTABLE_API_KEY.trim() !== ''\n                      && AIRTABLE_BASE_ID.trim() !== '',\n    ai_enabled:       AI_API_KEY.trim() !== '',\n    send_enabled:     MODE !== 'preview' && SEND_API_KEY.trim() !== '' &&\n                      CAMPAIGN_ID.trim() !== '',\n    replies_enabled:  SEND_API_KEY.trim() !== '',\n    alert_enabled:    ALERT_WEBHOOK_URL.trim() !== '',\n    handover_enabled: (HANDOVER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim()) !== '',\n    handover_url:     HANDOVER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim(),\n    report_due:       REPORT_DUE,\n    demo_data:        DEMO_DATA,\n    forced_preview:   FORCED_PREVIEW\n  }\n}];"
+      },
+      "id": "cfg",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        670
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "feed-on-c",
+              "leftValue": "={{ $('config').first().json.replies_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "feed-on",
+      "name": "reply feed configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.replies_url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.send_api_key }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "fetch",
+      "name": "[cred] Instantly - fetch replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        490
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "Instantly v2 GET /emails returns sent and received together. 'read the replies' keeps only inbound."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalises the sending platform's reply feed into one item shaped {replies}.\n//\n// Instantly's v2 GET /emails returns sent and received mail together. Only inbound is a\n// reply, and only inbound from the last window is a NEW reply — re-classifying yesterday's\n// is how a brand gets handed over twice and a person emails them twice.\nconst cfg = $('config').first().json;\nconst resp = $('[cred] Instantly - fetch replies').first().json || {};\n\nconst failures = [];\nlet rows = [];\nif (resp.error || (!Array.isArray(resp.items) && !Array.isArray(resp.data))) {\n  failures.push('replies: ' + ((resp.error && (resp.error.message || resp.error)) ||\n    'no response'));\n} else {\n  rows = Array.isArray(resp.items) ? resp.items : resp.data;\n}\n\nif (failures.length) {\n  throw new Error('The reply feed returned nothing usable (' + failures.join('; ') +\n    '). Refusing to report a quiet inbox — a reply nobody reads is the one thing this ' +\n    'workflow exists to prevent.');\n}\n\nconst replies = rows.filter(function (m) {\n  const dir = String(m.email_type || m.direction || '').toLowerCase();\n  return dir === 'received' || dir === 'inbound' || m.is_reply === true;\n}).map(function (m) {\n  const vars = m.lead_data || m.custom_variables || {};\n  return {\n    reply_id: m.id || m.message_id || '',\n    pitch_id: vars.pitch_id || '',\n    from_name: m.from_name || vars.first_name || '',\n    from: m.from_address_email || m.from || '',\n    brand: vars.company_name || m.company_name || '',\n    student: vars.creator || '',\n    subject: m.subject || '',\n    text: String(m.body_text || m.body || m.content || '').slice(0, 4000),\n    received_at: m.timestamp_created || m.date || new Date().toISOString(),\n    inbox: m.eaccount || m.to_address_email || ''\n  };\n});\n\nreturn [{\n  json: {\n    source: 'instantly',\n    read_at: new Date().toISOString(),\n    failures: failures,\n    replies: replies\n  }\n}];"
+      },
+      "id": "readrep",
+      "name": "read the replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        490
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: no sending platform configured — build a demo reply batch instead.\n//\n// Deterministic, and deliberately awkward: one reply of every class the rules know about,\n// plus two that match nothing. Those last two are the important ones. A classifier\n// demonstrated only on replies it can classify is a classifier nobody has tested.\nconst cfg = $('config').first().json;\n\nif (cfg.replies_enabled) {\n  throw new Error('demo replies reached with a sending key configured — check the IF gate');\n}\n\nconst DAY = 86400000;\nconst now = Date.now();\nfunction iso(ms) { return new Date(ms).toISOString(); }\n\nconst REPLIES = [\n  ['P-ST-01-BR-001-20260902', 'Sofie Brandt', 'sofie.brandt@example.com',\n   'Kestrel Living', 'Nadia Osei',\n   'Re: the modular sofa line',\n   'This is interesting — can you send over rates and the last two campaigns she ran? ' +\n   'Happy to jump on a call next week.'],\n  ['P-ST-02-BR-011-20260902', 'Elena Ruiz', 'elena.ruiz@example.com',\n   'Copper Pot Sauces', 'Tomas Ferreira',\n   'Re: Tesco listing',\n   'Thanks but we are not interested at the moment, our influencer budget is committed ' +\n   'through the autumn.'],\n  ['P-ST-03-BR-026-20260902', 'Beth Okoye', 'beth.okoye@example.com',\n   'Rowan Supplements', 'Priya Raman',\n   'Re: the reformulated protein line',\n   'Please unsubscribe me from this list and do not contact me again.'],\n  ['P-ST-04-BR-031-20260902', 'Marc Dubois', 'marc.dubois@example.com',\n   'Hexline Peripherals', 'Leo Hartmann',\n   'Automatic reply: Re: the wireless mouse',\n   'I am out of office until the 14th with limited access to email.'],\n  ['P-ST-05-BR-041-20260902', 'Aisha Rahman', 'aisha.rahman@example.com',\n   'Lumen Skin', 'Amara Chike',\n   'Re: fragrance-free serum',\n   'I have left Lumen — please forward this to Dan who now handles partnerships.'],\n  ['P-ST-06-BR-051-20260902', 'Mei Tanaka', 'mei.tanaka@example.com',\n   'Paperfold Studio', 'Iris Vandermeer',\n   'Re: the watercolour set',\n   'Budget is set for this year. Worth revisiting in January if she is still available.'],\n  ['P-ST-01-BR-002-20260902', 'postmaster', 'postmaster@example.com',\n   'Northwood Ceramics', 'Nadia Osei',\n   'Undeliverable: Partnership with Nadia Osei',\n   'Your message could not be delivered. The address was not found at this domain.'],\n  // Matches nothing. Goes to a human, is never guessed at.\n  ['P-ST-02-BR-012-20260902', 'Tom Aldridge', 'tom.aldridge@example.com',\n   'Grainhouse Bakery', 'Tomas Ferreira',\n   'Re: shipping nationwide',\n   'Who is this for exactly? We had someone else email us about the same thing yesterday.'],\n  ['P-ST-04-BR-032-20260902', 'Sara Lindholm', 'sara.lindholm@example.com',\n   'Nightfall Studios', 'Leo Hartmann',\n   'Re: early access',\n   'Depends entirely on the numbers.']\n];\n\nreturn [{\n  json: {\n    source: 'demo',\n    read_at: new Date().toISOString(),\n    failures: [],\n    replies: REPLIES.map(function (r, i) {\n      return { reply_id: 'R-' + (1000 + i), pitch_id: r[0], from_name: r[1], from: r[2],\n        brand: r[3], student: r[4], subject: r[5], text: r[6],\n        received_at: iso(now - (i + 1) * 3600000),\n        inbox: 'outreach@example.com' };\n    }),\n    _note: 'DEMO REPLIES — nine fabricated replies, two of which match no rule on purpose.'\n  }\n}];"
+      },
+      "id": "demorep",
+      "name": "STOP: demo replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        670
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-rep",
+      "name": "one reply list",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per reply, with a class and a route.\n//\n// The rules are ordered and the FIRST match wins, which is why `unsubscribe` and `bounce`\n// sit above `interested`. \"Please remove me, though the numbers were interesting\" is an\n// unsubscribe, and getting that precedence wrong is a complaint, not a missed deal.\n//\n// A reply that matches nothing is `unclear`, routed to a human, and never guessed at. The\n// brief pays a person to work the replies; this workflow's job is to put the right ones in\n// front of them fast, not to negotiate on their behalf.\nconst cfg = $('config').first().json;\nconst feed = $json;\n\nconst replies = feed.replies || [];\nif (!replies.length) {\n  return [{\n    json: { _has_replies: false, source: feed.source, read_at: feed.read_at,\n      headline: 'No new replies in this window.' }\n  }];\n}\n\nfunction classify(text) {\n  const t = String(text || '').toLowerCase();\n  for (let i = 0; i < cfg.reply_rules.length; i++) {\n    const rule = cfg.reply_rules[i];\n    for (let w = 0; w < rule.words.length; w++) {\n      if (t.indexOf(String(rule.words[w]).toLowerCase()) !== -1) {\n        return { klass: rule.klass, route: rule.route, matched: rule.words[w] };\n      }\n    }\n  }\n  return { klass: 'unclear', route: 'handover', matched: '' };\n}\n\nconst counts = {};\nconst out = replies.map(function (r) {\n  const verdict = classify(r.subject + ' ' + r.text);\n  counts[verdict.klass] = (counts[verdict.klass] || 0) + 1;\n  return {\n    json: Object.assign({}, r, {\n      _has_replies: true,\n      reply_class: verdict.klass,\n      route: verdict.route,\n      matched_on: verdict.matched,\n      // An unclear reply is not a low-priority one. It is the one most likely to be a deal\n      // nobody recognised, so it goes to a person with the same urgency as an obvious yes.\n      urgent: verdict.route === 'handover',\n      source: feed.source\n    })\n  };\n});\n\nout.forEach(function (o) { o.json._counts = counts; });\nreturn out;"
+      },
+      "id": "classify",
+      "name": "classify the replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "any-rep-c",
+              "leftValue": "={{ $json._has_replies }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "any-rep",
+      "name": "any replies?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: no new replies in this window.\n//\n// The common case, on an hourly trigger. It still produces a summary item so the run has a\n// shape the summary node understands — and so a silent hour and a broken feed do not look\n// the same from the outside. A feed that errors throws upstream in 'read the replies'\n// rather than arriving here as a quiet hour.\nconst j = $json;\n\nreturn [{\n  json: {\n    _has_replies: false,\n    source: j.source,\n    read_at: j.read_at,\n    headline: j.headline || 'No new replies in this window.',\n    recorded_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "norep",
+      "name": "STOP: no replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// What happens to each reply, decided in one place.\n//\n// Five routes, and only one of them involves a person:\n//\n//   handover   interested, or unclear -> a human, now. This is the money.\n//   suppress   unsubscribe or hard bounce -> added to the suppression list, and the pitch\n//              row is closed. Nothing about this is optional or delayed.\n//   reroute    wrong person -> the pitch is closed and the brand goes back to the target\n//              list for research, because the company is still a fit even though the\n//              contact is not.\n//   nurture    not now, with a date attached -> closed, re-pitchable after the window.\n//   close      not interested -> closed.\n//   ignore     auto-reply -> nothing at all. An out-of-office is not a reply and must not\n//              consume the follow-up.\nconst cfg = $('config').first().json;\nconst items = $input.all();\n\nconst DAY = 86400000;\nconst now = Date.now();\n\nconst ACTIONS = {\n  handover: { state: 'Replied — with a human', close: false, suppress: false },\n  suppress: { state: 'Closed — suppressed', close: true, suppress: true },\n  reroute:  { state: 'Closed — wrong contact', close: true, suppress: false },\n  nurture:  { state: 'Closed — revisit', close: true, suppress: false },\n  close:    { state: 'Closed — not interested', close: true, suppress: false },\n  ignore:   { state: '', close: false, suppress: false }\n};\n\nconst suppressionAdds = [];\nconst handovers = [];\n\nconst out = items.map(function (item) {\n  const r = item.json;\n  const action = ACTIONS[r.route] || ACTIONS.handover;\n\n  if (action.suppress && r.from) suppressionAdds.push(String(r.from).toLowerCase());\n  if (r.route === 'handover') handovers.push(r);\n\n  const revisitAfter = r.reply_class === 'not-now'\n    ? new Date(now + Number(cfg.repitch_after_days || 90) * DAY).toISOString().slice(0, 10)\n    : '';\n\n  return {\n    json: Object.assign({}, r, {\n      action: r.route,\n      new_state: action.state,\n      closes_the_pitch: action.close,\n      adds_to_suppression: action.suppress,\n      revisit_after: revisitAfter,\n      // An auto-reply changes nothing, and saying so explicitly is what stops somebody\n      // \"fixing\" it later by counting it as engagement.\n      writes_back: r.route !== 'ignore',\n      next_step: r.route === 'handover'\n        ? (r.reply_class === 'unclear'\n          ? 'read it — the classifier could not place this one'\n          : 'a person replies with rates and the media kit')\n        : r.route === 'suppress' ? 'suppressed; nothing further is sent to this address'\n        : r.route === 'reroute' ? 'back to the target list for a new contact'\n        : r.route === 'nurture' ? 'revisit after ' + revisitAfter\n        : r.route === 'close' ? 'closed'\n        : 'no action — automatic reply'\n    })\n  };\n});\n\nout.forEach(function (o) {\n  o.json._suppression_adds = suppressionAdds;\n  o.json._handover_count = handovers.length;\n});\nreturn out;"
+      },
+      "id": "next",
+      "name": "decide the next step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        490
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "replog-on-c",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "replog-on",
+      "name": "logging the replies?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        490
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Updates the pitch rows these replies belong to, ten at a time.\n//\n// Airtable's PATCH /v0/{base}/{table} with `performUpsert.fieldsToMergeOn` matches on a\n// field rather than a record id, which is what lets this run without having kept every\n// record id from the day the pitch was sent. `Pitch id` is that field, and it is why the\n// pitch id is deterministic — student, brand, date — rather than random.\n//\n// An auto-reply writes nothing. It is not a reply.\nconst cfg = $('config').first().json;\nconst F = cfg.pitch_fields;\nconst items = $input.all().filter(function (i) { return i.json.writes_back; });\n\nconst BATCH = 10;\nconst out = [];\n\nfor (let i = 0; i < items.length; i += BATCH) {\n  const chunk = items.slice(i, i + BATCH).map(function (item) {\n    const r = item.json;\n    const row = {};\n    row[F.pitch_id] = r.pitch_id;\n    row[F.reply_at] = r.received_at;\n    row[F.reply_class] = r.reply_class;\n    row[F.state] = r.new_state;\n    row[F.hold_reason] = r.next_step;\n    return { fields: row };\n  });\n  out.push({\n    json: {\n      _batch: (i / BATCH) + 1,\n      _count: chunk.length,\n      _body: {\n        records: chunk,\n        typecast: true,\n        performUpsert: { fieldsToMergeOn: [F.pitch_id] }\n      }\n    }\n  });\n}\n\nif (!out.length) {\n  return [{ json: { _batch: 0, _count: 0,\n    _body: { records: [], typecast: true,\n             performUpsert: { fieldsToMergeOn: [F.pitch_id] } } } }];\n}\nreturn out;"
+      },
+      "id": "reprows",
+      "name": "rows for the reply log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.pitches_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}"
+      },
+      "id": "repwrite",
+      "name": "[cred] Airtable - log the replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "performUpsert.fieldsToMergeOn matches on 'Pitch id', so the reply finds its pitch row without this workflow ever having held an Airtable record id."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Did every reply reach the dashboard? Same check as the sender's, same reason.\n//\n// Auto-replies are excluded from the expected count, because they are deliberately not\n// written back. Counting them would manufacture a permanent, meaningless log gap and the\n// alert would be ignored inside a week.\nconst replies = $('decide the next step').all().map(function (i) { return i.json; });\nconst expected = replies.filter(function (r) { return r.writes_back; }).length;\nconst responses = $input.all().map(function (i) { return i.json || {}; });\n\nlet written = 0;\nconst errors = [];\nresponses.forEach(function (r) {\n  if (Array.isArray(r.records)) { written += r.records.length; return; }\n  errors.push((r.error && (r.error.message || r.error.type || r.error)) ||\n    'batch returned no records');\n});\n\nconst gap = expected - written;\n\nreturn replies.map(function (r) {\n  return { json: Object.assign({}, r, {\n    logged: gap === 0,\n    log_gap: gap > 0,\n    log_written: written,\n    log_expected: expected,\n    log_reason: gap === 0 ? '' :\n      gap + ' of ' + expected + ' replies did not reach the dashboard' +\n      (errors.length ? ' (' + errors.join('; ') + ')' : '')\n  }) };\n});"
+      },
+      "id": "repok",
+      "name": "confirm the reply log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: the reply outcomes were not written back.\n//\n// Reportable, not quiet. In particular the suppressions did not land, which means the next\n// run could email somebody who asked not to be emailed. That is the one failure in this\n// engine with a legal edge on it, so it is named in the summary rather than counted.\nconst cfg = $('config').first().json;\nconst items = $input.all();\nconst suppressions = (items[0] && items[0].json._suppression_adds) || [];\n\nreturn items.map(function (item) {\n  return { json: Object.assign({}, item.json, {\n    logged: false,\n    log_gap: item.json.writes_back === true,\n    log_reason: cfg.airtable_enabled\n      ? 'logging is off in this mode'\n      : 'Airtable is not configured — nothing was written back' +\n        (suppressions.length\n          ? ', including ' + suppressions.length + ' suppression(s) that must be added by hand'\n          : '')\n  }) };\n});"
+      },
+      "id": "norepl",
+      "name": "STOP: replies not logged",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-repout",
+      "name": "reply outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2860,
+        490
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The hourly reply summary. Short, because it fires every hour and a long one stops being\n// read by Tuesday.\nconst cfg = $('config').first().json;\nconst items = $input.all().map(function (i) { return i.json; });\n\nconst quiet = items.filter(function (j) { return j._has_replies === false; })[0];\nconst replies = items.filter(function (j) { return j._has_replies !== false && j.reply_id; });\n\nconst counts = (replies[0] && replies[0]._counts) || {};\nconst handovers = replies.filter(function (r) { return r.route === 'handover'; });\nconst unclear = replies.filter(function (r) { return r.reply_class === 'unclear'; });\nconst suppressions = (replies[0] && replies[0]._suppression_adds) || [];\nconst logGap = replies.filter(function (r) { return r.log_gap === true; }).length > 0;\nconst logReason = (replies.filter(function (r) { return r.log_reason; })[0] || {}).log_reason;\n\nconst lines = [];\nif (quiet) {\n  lines.push('*Replies* — ' + quiet.headline);\n} else {\n  lines.push('*Replies* — ' + replies.length + ' in this window');\n  lines.push(Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })\n    .map(function (k) { return counts[k] + ' ' + k; }).join(' · '));\n  if (handovers.length) {\n    lines.push(':bell: ' + handovers.length + ' need a person now' +\n      (unclear.length ? ' (' + unclear.length + ' the classifier could not place)' : ''));\n  }\n  if (suppressions.length) {\n    lines.push(suppressions.length + ' added to suppression');\n  }\n  if (logGap) lines.push(':rotating_light: log gap — ' + logReason);\n}\n\nreturn [{\n  json: {\n    mode: cfg.mode,\n    source: quiet ? quiet.source : (replies[0] && replies[0].source),\n    replies: replies.length,\n    counts: counts,\n    handovers: handovers.map(function (r) {\n      return { student: r.student, brand: r.brand, contact: r.from_name, from: r.from,\n        klass: r.reply_class, subject: r.subject,\n        excerpt: String(r.text || '').slice(0, 240), next_step: r.next_step };\n    }),\n    suppressions: suppressions,\n    log_gap: logGap,\n    log_reason: logReason || '',\n    summary: lines.join('\\n'),\n    _has_handovers: handovers.length > 0,\n    _alert_body: { text: lines.join('\\n') }\n  }\n}];"
+      },
+      "id": "repsum",
+      "name": "build the reply summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hand-on-c",
+              "leftValue": "={{ $json._has_handovers && $('config').first().json.handover_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "hand-on",
+      "name": "handovers to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3300,
+        490
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The message that actually earns the fee: an interested brand, in front of a person,\n// within the hour, with enough context to reply without opening anything else.\n//\n// Deliberately separate from the hourly summary. A summary is scanned; a handover has to be\n// acted on, and putting the two in one message means the second gets treated like the first.\nconst s = $json;\n\nconst lines = [];\nlines.push('*' + s.handovers.length + ' repl' +\n  (s.handovers.length === 1 ? 'y needs' : 'ies need') + ' a person*');\nlines.push('');\n\ns.handovers.slice(0, 10).forEach(function (h) {\n  lines.push('*' + h.brand + '* → ' + h.student);\n  lines.push('_' + h.contact + ' <' + h.from + '>_ · ' + h.klass);\n  lines.push('> ' + String(h.excerpt).replace(/\\n+/g, ' '));\n  lines.push('→ ' + h.next_step);\n  lines.push('');\n});\n\nif (s.handovers.length > 10) {\n  lines.push('… and ' + (s.handovers.length - 10) + ' more in the dashboard.');\n}\n\nreturn [{ json: Object.assign({}, s, { _handover_body: { text: lines.join('\\n') } }) }];"
+      },
+      "id": "hand",
+      "name": "build the handover",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.handover_url }}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._handover_body) }}"
+      },
+      "id": "posthand",
+      "name": "Post the handover",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3740,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "HANDOVER_WEBHOOK_URL if set, otherwise ALERT_WEBHOOK_URL. An interested brand and an hourly digest are different messages."
+    },
+    {
+      "parameters": {},
+      "id": "nohand",
+      "name": "STOP: nothing to hand over",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3520,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "alert-on-c",
+              "leftValue": "={{ $('config').first().json.alert_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "alert-on",
+      "name": "alert configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3300,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.alert_webhook_url }}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._alert_body) }}"
+      },
+      "id": "alert",
+      "name": "Post the reply summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        760
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {},
+      "id": "noalert",
+      "name": "STOP: no alert webhook",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3520,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rep-hour-c",
+              "leftValue": "={{ $('config').first().json.report_due }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "rep-hour",
+      "name": "is it the weekly report hour?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        1120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "nothour",
+      "name": "STOP: not the report hour",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        660,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "log-avail-c",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "log-avail",
+      "name": "pitch log available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.pitches_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "getlog",
+      "name": "[cred] Airtable - the pitch log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        1030
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "The week's pitches, replies and booked deals. Over 100 rows: add an offset loop."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalises the Airtable pitch log into the same {pitches} shape the demo log produces,\n// so the report node never knows which one it got.\nconst cfg = $('config').first().json;\nconst F = cfg.pitch_fields;\nconst resp = $('[cred] Airtable - the pitch log').first().json || {};\n\nif (resp.error || !Array.isArray(resp.records)) {\n  throw new Error('The pitch log returned nothing usable (' +\n    ((resp.error && (resp.error.message || resp.error)) || 'no response') +\n    '). A weekly report built on a failed read would show a quiet week that did not happen.');\n}\n\nreturn [{\n  json: {\n    source: 'airtable',\n    read_at: new Date().toISOString(),\n    pitches: resp.records.map(function (r) {\n      const f = r.fields || {};\n      return {\n        pitch_id:    f[F.pitch_id],\n        student_id:  f[F.student_id],\n        student:     f[F.student],\n        brand:       f[F.brand],\n        state:       f[F.state],\n        hold_reason: f[F.hold_reason],\n        sent_at:     f[F.sent_at],\n        reply_at:    f[F.reply_at],\n        reply_class: f[F.reply_class],\n        booked_at:   f[F.booked_at],\n        deal_value:  f[F.deal_value]\n      };\n    })\n  }\n}];"
+      },
+      "id": "readlog",
+      "name": "read the pitch log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        1030
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: no Airtable — fabricate a week of pitch log so the report is demonstrable.\n//\n// A week that looks like a real one: volume concentrated on weekdays, a reply rate in the\n// low single digits, two booked deals, and a visible block of held pitches. The held block\n// is the one worth pointing at on a call — it is what the audit and the deliverability gate\n// cost you, and it is the number worth arguing about.\nconst cfg = $('config').first().json;\n\nconst DAY = 86400000;\nconst now = Date.now();\nfunction iso(ms) { return new Date(ms).toISOString(); }\n\nconst STUDENTS = [\n  ['ST-01', 'Nadia Osei'], ['ST-02', 'Tomas Ferreira'], ['ST-03', 'Priya Raman'],\n  ['ST-04', 'Leo Hartmann'], ['ST-05', 'Amara Chike'], ['ST-06', 'Iris Vandermeer']\n];\nconst HOLDS = [\n  'only 2 usable facts, needs 3 — the brand record is too thin to say anything specific',\n  'template tell: \"i hope this email finds you well\"',\n  'role mailbox (info@) — nobody owns it, and it is where bounce rates come from',\n  'every healthy inbox is at its daily ceiling — this rolls to the next run',\n  'no fact about the brand itself — this reads as a CV, not as outreach'\n];\nconst CLASSES = ['interested', 'not-interested', 'not-now', 'unsubscribe', 'auto-reply',\n  'unclear'];\n\nlet seed = 20260908;\nfunction rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }\n\nconst records = [];\nlet n = 0;\nfor (let d = Number(cfg.report_window_days || 7) - 1; d >= 0; d--) {\n  const at = now - d * DAY;\n  const weekday = new Date(at).getDay();\n  if (weekday === 0 || weekday === 6) continue;   // nobody pitches at the weekend\n\n  STUDENTS.forEach(function (s) {\n    const planned = Number(cfg.pitches_per_student_per_day || 25);\n    for (let i = 0; i < planned; i++) {\n      n++;\n      const held = rnd() < 0.22;\n      const replied = !held && rnd() < 0.06;\n      const klass = replied ? CLASSES[Math.floor(rnd() * CLASSES.length)] : '';\n      const booked = klass === 'interested' && rnd() < 0.35;\n      records.push({\n        pitch_id: 'P-' + s[0] + '-DEMO-' + n,\n        student_id: s[0],\n        student: s[1],\n        brand: 'Demo brand ' + n,\n        state: held ? 'held' : (klass ? 'Replied — with a human' : 'sent'),\n        hold_reason: held ? HOLDS[n % HOLDS.length] : '',\n        sent_at: held ? '' : iso(at),\n        reply_at: replied ? iso(at + 6 * 3600000) : '',\n        reply_class: klass,\n        booked_at: booked ? iso(at + 2 * DAY) : '',\n        deal_value: booked ? [800, 1200, 1500, 2200][n % 4] : ''\n      });\n    }\n  });\n}\n\nreturn [{\n  json: {\n    source: 'demo',\n    read_at: new Date().toISOString(),\n    pitches: records,\n    _note: 'DEMO PITCH LOG — ' + records.length + ' fabricated rows over the last ' +\n           cfg.report_window_days + ' days.'\n  }\n}];"
+      },
+      "id": "demolog",
+      "name": "STOP: demo pitch log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        1210
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-log",
+      "name": "one pitch log",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// \"Report weekly — clean numbers so students and the team can see progress.\"\n//\n// One block per student, because that is how the engagement is sold: $50 per student per\n// month, two months each. A student who cannot see their own numbers has no way to judge\n// whether the two months were worth it, and that judgement is the renewal.\n//\n// Three rules run through it:\n//\n//   Held pitches are shown, not hidden. They are the cost of the quality gates, and a\n//   client who cannot see that number cannot decide whether the gates are set right.\n//\n//   Rates are computed against what was SENT, never against what was written. A reply rate\n//   that quietly divides by the bigger number flatters the run and is wrong.\n//\n//   A student below their pro-rata target is named. The point of a weekly report is to\n//   catch that on the Monday, not at the end of the engagement.\nconst cfg = $('config').first().json;\nconst log = $json;\n\nconst DAY = 86400000;\nconst now = Date.now();\nconst windowStart = now - Number(cfg.report_window_days || 7) * DAY;\n\nfunction stamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s));\n  return isNaN(ms) ? null : ms;\n}\nfunction pct(a, b) { return b ? Math.round((a / b) * 1000) / 10 : 0; }\n\nconst rows = (log.pitches || []).filter(function (p) {\n  const at = stamp(p.sent_at) || stamp(p.reply_at);\n  return at === null ? String(p.state || '').toLowerCase() === 'held' : at >= windowStart;\n});\n\nconst byStudent = {};\nconst holdReasons = {};\n\nrows.forEach(function (p) {\n  const k = p.student || p.student_id || 'unknown';\n  if (!byStudent[k]) {\n    byStudent[k] = { student: k, written: 0, sent: 0, held: 0, replies: 0, interested: 0,\n      booked: 0, value: 0, unsubscribes: 0 };\n  }\n  const s = byStudent[k];\n  s.written++;\n  const held = String(p.state || '').toLowerCase() === 'held';\n  if (held) {\n    s.held++;\n    const key = String(p.hold_reason || 'held').split(':')[0].split('—')[0].trim();\n    holdReasons[key] = (holdReasons[key] || 0) + 1;\n  } else if (p.sent_at) {\n    s.sent++;\n  }\n  if (p.reply_class && p.reply_class !== 'auto-reply' && p.reply_class !== 'bounce') {\n    s.replies++;\n    if (p.reply_class === 'interested') s.interested++;\n    if (p.reply_class === 'unsubscribe') s.unsubscribes++;\n  }\n  if (p.booked_at) { s.booked++; s.value += Number(p.deal_value || 0); }\n});\n\nconst students = Object.keys(byStudent).map(function (k) {\n  const s = byStudent[k];\n  s.reply_rate = pct(s.replies, s.sent);\n  s.interest_rate = pct(s.interested, s.sent);\n  s.unsub_rate = pct(s.unsubscribes, s.sent);\n  return s;\n}).sort(function (a, b) { return b.sent - a.sent; });\n\nconst totals = students.reduce(function (a, s) {\n  a.written += s.written; a.sent += s.sent; a.held += s.held; a.replies += s.replies;\n  a.interested += s.interested; a.booked += s.booked; a.value += s.value;\n  a.unsubscribes += s.unsubscribes;\n  return a;\n}, { written: 0, sent: 0, held: 0, replies: 0, interested: 0, booked: 0, value: 0,\n     unsubscribes: 0 });\n\n// Working days in the window, so the target is pro-rata rather than a monthly figure\n// compared against a week.\nlet workingDays = 0;\nfor (let d = 0; d < Number(cfg.report_window_days || 7); d++) {\n  const day = new Date(now - d * DAY).getDay();\n  if (day !== 0 && day !== 6) workingDays++;\n}\nconst targetPerStudent = Number(cfg.pitches_per_student_per_day || 25) * workingDays;\nconst behind = students.filter(function (s) { return s.sent < targetPerStudent * 0.8; });\n\nconst lines = [];\nlines.push('*Weekly outreach report* — last ' + cfg.report_window_days + ' days (' +\n  workingDays + ' working days)');\nlines.push('');\nlines.push('*Totals*');\nlines.push('• ' + totals.sent + ' sent of ' + totals.written + ' written · ' +\n  totals.held + ' held by the quality gates');\nlines.push('• ' + totals.replies + ' replies (' + pct(totals.replies, totals.sent) +\n  '%) · ' + totals.interested + ' interested (' + pct(totals.interested, totals.sent) + '%)');\nlines.push('• ' + totals.booked + ' booked' +\n  (totals.value ? ' · £' + totals.value.toLocaleString('en-GB') : ''));\nlines.push('• ' + totals.unsubscribes + ' unsubscribes (' +\n  pct(totals.unsubscribes, totals.sent) + '%)');\nlines.push('');\nlines.push('*By student* — target ' + targetPerStudent + ' sent each');\nstudents.forEach(function (s) {\n  lines.push('• *' + s.student + '* ' + s.sent + ' sent · ' + s.replies + ' replies (' +\n    s.reply_rate + '%) · ' + s.interested + ' interested · ' + s.booked + ' booked' +\n    (s.sent < targetPerStudent * 0.8 ? '  ⚠ behind target' : ''));\n});\n\nif (Object.keys(holdReasons).length) {\n  lines.push('');\n  lines.push('*Held because* — this is what the quality gates cost, and it is meant to be ' +\n    'argued with');\n  Object.keys(holdReasons).sort(function (a, b) { return holdReasons[b] - holdReasons[a]; })\n    .slice(0, 6).forEach(function (k) {\n      lines.push('• ' + holdReasons[k] + ' × ' + k);\n    });\n}\n\nlines.push('');\nlines.push('Source: ' + log.source + (log.source === 'demo'\n  ? ' — fabricated log, no account connected' : ''));\n\nreturn [{\n  json: {\n    window_days: Number(cfg.report_window_days || 7),\n    working_days: workingDays,\n    target_per_student: targetPerStudent,\n    totals: totals,\n    by_student: students,\n    hold_reasons: holdReasons,\n    behind: behind.map(function (s) { return s.student; }),\n    source: log.source,\n    report: lines.join('\\n'),\n    _report_body: { text: lines.join('\\n') }\n  }\n}];"
+      },
+      "id": "weekly",
+      "name": "build the weekly report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "post-rep-c",
+              "leftValue": "={{ $('config').first().json.alert_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "post-rep",
+      "name": "posting the report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.alert_webhook_url }}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._report_body) }}"
+      },
+      "id": "postrep",
+      "name": "Post the weekly report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        1030
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {},
+      "id": "norep2",
+      "name": "STOP: no report webhook",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        1210
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "end",
+      "name": "Run complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3960,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Classify outreach replies and report weekly\n\n**Who's it for**\nAgencies and freelancers running cold email at volume for creators or clients, who need every reply triaged within the hour and a clean weekly number to show for it.\n\n**How it works**\nOne hourly schedule drives both halves. The reply half reads new mail from the sending platform (Instantly by default) and sorts each message against an ordered rule list: unsubscribe, bounce, auto-reply, wrong person, not now, not interested, interested. First match wins, so a removal request outranks an interested line in the same email. Anything matching no rule becomes `unclear` and goes to a person with the same urgency as an obvious yes. Outcomes are upserted back to the Airtable pitch log on `Pitch id`, interested replies are posted to Slack as their own handover message, and a short digest follows. The report half wakes for one hour a week, reads the pitch log and posts a per-student block: sent, held, reply rate, interest rate, bookings.\n\n**How to set up**\n1. Open `config` and fill in the Airtable key and base id, the sending-platform key and campaign id, and a Slack or Discord webhook URL.\n2. Attach a credential to each `[cred]` node.\n3. Set `REPORT_DAY` and `REPORT_HOUR` for the weekly post.\n4. Press **Run it now**. With the keys left blank it runs on demo data and writes nothing.\n\n**Requirements**\nAn Airtable base with a `Pitches` table, an Instantly or Smartlead account, and a Slack or Discord incoming webhook. Every one of them is optional: a blank key skips that branch instead of failing the run.\n\n**How to customize**\n`REPLY_RULES` in `config` holds the classifier, in priority order. `REPORT_WINDOW_DAYS` sets the report window and `REPITCH_AFTER_DAYS` the nurture date.",
+        "height": 700,
+        "width": 920,
+        "color": 4
+      },
+      "id": "sticky-1",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -900
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. One trigger, one config\n\n`Run it now` is for testing, `Every hour` drives production. Both feed `config`, the only node you edit: keys, table and field names, reply rules and report day all live there.\n\nA key left blank skips that branch rather than failing the run.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "sticky-2",
+      "name": "Sticky Note - 1 Trigger and config",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Read the replies\n\n`reply feed configured?` looks for a sending-platform key. With one, `[cred] Instantly - fetch replies` pulls the latest messages and `read the replies` keeps only inbound mail, because the v2 `/emails` endpoint returns sent and received together.\n\nWith no key, `STOP: demo replies` builds nine fabricated replies instead: one of every class the rules know, plus two that match nothing on purpose. `one reply list` merges whichever branch ran, so nothing downstream has to know which it got.",
+        "height": 260,
+        "width": 860,
+        "color": 7
+      },
+      "id": "sticky-3",
+      "name": "Sticky Note - 2 Read the replies",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Classify, then decide\n\n`classify the replies` walks `REPLY_RULES` in order and the **first match wins**, which is why `unsubscribe` and `bounce` sit above `interested`. A reply matching no rule becomes `unclear` and is routed to a human, never guessed at.\n\n`any replies?` short-circuits a quiet hour into `STOP: no replies`. `decide the next step` turns each class into one outcome: handover, suppress, reroute, nurture or close, plus `ignore` for an out-of-office, which must not consume the follow-up.",
+        "height": 260,
+        "width": 860,
+        "color": 7
+      },
+      "id": "sticky-4",
+      "name": "Sticky Note - 3 Classify and decide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. Write the outcomes back\n\n`rows for the reply log` batches ten at a time and `[cred] Airtable - log the replies` upserts them on `Pitch id`, so a reply finds its pitch row without this workflow ever having held an Airtable record id.\n\n`confirm the reply log` compares written against expected and names the gap; auto-replies are excluded because they are deliberately never written back. `STOP: replies not logged` carries the same replies forward when Airtable is off, so an unrecorded suppression is reported rather than lost.",
+        "height": 260,
+        "width": 860,
+        "color": 7
+      },
+      "id": "sticky-5",
+      "name": "Sticky Note - 4 Write outcomes back",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. Hand over, alert and finish\n\n`build the reply summary` writes one short digest per run. It fires every hour, and a long digest stops being read by Tuesday.\n\n`handovers to send?` splits off the replies that need a person now, and `build the handover` formats them with brand, creator, contact and an excerpt. A handover is deliberately a separate message from the digest: a digest gets scanned, a handover has to be acted on. `Post the handover` and `Post the reply summary` POST to the webhook URLs in `config`, and every branch lands on `Run complete`.",
+        "height": 260,
+        "width": 1080,
+        "color": 7
+      },
+      "id": "sticky-6",
+      "name": "Sticky Note - 5 Hand over and alert",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3080,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 6. The weekly report\n\n`is it the weekly report hour?` is true for one hour in 168, which is what lets a single hourly trigger drive both halves. Two schedule triggers would need two `config` nodes, and two config nodes disagree about a field name within a month.\n\n`[cred] Airtable - the pitch log` reads the window and `read the pitch log` normalises it; `STOP: demo pitch log` fabricates a week when no base is connected. `build the weekly report` produces a block per student: sent, held, reply rate, interest rate, bookings. Held pitches are shown rather than hidden, because they are what the quality gates cost, and every rate is computed against what was **sent**, never against what was written.",
+        "height": 260,
+        "width": 1740,
+        "color": 7
+      },
+      "id": "sticky-7",
+      "name": "Sticky Note - 6 Weekly report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1400
+      ]
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "reply feed configured?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "is it the weekly report hour?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reply feed configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Instantly - fetch replies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: demo replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Instantly - fetch replies": {
+      "main": [
+        [
+          {
+            "node": "read the replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the replies": {
+      "main": [
+        [
+          {
+            "node": "one reply list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: demo replies": {
+      "main": [
+        [
+          {
+            "node": "one reply list",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one reply list": {
+      "main": [
+        [
+          {
+            "node": "classify the replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "classify the replies": {
+      "main": [
+        [
+          {
+            "node": "any replies?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "any replies?": {
+      "main": [
+        [
+          {
+            "node": "decide the next step",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no replies": {
+      "main": [
+        [
+          {
+            "node": "build the reply summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "decide the next step": {
+      "main": [
+        [
+          {
+            "node": "logging the replies?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logging the replies?": {
+      "main": [
+        [
+          {
+            "node": "rows for the reply log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: replies not logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rows for the reply log": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - log the replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - log the replies": {
+      "main": [
+        [
+          {
+            "node": "confirm the reply log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "confirm the reply log": {
+      "main": [
+        [
+          {
+            "node": "reply outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: replies not logged": {
+      "main": [
+        [
+          {
+            "node": "reply outcomes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "reply outcomes": {
+      "main": [
+        [
+          {
+            "node": "build the reply summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the reply summary": {
+      "main": [
+        [
+          {
+            "node": "handovers to send?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "alert configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "handovers to send?": {
+      "main": [
+        [
+          {
+            "node": "build the handover",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing to hand over",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the handover": {
+      "main": [
+        [
+          {
+            "node": "Post the handover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the handover": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: nothing to hand over": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "alert configured?": {
+      "main": [
+        [
+          {
+            "node": "Post the reply summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no alert webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the reply summary": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no alert webhook": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is it the weekly report hour?": {
+      "main": [
+        [
+          {
+            "node": "pitch log available?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not the report hour",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not the report hour": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pitch log available?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - the pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: demo pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - the pitch log": {
+      "main": [
+        [
+          {
+            "node": "read the pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the pitch log": {
+      "main": [
+        [
+          {
+            "node": "one pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: demo pitch log": {
+      "main": [
+        [
+          {
+            "node": "one pitch log",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one pitch log": {
+      "main": [
+        [
+          {
+            "node": "build the weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the weekly report": {
+      "main": [
+        [
+          {
+            "node": "posting the report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "posting the report?": {
+      "main": [
+        [
+          {
+            "node": "Post the weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no report webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the weekly report": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no report webhook": {
+      "main": [
+        [
+          {
+            "node": "Run complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "outreach",
+    "brand-deals",
+    "replies"
+  ]
+}

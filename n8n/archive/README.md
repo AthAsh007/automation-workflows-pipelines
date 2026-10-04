@@ -39,13 +39,13 @@ export-list-builder ──> email-finder-waterfall ──> cold-outreach-multich
                                                         funnel-automation ──> b2b-leadgen-crm-sync
                                                                                       ^
                     outbound-system-builder supervises ───────────────────────────────┤
-                    crm-data-hygiene cleans weekly ──────────────────────────────────-┤
+                    crm-data-hygiene-published cleans weekly ──────────────────────────────────-┤
                     smartlead-cold-email watches deliverability ─────────────────────-┤
                     workflow-assistant-agent answers questions about it ─────────────-┘
 ```
 
 The workflow that used to sit at position 07 in this archive is now
-[`../crm-data-hygiene/`](../crm-data-hygiene/). It is the reference implementation
+[`../crm-data-hygiene-published/`](../crm-data-hygiene-published/). It is the reference implementation
 of the config-node rule and belongs where it gets read.
 
 ## Shared notes

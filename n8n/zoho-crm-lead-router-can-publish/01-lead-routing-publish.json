@@ -1,0 +1,929 @@
+{
+  "name": "Route inbound leads from forms, email and calls into Zoho CRM",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zoho-lead",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "hook",
+      "name": "A lead arrives",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "zoho-lead"
+    },
+    {
+      "parameters": {},
+      "id": "demo",
+      "name": "Run the demo lead",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Three invented leads, one per intake source, so the whole workflow can be run before a\n// webhook is pointed at anything. They are deliberately different shapes: a website form\n// posts flat fields, a forwarded email arrives as a blob of text, a phone note is whatever\n// somebody typed. `read the lead` is what makes them the same thing.\nreturn [\n  {\n    json: {\n      _demo: true,\n      source: 'website',\n      form: {\n        full_name: 'Priya Raman',\n        email: 'priya@example.com',\n        phone: '+44 7700 900111',\n        company: 'Northgate Clinics',\n        message: 'We need a quote for onboarding 40 staff onto your platform.'\n      }\n    }\n  },\n  {\n    json: {\n      _demo: true,\n      source: 'email',\n      subject: 'Fwd: support issue with the portal',\n      body: 'Forwarded message\\nFrom: Tom Auber <tom.auber@example.org>\\n' +\n            'Phone: 020 7946 0102\\n\\n' +\n            'Our portal login has been failing since the update. Can someone take a look?'\n    }\n  },\n  {\n    json: {\n      _demo: true,\n      source: 'phone',\n      note: 'Call from Dana Whitlock at Ferris Group, 07700 900222. ' +\n            'Wants a demo before end of month. Email dana.whitlock@example.net'\n    }\n  }\n];"
+      },
+      "id": "demo-lead",
+      "name": "load a demo lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ZOHO CRM — LEAD ROUTING AND STAGE SWEEP — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows (\"01 lead routing\" and \"02 stage sweep\").\n// build.py regenerates both from this one file and validate.py fails if they drift apart,\n// so you never paste it between them by hand.\n//\n// A blank id or key means that step is SKIPPED, never that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single Zoho credential exists.\n\n// ---------------------------------------------------------------- Safety\n// DRY_RUN ships true. Nothing is created in Zoho until you change it, deliberately.\nconst DRY_RUN = true;\n\n// ---------------------------------------------------------------- Which Zoho you are on\n// Zoho is regional and the data centre is part of the URL. Getting this wrong is the most\n// common reason a working integration returns INVALID_TOKEN against a perfectly valid token.\n//   US   https://www.zohoapis.com       accounts: https://accounts.zoho.com\n//   EU   https://www.zohoapis.eu        accounts: https://accounts.zoho.eu\n//   IN   https://www.zohoapis.in        accounts: https://accounts.zoho.in\n//   AU   https://www.zohoapis.com.au    accounts: https://accounts.zoho.com.au\n//   JP   https://www.zohoapis.jp        accounts: https://accounts.zoho.jp\n//   CA   https://www.zohoapis.ca        accounts: https://accounts.zohocloud.ca\nconst ZOHO_API_BASE      = 'https://www.zohoapis.com';\nconst ZOHO_ACCOUNTS_BASE = 'https://accounts.zoho.com';\nconst ZOHO_API_VERSION   = 'v8';\n\n// ---------------------------------------------------------------- Getting in\n// A Zoho access token lives for ONE HOUR. Do not paste one here: it will work in the demo\n// and stop working before the first real day is out. Register a Self Client or a\n// Server-based app at api-console.zoho.com, authorise it once with the scopes below, and\n// keep the REFRESH token. These workflows exchange it for a fresh access token at the top of\n// every run, which is the difference between an integration that survives and one that has\n// to be re-authorised by hand every morning.\n//\n// Scopes: ZohoCRM.modules.leads.CREATE, ZohoCRM.modules.deals.READ,\n//         ZohoCRM.modules.tasks.CREATE, ZohoCRM.coql.READ\n//\n// All three blank -> both workflows build the exact request and stop in front of it, so you\n// can read what they would have sent. They ship blank: this file goes out as a work sample.\nconst ZOHO_CLIENT_ID     = '';\nconst ZOHO_CLIENT_SECRET = '';\nconst ZOHO_REFRESH_TOKEN = '';\n\n// ---------------------------------------------------------------- Do Zoho's own rules fire?\n// Zoho runs workflow rules, approvals and blueprint transitions on a record created over the\n// API only when you ask it to. An empty list means none of them fire; ['workflow'] means\n// workflow rules do.\n//\n// Leave this EMPTY while Deluge is still doing the routing, or a lead written here is routed\n// twice — once by this workflow and once by the rule that used to do it. Turn it on\n// deliberately, one rule at a time, as the old ones are retired.\nconst ZOHO_TRIGGERS = [];\n\n// ---------------------------------------------------------------- The layout\n// Leads and Deals both carry an Owner. A blank owner id means the record is created\n// unassigned rather than the run failing.\nconst LEAD_LAYOUT_ID = '';\nconst OWNERS = [\n  { owner: 'Ada',  user_id: '' },\n  { owner: 'Ben',  user_id: '' },\n  { owner: 'Cara', user_id: '' }\n];\n\n// Zoho field API name -> where to read it off the lead. A blank api_name is skipped rather\n// than written as an empty field, so a half-mapped org still writes a clean record.\nconst CUSTOM_FIELDS = [\n  { api_name: 'Lead_Source_Detail', from: 'source'  },\n  { api_name: 'Enquiry_Type',       from: 'wants'   },\n  { api_name: 'Summary',            from: 'summary' }\n];\n\n// ---------------------------------------------------------------- Who gets what\n// The rule table. First match wins. A rule may match on the intake source, on what the\n// person wants, on both — and the last rule matches nothing on purpose, so a lead that fits\n// no rule still lands somewhere rather than nowhere.\n//\n// THIS TABLE IS THE POINT. When routing changes — a new segment, someone leaves, a status\n// gets renamed — it is one row here, not a Deluge function somebody has to open.\nconst ROUTING_RULES = [\n  { match: { wants: 'support' },  owner: 'Cara', status: 'Support',         tags: ['support'] },\n  { match: { wants: 'quote' },    owner: 'Ben',  status: 'Quote Requested', tags: ['quote'] },\n  { match: { wants: 'demo' },     owner: 'Ben',  status: 'Attempted',       tags: ['demo'] },\n  { match: { source: 'phone' },   owner: 'Ben',  status: 'Attempted',       tags: ['phone'] },\n  { match: { source: 'email' },   owner: 'Ada',  status: 'Attempted',       tags: ['email'] },\n  { match: { source: 'website' }, owner: 'Ada',  status: 'Attempted',       tags: ['website'] },\n  { match: {},                    owner: 'Ada',  status: 'Attempted',       tags: ['unrouted'] }\n];\n\n// On every lead this workflow writes. The routing rule adds its own.\nconst BASE_TAGS = ['automation-intake'];\n\n// ---------------------------------------------------------------- The stage sweep\n// The rule workflow 02 enforces:\n//\n//   NO OPEN DEAL SHOULD SIT IN A STAGE WITHOUT THE NEXT ACTION THAT STAGE CALLS FOR.\n//\n// Zoho's own workflow rules fire on a stage CHANGE. A deal that never moved never fired\n// anything, and that is exactly the deal that goes quiet. This runs on a schedule and asks\n// every open deal, so the ones nothing fired for are the ones it catches.\nconst OPEN_STAGES = ['Qualification', 'Needs Analysis', 'Proposal', 'Negotiation'];\n\n// Per stage: the task to create when an open deal has no next action, how soon it is due,\n// and how long a deal may sit in that stage before it is called stalled.\nconst STAGE_ACTIONS = [\n  { stage: 'Qualification',  task: 'Qualify: confirm budget, authority and timeline', due_in_days: 2, stale_after_days: 7 },\n  { stage: 'Needs Analysis', task: 'Book the scoping call',                           due_in_days: 3, stale_after_days: 10 },\n  { stage: 'Proposal',       task: 'Chase the proposal',                              due_in_days: 3, stale_after_days: 14 },\n  { stage: 'Negotiation',    task: 'Agree the next step in writing',                  due_in_days: 2, stale_after_days: 10 }\n];\n\n// A deal whose next action is ALREADY OVERDUE does not get a second task piled on top of it.\n// It is escalated to the digest instead. Stacking tasks is how a pipeline stops being\n// trusted, and once nobody trusts it, \"nothing falls through the cracks\" is over.\nconst ESCALATE_OVERDUE = true;\n\n// How many deals to read in one run. Anything past this is reported, never silently dropped.\nconst DEAL_PAGE_LIMIT = 200;\n\n// ---------------------------------------------------------------- Notifications\n// Optional. Blank -> nothing is posted and the run still completes. Any endpoint that\n// accepts a JSON POST: Slack, Teams, Zoho Cliq, a webhook of your own.\nconst NOTIFY_WEBHOOK_URL  = '';\nconst NOTIFY_ON_NEW_LEAD  = true;\nconst NOTIFY_ON_DIGEST    = true;\n\n// ---------------------------------------------------------------- derived — do not edit\nconst ZOHO_AUTH_READY = ZOHO_CLIENT_ID.trim() !== '' &&\n                        ZOHO_CLIENT_SECRET.trim() !== '' &&\n                        ZOHO_REFRESH_TOKEN.trim() !== '';\n\nconst SETTINGS = {\n    dry_run: DRY_RUN === true,\n    zoho_api_base: ZOHO_API_BASE.replace(/\\/+$/, ''),\n    zoho_accounts_base: ZOHO_ACCOUNTS_BASE.replace(/\\/+$/, ''),\n    zoho_api_version: ZOHO_API_VERSION,\n    zoho_client_id: ZOHO_CLIENT_ID,\n    zoho_client_secret: ZOHO_CLIENT_SECRET,\n    zoho_refresh_token: ZOHO_REFRESH_TOKEN,\n    zoho_triggers: ZOHO_TRIGGERS,\n    lead_layout_id: LEAD_LAYOUT_ID,\n    owners: OWNERS,\n    custom_fields: CUSTOM_FIELDS,\n    routing_rules: ROUTING_RULES,\n    base_tags: BASE_TAGS,\n    open_stages: OPEN_STAGES,\n    stage_actions: STAGE_ACTIONS,\n    escalate_overdue: ESCALATE_OVERDUE === true,\n    deal_page_limit: DEAL_PAGE_LIMIT,\n    notify_webhook_url: NOTIFY_WEBHOOK_URL,\n    notify_on_new_lead: NOTIFY_ON_NEW_LEAD === true,\n    notify_on_digest: NOTIFY_ON_DIGEST === true,\n    // derived flags — never test a key's emptiness downstream, test the flag\n    zoho_auth_ready: ZOHO_AUTH_READY,\n    zoho_enabled: ZOHO_AUTH_READY && DRY_RUN !== true,\n    notify_enabled: NOTIFY_WEBHOOK_URL.trim() !== '' && DRY_RUN !== true\n};\n\n// config sits IN the data path, so it must not swallow the items passing through it. It runs\n// once per incoming item and passes that item's payload along untouched under `lead`, so\n// three demo leads in is three leads out — not one settings object.\n//\n// A trigger that carries no payload (the schedule, the manual run in workflow 02) still\n// produces one item, so `$('config').first().json` always resolves.\nconst incoming = $input.all().length ? $input.all().map((i) => i.json || {}) : [{}];\nreturn incoming.map((lead) => ({ json: Object.assign({}, SETTINGS, { lead: lead }) }));"
+      },
+      "id": "cfg1",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One node turning any intake shape into one lead shape. A website form posts flat fields,\n// a forwarded email is a blob of text, a phone note is whatever somebody typed — and\n// everything downstream reads the same six keys.\n//\n// This is the node that makes the rest of the workflow reusable. Add a fourth source by\n// adding a branch here, not by copying the workflow.\nconst EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/;\nconst PHONE_RE = /(\\+?\\d[\\d\\s().-]{7,}\\d)/;\n\nfunction firstMatch(text, re) {\n  const m = String(text || '').match(re);\n  return m ? m[0].trim() : '';\n}\n\nfunction wantsFrom(text) {\n  const t = String(text || '').toLowerCase();\n  if (/\\b(support|broken|failing|error|bug|not working|issue)\\b/.test(t)) return 'support';\n  if (/\\b(quote|pricing|price|cost|proposal)\\b/.test(t)) return 'quote';\n  if (/\\b(demo|walkthrough|see it|trial)\\b/.test(t)) return 'demo';\n  return '';\n}\n\nfunction nameFrom(text) {\n  const m = String(text || '').match(/(?:from|call from|caller)[:\\s]+([A-Z][a-z]+ [A-Z][a-z]+)/i);\n  if (m) return m[1];\n  const n = String(text || '').match(/\\b([A-Z][a-z]+ [A-Z][a-z]+)\\b/);\n  return n ? n[1] : '';\n}\n\nfunction companyFrom(text) {\n  const m = String(text || '').match(/\\bat ([A-Z][A-Za-z&.' -]{2,40}?)(?:[,.]|\\s+\\d|$)/);\n  return m ? m[1].trim() : '';\n}\n\nreturn $input.all().map((item) => {\n  const envelope = item.json || {};\n\n  // `config` passes each incoming payload through under `lead`, so unwrap that first. A\n  // webhook then nests the posted JSON one level further, under `body`. Both are unwrapped\n  // here so the rest of this node never has to know which trigger fired.\n  let raw = (envelope.lead && typeof envelope.lead === 'object') ? envelope.lead : envelope;\n  if (raw.body && typeof raw.body === 'object' && !Array.isArray(raw.body)) raw = raw.body;\n\n  const source = String(raw.source || 'unknown').toLowerCase();\n\n  let name = '', email = '', phone = '', company = '', summary = '';\n\n  if (source === 'website') {\n    const f = raw.form || {};\n    name = f.full_name || f.name || '';\n    email = f.email || '';\n    phone = f.phone || '';\n    company = f.company || '';\n    summary = f.message || '';\n  } else if (source === 'email') {\n    const body = raw.body || '';\n    email = firstMatch(body, EMAIL_RE);\n    phone = firstMatch(body, PHONE_RE);\n    name = nameFrom(body);\n    company = companyFrom(body);\n    summary = String(raw.subject || '') + (body ? ' — ' + body.split('\\n').pop() : '');\n  } else {\n    const note = raw.note || raw.body || raw.message || '';\n    email = firstMatch(note, EMAIL_RE);\n    phone = firstMatch(note, PHONE_RE);\n    name = nameFrom(note);\n    company = companyFrom(note);\n    summary = note;\n  }\n\n  const parts = String(name || '').trim().split(/\\s+/);\n  const lastName = parts.length > 1 ? parts.slice(1).join(' ') : (parts[0] || '');\n  const firstName = parts.length > 1 ? parts[0] : '';\n\n  // Zoho's Leads module refuses a record with no Last_Name, and there is no point routing a\n  // lead nobody can reply to. Both are checked here so the failure is one named STOP rather\n  // than a 400 from Zoho three nodes later.\n  const reachable = email !== '' || phone !== '';\n  const named = lastName !== '';\n  const looksLikeBot = /\\b(seo services|guest post|backlink|crypto|loan offer)\\b/i\n    .test(String(summary));\n\n  return {\n    json: {\n      _demo: raw._demo === true,\n      _ok: reachable && named && !looksLikeBot,\n      _why: !named ? 'no name to file it under'\n        : !reachable ? 'no email and no phone — nobody could reply'\n        : looksLikeBot ? 'reads as spam' : '',\n      source,\n      first_name: firstName,\n      last_name: lastName,\n      full_name: name,\n      email,\n      phone,\n      company,\n      summary: String(summary || '').trim().slice(0, 2000),\n      wants: wantsFrom(summary)\n    }\n  };\n});"
+      },
+      "id": "read",
+      "name": "read the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "usable-c",
+              "leftValue": "={{ $json._ok }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "usable",
+      "name": "a usable lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The lead was dropped on purpose, and this node exists so that is visible in the execution\n// list rather than a run that quietly produced nothing. `_reason` says which check failed:\n// no name to file it under, no way to reply, or it reads as spam.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'dropped',\n    _reason: i.json._why || 'did not pass the intake check',\n    source: i.json.source,\n    email: i.json.email,\n    phone: i.json.phone,\n    summary: String(i.json.summary || '').slice(0, 200)\n  }\n}));"
+      },
+      "id": "stop-unusable",
+      "name": "STOP: not a usable lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// First rule that matches wins. A lead that fits no rule still lands on the last rule, which\n// matches nothing on purpose — never nowhere. The chosen rule sets the owner, the Zoho lead\n// status and the tags it carries.\n//\n// `_routed_by` records WHICH rule decided, so a run that filed something oddly can be\n// explained without re-reading the table.\nconst cfg = $('config').first().json;\n\nconst ownerIds = {};\nfor (const o of cfg.owners || []) ownerIds[o.owner] = o.user_id;\n\nfunction matches(rule, lead) {\n  const m = rule.match || {};\n  if (m.source && m.source !== lead.source) return false;\n  if (m.wants && m.wants !== lead.wants) return false;\n  return true;\n}\n\nreturn $input.all().map((item) => {\n  const lead = item.json || {};\n  const rules = cfg.routing_rules || [];\n\n  let chosen = null;\n  for (const rule of rules) { if (matches(rule, lead)) { chosen = rule; break; } }\n  if (!chosen) chosen = rules[rules.length - 1] || {};\n\n  const tags = [];\n  for (const t of (cfg.base_tags || []).concat(chosen.tags || [])) {\n    if (tags.indexOf(t) < 0) tags.push(t);\n  }\n\n  return {\n    json: Object.assign({}, lead, {\n      owner: chosen.owner || '',\n      owner_user_id: ownerIds[chosen.owner] || '',\n      status: chosen.status || 'Attempted',\n      tags,\n      _routed_by: (chosen.match && Object.keys(chosen.match).length)\n        ? JSON.stringify(chosen.match)\n        : 'the last rule (matches anything)'\n    })\n  };\n});"
+      },
+      "id": "route",
+      "name": "route the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The whole Zoho request, assembled as one object before anything is sent. Building it here\n// rather than in the HTTP node means the exact body can be read on a STOP node when no\n// credential is configured — which is what makes this demoable before anyone has created\n// an API client at all.\n//\n// Zoho specifics worth knowing:\n//   * POST /crm/v8/Leads takes { data: [ ... ], trigger: [ ... ] }, up to 100 records.\n//   * `trigger` decides whether Zoho's OWN workflow rules, approvals and blueprints fire.\n//     Empty means none of them do. See ZOHO_TRIGGERS in config.\n//   * Owner and Layout are lookups: { id: '...' }, not names.\n//   * A blank id is omitted entirely. Zoho rejects { id: '' } rather than ignoring it.\nconst cfg = $('config').first().json;\nconst base = cfg.zoho_api_base + '/crm/' + cfg.zoho_api_version;\n\nreturn $input.all().map((item) => {\n  const lead = item.json || {};\n\n  const record = {\n    Last_Name: lead.last_name,\n    Lead_Status: lead.status,\n    Lead_Source: 'Automation intake',\n    Description: lead.summary\n  };\n\n  if (lead.first_name) record.First_Name = lead.first_name;\n  if (lead.email) record.Email = lead.email;\n  if (lead.phone) record.Phone = lead.phone;\n  if (lead.company) record.Company = lead.company;\n  // Zoho refuses a record whose Company is empty on the default layout.\n  if (!record.Company) record.Company = lead.full_name || lead.last_name;\n\n  if (lead.owner_user_id) record.Owner = { id: lead.owner_user_id };\n  if (cfg.lead_layout_id) record.Layout = { id: cfg.lead_layout_id };\n  if ((lead.tags || []).length) record.Tag = lead.tags.map((t) => ({ name: t }));\n\n  for (const f of cfg.custom_fields || []) {\n    if (!f.api_name) continue;\n    const v = lead[f.from];\n    if (v !== undefined && v !== null && String(v) !== '') record[f.api_name] = v;\n  }\n\n  return {\n    json: Object.assign({}, lead, {\n      _zoho: {\n        url: base + '/Leads',\n        body: { data: [record], trigger: cfg.zoho_triggers || [] }\n      }\n    })\n  };\n});"
+      },
+      "id": "payload",
+      "name": "build the Zoho payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "connected-c",
+              "leftValue": "={{ $('config').first().json.zoho_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "connected",
+      "name": "Zoho connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zoho is not configured (DRY_RUN is still true, or one of the three OAuth values is blank).\n// Nothing was written — and this node's output IS the result: the exact request body that\n// would have gone to Zoho, and where the lead was routed.\n//\n// This is the node to open on a screen-share. It is the whole demo: real routing, a real\n// Zoho payload, and nothing leaving the building.\nconst cfg = $('config').first().json;\n\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'preview — nothing written',\n    _reason: cfg.dry_run\n      ? 'DRY_RUN is true — set it to false in config once the OAuth values are filled in'\n      : 'ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN is blank',\n    routed_to: i.json.owner,\n    lead_status: i.json.status,\n    tags: i.json.tags,\n    routed_by: i.json._routed_by,\n    would_post_to: i.json._zoho ? i.json._zoho.url : null,\n    would_post: i.json._zoho ? i.json._zoho.body : null\n  }\n}));"
+      },
+      "id": "stop-nocfg",
+      "name": "STOP: Zoho not configured - payload shown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.zoho_accounts_base + '/oauth/v2/token' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "refresh_token",
+              "value": "={{ $('config').first().json.zoho_refresh_token }}"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $('config').first().json.zoho_client_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $('config').first().json.zoho_client_secret }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "tok1",
+      "name": "[cred] Zoho - get an access token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "executeOnce": true,
+      "notes": "Exchanges the refresh token for an access token valid for one hour. The three OAuth values come from the config node; all blank means this node never executes. Zoho answers a FAILED refresh with HTTP 200 and an 'error' key, so the next node checks the body, not the status code."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads the access token out of the refresh-token exchange and puts it back on every lead,\n// so the write node downstream still has one item per lead rather than one item per token.\n//\n// Zoho returns HTTP 200 with an `error` key in the body when a refresh fails — an expired or\n// revoked refresh token, the wrong data centre, a client id registered in another region. A\n// node that only checks the status code treats that as success and then fails confusingly\n// later with INVALID_TOKEN, which is the most common way a Zoho integration breaks quietly.\n// So the body is checked here, explicitly.\nconst res = $input.first().json || {};\n\nif (res.error || !res.access_token) {\n  return [{\n    json: {\n      _authed: false,\n      _why: res.error ? 'Zoho refused the refresh: ' + res.error\n                      : 'Zoho returned no access_token',\n      _hint: res.error === 'invalid_client'\n        ? 'client id/secret belong to a different data centre than ZOHO_ACCOUNTS_BASE'\n        : res.error === 'invalid_code'\n        ? 'the refresh token has been revoked, or was issued for different scopes'\n        : 'check ZOHO_ACCOUNTS_BASE matches the region the app was registered in',\n      _response: res\n    }\n  }];\n}\n\n// One item per lead again, each carrying the token it will be written with.\nreturn $('build the Zoho payload').all().map((item) => ({\n  json: Object.assign({}, item.json, {\n    _authed: true,\n    _access_token: res.access_token,\n    _expires_in: res.expires_in || 3600\n  })\n}));"
+      },
+      "id": "tokread1",
+      "name": "read the access token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "authed1-c",
+              "leftValue": "={{ $json._authed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "authed1",
+      "name": "authenticated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The refresh-token exchange failed, so nothing downstream ran. This is a named stop rather\n// than a swallowed error because an expired refresh token is the most common way a Zoho\n// integration dies quietly: every run \"succeeds\", nothing is ever written, and nobody notices\n// until someone asks where the week's leads went.\n//\n// `_hint` is the thing to read first — it maps Zoho's terse error to the cause.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'not authenticated — nothing written',\n    _reason: i.json._why || 'Zoho refused the refresh token',\n    _hint: i.json._hint || 'check ZOHO_ACCOUNTS_BASE matches the data centre the app was registered in',\n    zoho_response: JSON.stringify(i.json._response || i.json).slice(0, 600)\n  }\n}));"
+      },
+      "id": "stop-noauth1",
+      "name": "STOP: could not authenticate with Zoho",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._zoho.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Zoho-oauthtoken ' + $json._access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._zoho.body) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "lead-write",
+      "name": "[cred] Zoho CRM - create the lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3080,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "POST /crm/v8/Leads. The body was assembled in 'build the Zoho payload' so it can be read on the preview STOP node without a credential. `trigger` decides whether Zoho's own workflow rules fire — see ZOHO_TRIGGERS in config."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filed in Zoho. Zoho answers a bulk create with one result per record, each carrying its\n// own code — so a 200 on the request does NOT mean every record was accepted. Each result is\n// read individually here, and anything that is not SUCCESS is reported as a failure even\n// though the HTTP call succeeded.\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const results = (j.data && Array.isArray(j.data)) ? j.data : [];\n  const first = results[0] || {};\n  const ok = String(first.code || '').toUpperCase() === 'SUCCESS';\n\n  return {\n    json: {\n      _outcome: ok ? 'filed in Zoho CRM' : 'Zoho accepted the request but rejected the record',\n      _reason: ok\n        ? 'lead created'\n        : (first.message || first.code || 'no per-record result returned'),\n      zoho_id: (first.details && first.details.id) || '',\n      zoho_code: first.code || '',\n      // Anything past the first record, when a run ever batches more than one.\n      others: results.slice(1).map((r) => ({ code: r.code, message: r.message }))\n    }\n  };\n});"
+      },
+      "id": "stop-filed",
+      "name": "STOP: filed in Zoho CRM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zoho refused the write. This node exists so the refusal is a visible step with the response\n// on it, rather than a run that half-succeeded and said nothing. Read `zoho_response`.\n//\n// The three that actually happen: INVALID_TOKEN (wrong data centre, or the access token\n// expired mid-run), MANDATORY_NOT_FOUND (the layout needs a field this payload does not\n// send), and INVALID_DATA (a picklist value that does not exist in the org — most often a\n// Lead_Status from ROUTING_RULES that nobody created in Zoho).\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const err = j.error || j;\n  const detail = (err && (err.message || err.description || err.error)) || j;\n  return {\n    json: {\n      _outcome: 'write failed',\n      _reason: 'Zoho rejected the lead write — nothing was filed for this lead',\n      routed_to: j.owner || '',\n      zoho_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\n    }\n  };\n});"
+      },
+      "id": "stop-rejected",
+      "name": "STOP: Zoho rejected the write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The notification that goes out when a lead is routed — their third named automation.\n//\n// It is composed from the routing decision, not from the Zoho response, on purpose: the team\n// should be told who owns a lead even on a run where the Zoho write later fails. A\n// notification that only fires on success is a notification that goes silent exactly when\n// somebody needs to know.\nconst cfg = $('config').first().json;\n\nconst leads = $input.all().map((i) => i.json || {});\nconst lines = leads.map((l) => [\n  'New lead — ' + (l.full_name || l.last_name || 'unnamed'),\n  '  via ' + l.source + (l.company ? ' · ' + l.company : ''),\n  '  owner: ' + (l.owner || 'unassigned') + ' · status: ' + l.status,\n  '  matched: ' + l._routed_by,\n  '  ' + (l.email || l.phone || 'no contact detail')\n].join('\\n'));\n\nconst text = lines.join('\\n\\n');\n\nreturn [{\n  json: {\n    _outcome: 'notification composed',\n    _count: leads.length,\n    _send: cfg.notify_enabled && cfg.notify_on_new_lead,\n    text,\n    _notify: { url: cfg.notify_webhook_url, body: { text } }\n  }\n}];"
+      },
+      "id": "notify-compose",
+      "name": "compose the lead notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "notifying-c",
+              "leftValue": "={{ $json._send }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "notifying",
+      "name": "notifying?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        190
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No notification was posted — NOTIFY_WEBHOOK_URL is blank, DRY_RUN is still true, or the\n// relevant NOTIFY_ON_* switch is off. The message that would have been sent is on this node,\n// so the wording can be agreed before anybody wires a Slack webhook.\nconst cfg = $('config').first().json;\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'notification not sent',\n    _reason: cfg.notify_webhook_url.trim() === ''\n      ? 'NOTIFY_WEBHOOK_URL is blank — nothing to post to'\n      : cfg.dry_run\n      ? 'DRY_RUN is true'\n      : 'the NOTIFY_ON_ switch for this workflow is off',\n    would_post_to: i.json._notify ? i.json._notify.url : null,\n    would_say: i.json.text || ''\n  }\n}));"
+      },
+      "id": "stop-nonotify",
+      "name": "STOP: notification not sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        950
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._notify.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._notify.body) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "notify1",
+      "name": "[cred] Notify - post the message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        380
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Any endpoint that accepts a JSON POST. Blank NOTIFY_WEBHOOK_URL means this node never executes and the run still completes."
+    },
+    {
+      "parameters": {
+        "jsCode": "// The notification was accepted by the endpoint. Recorded as its own step so an execution\n// shows plainly whether the team was told, separately from whether Zoho was written.\nreturn [{\n  json: {\n    _outcome: 'team notified',\n    _reason: 'the notification endpoint accepted the post'\n  }\n}];"
+      },
+      "id": "stop-notified",
+      "name": "STOP: team notified",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        950
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The notification endpoint refused the post. Named, with the response on it, because a\n// silently dropped notification is indistinguishable from \"there was nothing to tell you\" —\n// and those two need to look different in the execution list.\n//\n// Note what this node does NOT do: it does not fail the run. Zoho has already been written\n// by this point, and losing a Slack message is not a reason to lose the lead.\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const err = j.error || j;\n  const detail = (err && (err.message || err.description || err.error)) || j;\n  return {\n    json: {\n      _outcome: 'notification failed',\n      _reason: 'the notification endpoint refused the post — the CRM write is unaffected',\n      response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 400)\n    }\n  };\n});"
+      },
+      "id": "stop-notifyrej",
+      "name": "STOP: notification rejected",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2520,
+        760
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "end1",
+      "name": "End",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3640,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Route inbound leads from forms, email and calls into Zoho CRM\n\n**Who's it for**\nServices teams running their pipeline in Zoho CRM whose leads arrive three ways (a website form, a forwarded email, a phone note somebody typed up) and who want each one routed and filed without anyone re-typing it.\n\n**How it works**\nA lead posts to the webhook, or the manual trigger loads three demo leads, one per source. `read the lead` turns every shape into the same six fields. A lead with no email and no phone, or one that reads as spam, stops at a named node with the reason. `route the lead` walks a first-match rule table for owner, status and tags; the last rule matches everything. `build the Zoho payload` assembles the whole Leads request before anything is sent, a refresh token is exchanged for a fresh access token, and the lead is written once. The team gets a message saying who owns it.\n\n**How to set up**\n1. In `config`, set `ZOHO_API_BASE` and `ZOHO_ACCOUNTS_BASE` to your data centre.\n2. Create a Self Client at api-console.zoho.com and paste its client id, secret and refresh token.\n3. Fill in `OWNERS`, `LEAD_LAYOUT_ID` and the `CUSTOM_FIELDS` API names.\n4. Set `DRY_RUN = false`.\n\n**Requirements**\nA Zoho CRM org and a Self Client with lead create scope. The demo run needs no credential.\n\n**How to customize**\nEdit `ROUTING_RULES` in `config`, and check every status against your Lead Status picklist. `NOTIFY_WEBHOOK_URL` posts the routing message anywhere that accepts a webhook.",
+        "height": 598,
+        "width": 1600,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -998
+      ],
+      "id": "sticky-00",
+      "name": "Note 1"
+    },
+    {
+      "parameters": {
+        "content": "### 1. Take the lead in and read it\n\n`A lead arrives` is the production entry point. `Run the demo lead` and `load a demo lead` do the same job with three invented leads and no webhook.\n\n`config` passes each incoming item through untouched, so three leads in is three leads out. `read the lead` unwraps a webhook body and pulls the same six fields out of a form post, an email blob or a phone note, so nothing downstream needs to know which source fired.",
+        "height": 246,
+        "width": 1040,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -286
+      ],
+      "id": "sticky-01",
+      "name": "Note 2"
+    },
+    {
+      "parameters": {
+        "content": "### 2. Reject what is not a lead, route what is\n\n`a usable lead?` splits on the parser's verdict. No email and no phone, or spam, lands on `STOP: not a usable lead` with the reason, visible in the execution list instead of vanishing.\n\n`route the lead` walks `ROUTING_RULES` top to bottom, first match wins, and records which rule decided in `_routed_by`, so an oddly filed lead can be explained.",
+        "height": 312,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -352
+      ],
+      "id": "sticky-02",
+      "name": "Note 3"
+    },
+    {
+      "parameters": {
+        "content": "### 3. Build the request, then decide whether to send it\n\n`build the Zoho payload` assembles the full Leads request as one object and sends nothing itself.\n\n`Zoho connected?` is the gate: while `DRY_RUN` is true or the credentials are blank, the lead stops on `STOP: Zoho not configured - payload shown` with the exact body, so the routing can be checked before anything touches a live CRM.",
+        "height": 312,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        -352
+      ],
+      "id": "sticky-03",
+      "name": "Note 4"
+    },
+    {
+      "parameters": {
+        "content": "### 4. Authenticate, write once, say what happened\n\nAccess tokens last an hour, so every run exchanges the refresh token first. Zoho answers a failed refresh with HTTP 200 and an `error` key, so `read the access token` checks the body and `authenticated?` stops on `STOP: could not authenticate with Zoho` with a hint.\n\n`[cred] Zoho CRM - create the lead` writes it. A 200 can still carry a rejected record, so `STOP: filed in Zoho CRM` reads the per-record code and `STOP: Zoho rejected the write` shows the reason.",
+        "height": 224,
+        "width": 1320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        -264
+      ],
+      "id": "sticky-04",
+      "name": "Note 5"
+    },
+    {
+      "parameters": {
+        "content": "### 5. Tell the team who owns it\n\n`compose the lead notification` writes one message: who the lead is, what they want, and who it was routed to. `notifying?` skips it cleanly when `NOTIFY_WEBHOOK_URL` is blank, and `[cred] Notify - post the message` posts it otherwise. Delivered or refused, the run ends on a named STOP node.",
+        "height": 180,
+        "width": 1040,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        1090
+      ],
+      "id": "sticky-05",
+      "name": "Note 6"
+    },
+    {
+      "parameters": {
+        "content": "## Nothing is written until you say so\n\nThis ships with `DRY_RUN = true` and no credentials. Every lead is read, routed and built in full, then stops on `STOP: Zoho not configured - payload shown`.\n\n`ZOHO_TRIGGERS` ships empty on purpose: while your existing Zoho rules still route leads, turning it on would route each lead twice.",
+        "height": 290,
+        "width": 480,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        330
+      ],
+      "id": "sticky-06",
+      "name": "Note 7"
+    }
+  ],
+  "connections": {
+    "A lead arrives": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run the demo lead": {
+      "main": [
+        [
+          {
+            "node": "load a demo lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "load a demo lead": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "read the lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the lead": {
+      "main": [
+        [
+          {
+            "node": "a usable lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "a usable lead?": {
+      "main": [
+        [
+          {
+            "node": "route the lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not a usable lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not a usable lead": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "route the lead": {
+      "main": [
+        [
+          {
+            "node": "build the Zoho payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "compose the lead notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the Zoho payload": {
+      "main": [
+        [
+          {
+            "node": "Zoho connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zoho connected?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Zoho - get an access token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: Zoho not configured - payload shown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: Zoho not configured - payload shown": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Zoho - get an access token": {
+      "main": [
+        [
+          {
+            "node": "read the access token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: could not authenticate with Zoho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the access token": {
+      "main": [
+        [
+          {
+            "node": "authenticated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "authenticated?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Zoho CRM - create the lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: could not authenticate with Zoho",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: could not authenticate with Zoho": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Zoho CRM - create the lead": {
+      "main": [
+        [
+          {
+            "node": "STOP: filed in Zoho CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: Zoho rejected the write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: filed in Zoho CRM": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: Zoho rejected the write": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "compose the lead notification": {
+      "main": [
+        [
+          {
+            "node": "notifying?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notifying?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Notify - post the message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: notification not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: notification not sent": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Notify - post the message": {
+      "main": [
+        [
+          {
+            "node": "STOP: team notified",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: notification rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: team notified": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: notification rejected": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

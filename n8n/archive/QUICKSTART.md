@@ -27,7 +27,7 @@ Nodes prefixed `[cred]` are the ones needing a key. Everything else is pure logi
 **This is the step that decides everything else.** The templates read keys as
 `{{ $env.SMARTLEAD_API_KEY }}`, which works on self-hosted n8n but **not on n8n Cloud**.
 
-> **Templates 09 and 14 skip this whole step**, as does 07, now at `../crm-data-hygiene/`. Their `workflow.json` /
+> **Templates 09 and 14 skip this whole step**, as does 07, now at `../crm-data-hygiene-published/`. Their `workflow.json` /
 > `workflow-v2.json` (07 and 14) and both 09 workflows keep every setting in a `config`
 > Code node, so there is nothing to set on the host and nothing that breaks on Cloud. If
 > you are on n8n Cloud, start with **14** rather than 10.

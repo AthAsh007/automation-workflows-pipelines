@@ -21,7 +21,7 @@ and predict all five.
 
 ## Settings: the `config` node, and why it is replacing `$env`
 
-Newer builds (07, now `../../crm-data-hygiene/workflow.json`, and 14 `workflow-v2.json`) put every setting in a single
+Newer builds (07, now `../../crm-data-hygiene-published/workflow.json`, and 14 `workflow-v2.json`) put every setting in a single
 Code node named `config` at the head of the workflow, and read nothing from `$env`.
 
 ```js

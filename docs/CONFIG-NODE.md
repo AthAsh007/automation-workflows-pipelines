@@ -4,7 +4,7 @@
 `config` at the head of the graph.**
 
 The reference implementation is
-[`n8n/crm-data-hygiene/workflow.json`](../n8n/crm-data-hygiene/workflow.json).
+[`n8n/crm-data-hygiene-published/workflow.json`](../n8n/crm-data-hygiene-published/workflow.json).
 Read that file before building a new one. Everything below is what it does and why.
 
 ## 1. Why not `$env`, and why not `$vars` either
@@ -187,7 +187,7 @@ nothing irreversible.**
   the one trigger that proves it runs with no credential, and the setup steps in
   order, ending in the switch that goes live. Someone opening a workflow cold
   reads this first; without it the demo depends on the README being open next to
-  the canvas. [`../n8n/ghl-lead-intake-router/`](../n8n/ghl-lead-intake-router/)
+  the canvas. [`../n8n/ghl-lead-intake-router-can-publish/`](../n8n/ghl-lead-intake-router-can-publish/)
   is the pattern to copy.
 
 ## 8. Before a workflow ships

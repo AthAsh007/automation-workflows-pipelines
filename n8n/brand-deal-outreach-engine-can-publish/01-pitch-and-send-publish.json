@@ -1,0 +1,1480 @@
+{
+  "name": "Send personalised brand deal pitches from Airtable with Instantly",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Every weekday, 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// BRAND DEAL OUTREACH ENGINE — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows and is generated from one file, so the\n// sender and the reply handler can never disagree about which inbox belongs to which\n// student, or about what counts as a booked deal.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single credential exists.\n\n// ---------------------------------------------------------------- Airtable: the database\n// The creator dashboard this engine writes to. Blank = the run uses the built-in demo roster\n// and writes nothing.\n//   API key:  airtable.com/create/tokens (a PAT with data.records:read and :write)\n//   Base id:  the \"app...\" segment of the base's URL\nconst AIRTABLE_API_KEY = '';\nconst AIRTABLE_BASE_ID = '';\nconst AIRTABLE_URL     = 'https://api.airtable.com/v0';\n\nconst STUDENTS_TABLE = 'Students';   // one row per creator we send for\nconst BRANDS_TABLE   = 'Brands';     // the target list, per niche\nconst PITCHES_TABLE  = 'Pitches';    // one row per pitch. Written same day, always.\nconst INBOXES_TABLE  = 'Inboxes';    // sending accounts and their health\n\n// Field names, exactly as they appear in Airtable.\nconst STUDENT_FIELDS = {\n  student_id:   'Student id',\n  name:         'Name',\n  handle:       'Handle',\n  niche:        'Niche',\n  platform:     'Platform',\n  followers:    'Followers',\n  avg_views:    'Average views',\n  rate_card:    'Rate card',\n  min_rate:     'Minimum rate',\n  deliverables: 'Deliverables',\n  proof:        'Proof points',\n  status:       'Status',\n  started_on:   'Engagement start',\n  monthly_target: 'Monthly pitch target'\n};\n\nconst BRAND_FIELDS = {\n  brand_id:     'Brand id',\n  brand:        'Brand',\n  niche:        'Niche',\n  contact_name: 'Contact name',\n  contact_email: 'Contact email',\n  role:         'Role',\n  budget_band:  'Budget band',\n  recent_signal: 'Recent signal',\n  product:      'Product',\n  region:       'Region',\n  status:       'Status'\n};\n\nconst PITCH_FIELDS = {\n  pitch_id:    'Pitch id',\n  student_id:  'Student id',\n  student:     'Student',\n  brand_id:    'Brand id',\n  brand:       'Brand',\n  contact:     'Contact',\n  email:       'Email',\n  inbox:       'Sent from',\n  subject:     'Subject',\n  body:        'Body',\n  facts_used:  'Facts used',\n  sent_at:     'Sent at',\n  state:       'State',\n  hold_reason: 'Hold reason',\n  reply_at:    'Replied at',\n  reply_class: 'Reply',\n  booked_at:   'Booked at',\n  deal_value:  'Deal value'\n};\n\nconst INBOX_FIELDS = {\n  inbox_id:     'Inbox id',\n  email:        'Email',\n  domain:       'Domain',\n  student_id:   'Student id',\n  warmed_days:  'Days warming',\n  daily_cap:    'Daily cap',\n  sent_today:   'Sent today',\n  bounce_rate:  'Bounce rate',\n  spam_rate:    'Spam complaint rate',\n  health_score: 'Health score',\n  state:        'State'\n};\n\n// Only students in these states are pitched for.\nconst ACTIVE_STUDENT_STATES = ['Active', 'Onboarding complete', ''];\n// Only brands in these states are pitched. Anything else has been contacted or ruled out.\nconst OPEN_BRAND_STATES = ['New', 'Researched', ''];\n\n// ---------------------------------------------------------------- Volume\n// The target is 10,000+ pitches a month across all creators. That is a per-creator\n// daily figure once you divide it by working days, and it is the figure that has to be\n// enforced — a month's target is not a thing you can rate-limit against.\nconst PITCHES_PER_STUDENT_PER_DAY = 25;\nconst DAILY_CAP                   = 400;  // hard ceiling across all students, per run\nconst MAX_PER_BRAND_PER_STUDENT   = 1;    // never pitch the same brand twice for one creator\nconst REPITCH_AFTER_DAYS          = 90;   // a brand that said no is left alone this long\n\n// ---------------------------------------------------------------- Deliverability\n// The second of their three hard gates. This is the part that fails CLOSED: an inbox that\n// cannot be proved healthy does not send. Every other mistake in cold outreach is\n// recoverable; a burnt sending domain is not, and it takes the student's name with it.\nconst MIN_WARMUP_DAYS   = 14;    // an inbox younger than this sends nothing\nconst MAX_BOUNCE_RATE   = 0.03;  // 3% — above this the inbox is pulled from rotation\nconst MAX_SPAM_RATE     = 0.001; // 0.1%\nconst MIN_HEALTH_SCORE  = 70;    // whatever your sending platform reports, 0-100\nconst MAX_PER_INBOX_DAY = 40;    // per mailbox, not per domain\nconst MAX_PER_DOMAIN_DAY = 120;  // across every mailbox on one domain\n\n// An inbox whose health the platform will not tell us about. true = do not send from it.\n// Leave it true: an unknown inbox is not a healthy one.\nconst HOLD_UNKNOWN_INBOX = true;\n\n// ---------------------------------------------------------------- Personalisation\n// Their third hard gate: \"pitches read human and personal from line one. Never templated.\"\n//\n// A pitch must carry at least MIN_FACTS specific, verifiable details drawn from the BRAND\n// and STUDENT records — not from the model. If the record does not contain enough to say\n// something true and specific, the pitch is HELD, not sent with a generic line in its place.\n// That is the difference between personalisation and mail-merge, and it is checkable.\nconst MIN_FACTS = 3;\n\n// And at least this many of them about the BRAND. Creator numbers are facts too, but a\n// pitch made only of them is a CV — MIN_FACTS alone would let one through on the strength\n// of the follower count.\nconst MIN_BRAND_FACTS = 2;\n\n// Which brand record fields count as a usable fact. A blank field is not a fact.\n//\n// `budget_band` is deliberately NOT here. It is real, and it gates the match upstream, and\n// it must never appear in an email — telling a company what you think their budget is, is\n// the single fastest way to lose the deal you were quoting into.\nconst FACT_FIELDS = ['recent_signal', 'product', 'role'];\n\n// Phrases that give a template away. A pitch containing any of these is held and rewritten.\n// This list is the single most useful thing in this config — add to it every time you read\n// a sent pitch and wince.\nconst BANNED_PHRASES = [\n  'i hope this email finds you well', 'i hope this finds you well', 'quick question',\n  'just following up', 'circling back', 'touching base', 'i wanted to reach out',\n  'i came across your', 'i stumbled upon', 'love what you are doing',\n  'love what you’re doing', 'we are a leading', 'synergy', 'game-changing',\n  'revolutionary', 'to whom it may concern', 'dear sir or madam', 'per my last email',\n  'as per', 'kindly revert', 'i am reaching out to you today'\n];\n\n// A pitch outside this range is held. Short enough to read on a phone, long enough to say\n// something.\nconst MIN_WORDS = 60;\nconst MAX_WORDS = 160;\n\n// Never send to these. Domains or full addresses. Anything that replies \"remove me\" is\n// added here by workflow 02.\nconst SUPPRESSION = [];\n\n// Role mailboxes nobody owns. Held — these are where bounce rates come from.\nconst ROLE_PREFIXES = ['info', 'hello', 'contact', 'support', 'admin', 'sales', 'help',\n  'noreply', 'no-reply', 'press', 'careers', 'jobs', 'legal', 'billing', 'webmaster'];\n\n// ---------------------------------------------------------------- The writer\n// The model rewrites the SUBJECT and the OPENING LINE around facts that were assembled in\n// code. It is never handed the rate card and asked to improvise a number.\n// Blank = the skeleton pitch is produced and held for a human to finish. Nothing is sent\n// unwritten.\nconst AI_API_KEY = '';\nconst AI_URL     = 'https://api.anthropic.com/v1/messages';\nconst AI_MODEL   = 'claude-opus-5';\n\n// ---------------------------------------------------------------- The sending engine\n// Instantly by default. Smartlead works the same way: change SEND_URL and the body built in\n// \"payload for the campaign\".\nconst SEND_API_KEY  = '';\nconst SEND_URL      = 'https://api.instantly.ai/api/v2/leads';\nconst REPLIES_URL   = 'https://api.instantly.ai/api/v2/emails';\nconst CAMPAIGN_ID   = '';\n\n// Optional: a different campaign per niche, so a skincare brand and a gaming brand are not\n// sent the same sequence. Anything not listed here goes to CAMPAIGN_ID.\nconst CAMPAIGN_BY_NICHE = {\n  // 'Beauty': 'campaign-uuid-here',\n  // 'Gaming': 'campaign-uuid-here'\n};\n\n// ---------------------------------------------------------------- Replies (workflow 02)\n// How a reply is classified. First rule whose words appear wins, so put the specific ones\n// first. Anything that matches nothing is 'unclear' and goes to a human — never guessed.\nconst REPLY_RULES = [\n  { klass: 'unsubscribe', route: 'suppress',\n    words: ['unsubscribe', 'remove me', 'take me off', 'do not contact', 'opt out',\n            'stop emailing'] },\n  { klass: 'auto-reply', route: 'ignore',\n    words: ['out of office', 'automatic reply', 'auto-reply', 'annual leave',\n            'on holiday', 'currently away', 'parental leave'] },\n  { klass: 'bounce', route: 'suppress',\n    words: ['undeliverable', 'delivery failed', 'address not found', 'mailbox full',\n            'recipient rejected', 'does not exist'] },\n  { klass: 'wrong-person', route: 'reroute',\n    words: ['no longer with', 'has left', 'not the right person', 'forward this to',\n            'my colleague handles', 'wrong department'] },\n  { klass: 'not-now', route: 'nurture',\n    words: ['next quarter', 'next year', 'budget is set', 'revisit', 'not right now',\n            'circle back in', 'check back'] },\n  { klass: 'not-interested', route: 'close',\n    words: ['not interested', 'no thanks', 'we will pass', 'we’ll pass', 'not a fit',\n            'not for us', 'declining'] },\n  { klass: 'interested', route: 'handover',\n    words: ['interested', 'tell me more', 'send over', 'rates', 'media kit', 'happy to chat',\n            'set up a call', 'what would', 'pricing', 'sounds good', 'let’s talk'] }\n];\n\n// A reply routed 'handover' is a human's job — a person works the replies,\n// and this workflow's job is to put the right ones in front of them fast, not to negotiate.\nconst HANDOVER_WEBHOOK_URL = '';   // Slack channel for interested replies. Blank = summary only.\n\n// ---------------------------------------------------------------- Weekly report\n// \"Report weekly — clean numbers so students and the team can see progress.\"\n// Runs on the hourly trigger, on this day and hour only.\nconst REPORT_DAY  = 1;   // 0 Sunday … 6 Saturday\nconst REPORT_HOUR = 9;   // 24h, in the n8n instance's timezone\nconst REPORT_WINDOW_DAYS = 7;\n\nconst ALERT_WEBHOOK_URL = '';   // Slack incoming webhook for the run summaries.\n\n// ---------------------------------------------------------------- Demo mode\n// With no Airtable key set, builds a deterministic roster — six students, sixty brands,\n// four inboxes with a realistic spread of health — so the whole engine can be watched end\n// to end before an account exists. While this is on the run is FORCED into preview: a\n// fabricated brand contact can never be emailed.\nconst DEMO_ROSTER = true;\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_EMAIL blank -> PREVIEW. Every pitch is written, audited and\n//                                       assigned an inbox, and NOTHING is sent or logged.\n//                                       Ships this way.\n//   TEST_RUN true,  TEST_EMAIL set   -> TEST. Pitches really are sent, all redirected to\n//                                       that address, so you can read what a brand would get.\n//   TEST_RUN false                   -> LIVE.\nconst TEST_RUN   = true;\nconst TEST_EMAIL = '';\n\nconst DEMO_DATA = DEMO_ROSTER === true && AIRTABLE_API_KEY.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\n// A fabricated brand contact is not a lead. It cannot open the send gate, whatever\n// TEST_RUN says.\nconst FORCED_PREVIEW = DEMO_DATA && MODE !== 'preview';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst now = new Date();\nconst REPORT_DUE = now.getDay() === Number(REPORT_DAY) &&\n                   now.getHours() === Number(REPORT_HOUR);\n\nreturn [{\n  json: {\n    airtable_url:  AIRTABLE_URL,\n    airtable_key:  AIRTABLE_API_KEY.trim(),\n    airtable_base: AIRTABLE_BASE_ID.trim(),\n    students_table: STUDENTS_TABLE,\n    brands_table:   BRANDS_TABLE,\n    pitches_table:  PITCHES_TABLE,\n    inboxes_table:  INBOXES_TABLE,\n    student_fields: STUDENT_FIELDS,\n    brand_fields:   BRAND_FIELDS,\n    pitch_fields:   PITCH_FIELDS,\n    inbox_fields:   INBOX_FIELDS,\n    active_student_states: ACTIVE_STUDENT_STATES,\n    open_brand_states:     OPEN_BRAND_STATES,\n\n    pitches_per_student_per_day: Number(PITCHES_PER_STUDENT_PER_DAY) || 25,\n    daily_cap:                   Number(DAILY_CAP) || 0,\n    max_per_brand_per_student:   Number(MAX_PER_BRAND_PER_STUDENT) || 1,\n    repitch_after_days:          Number(REPITCH_AFTER_DAYS) || 90,\n\n    min_warmup_days:    Number(MIN_WARMUP_DAYS) || 0,\n    max_bounce_rate:    Number(MAX_BOUNCE_RATE) || 0,\n    max_spam_rate:      Number(MAX_SPAM_RATE) || 0,\n    min_health_score:   Number(MIN_HEALTH_SCORE) || 0,\n    max_per_inbox_day:  Number(MAX_PER_INBOX_DAY) || 0,\n    max_per_domain_day: Number(MAX_PER_DOMAIN_DAY) || 0,\n    hold_unknown_inbox: HOLD_UNKNOWN_INBOX !== false,\n\n    min_facts:       Number(MIN_FACTS) || 0,\n    min_brand_facts: Number(MIN_BRAND_FACTS) || 0,\n    fact_fields: FACT_FIELDS,\n    banned_phrases: BANNED_PHRASES.map(function (p) { return String(p).toLowerCase(); }),\n    min_words:   Number(MIN_WORDS) || 0,\n    max_words:   Number(MAX_WORDS) || 9999,\n    suppression: SUPPRESSION.map(function (s) { return String(s).trim().toLowerCase(); })\n      .filter(Boolean),\n    role_prefixes: ROLE_PREFIXES,\n\n    ai_api_key: AI_API_KEY.trim(),\n    ai_url:     AI_URL,\n    ai_model:   AI_MODEL,\n\n    send_api_key: SEND_API_KEY.trim(),\n    send_url:     SEND_URL,\n    replies_url:  REPLIES_URL,\n    campaign_id:  CAMPAIGN_ID.trim(),\n    campaign_by_niche: CAMPAIGN_BY_NICHE,\n\n    reply_rules: REPLY_RULES,\n    handover_webhook_url: HANDOVER_WEBHOOK_URL.trim(),\n\n    report_day:  Number(REPORT_DAY),\n    report_hour: Number(REPORT_HOUR),\n    report_window_days: Number(REPORT_WINDOW_DAYS) || 7,\n    alert_webhook_url:  ALERT_WEBHOOK_URL.trim(),\n    test_email: TEST_EMAIL.trim(),\n\n    // derived flags — the gates read these, never the raw constants\n    mode:         MODE,\n    preview_only: MODE === 'preview',\n    test_send:    MODE === 'test',\n    live_send:    MODE === 'live',\n\n    airtable_enabled: AIRTABLE_API_KEY.trim() !== '' && AIRTABLE_BASE_ID.trim() !== '',\n    log_enabled:      MODE !== 'preview' && AIRTABLE_API_KEY.trim() !== ''\n                      && AIRTABLE_BASE_ID.trim() !== '',\n    ai_enabled:       AI_API_KEY.trim() !== '',\n    send_enabled:     MODE !== 'preview' && SEND_API_KEY.trim() !== '' &&\n                      CAMPAIGN_ID.trim() !== '',\n    replies_enabled:  SEND_API_KEY.trim() !== '',\n    alert_enabled:    ALERT_WEBHOOK_URL.trim() !== '',\n    handover_enabled: (HANDOVER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim()) !== '',\n    handover_url:     HANDOVER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim(),\n    report_due:       REPORT_DUE,\n    demo_data:        DEMO_DATA,\n    forced_preview:   FORCED_PREVIEW\n  }\n}];"
+      },
+      "id": "cfg",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "at-on-c",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "at-on",
+      "name": "Airtable configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.students_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "students",
+      "name": "[cred] Airtable - students",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1300,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "One row per creator. Only rows whose Status is in ACTIVE_STUDENT_STATES are pitched for."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.brands_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "brands",
+      "name": "[cred] Airtable - brand targets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1080,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "Over 100 targets: add an offset loop. Airtable returns an 'offset' when there is another page."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.inboxes_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "inboxes",
+      "name": "[cred] Airtable - inboxes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -860,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "Sending accounts and their health. This table is what the deliverability gate reads; keep it fed from your sending platform."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.pitches_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "pitchlog",
+      "name": "[cred] Airtable - the pitch log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -640,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "notes": "Read for the dedupe. A pitch logged late is a pitch sent twice."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Folds the four Airtable reads into ONE item shaped {students, brands, inboxes, pitches}.\n//\n// Everything downstream reads this shape and never touches an Airtable response directly,\n// so the demo roster and the real base are interchangeable from here on.\nconst cfg = $('config').first().json;\n\nconst S = cfg.student_fields;\nconst B = cfg.brand_fields;\nconst P = cfg.pitch_fields;\nconst I = cfg.inbox_fields;\n\nconst failures = [];\nfunction records(payload, what) {\n  if (!payload || payload.error || !Array.isArray(payload.records)) {\n    failures.push(what + ': ' + ((payload && payload.error &&\n      (payload.error.message || payload.error)) || 'no response'));\n    return [];\n  }\n  return payload.records;\n}\n\nfunction map(rows, fields) {\n  return rows.map(function (r) {\n    const f = r.fields || {};\n    const out = { _record_id: r.id };\n    Object.keys(fields).forEach(function (key) { out[key] = f[fields[key]]; });\n    return out;\n  });\n}\n\nconst students = map(records($('[cred] Airtable - students').first().json, 'students'), S);\nconst brands = map(records($('[cred] Airtable - brand targets').first().json, 'brands'), B);\nconst inboxes = map(records($('[cred] Airtable - inboxes').first().json, 'inboxes'), I);\nconst pitches = map(records($('[cred] Airtable - the pitch log').first().json, 'pitches'), P);\n\n// An empty read that did not error is a real state — a roster with nobody active. An empty\n// read that DID error must never look like one, because the difference is between \"nothing\n// to send today\" and \"we stopped sending and nobody noticed\".\nif (failures.length && students.length === 0) {\n  throw new Error('Airtable returned nothing usable (' + failures.join('; ') +\n    '). Refusing to report an empty roster as a quiet day.');\n}\n\nreturn [{\n  json: {\n    source: 'airtable',\n    read_at: new Date().toISOString(),\n    failures: failures,\n    students: students.filter(function (s) {\n      return cfg.active_student_states.indexOf(String(s.status || '')) !== -1;\n    }),\n    brands: brands.filter(function (b) {\n      return cfg.open_brand_states.indexOf(String(b.status || '')) !== -1;\n    }),\n    inboxes: inboxes,\n    pitches: pitches\n  }\n}];"
+      },
+      "id": "roster",
+      "name": "read the roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: Airtable is not configured — build the demo roster instead.\n//\n// Deterministic. Six students across six niches, sixty brand contacts, four sending inboxes\n// with a deliberately mixed health picture — one still warming, one over its bounce\n// threshold, one whose health the platform will not report, one clean — and a pitch history\n// so the dedupe has something to catch.\n//\n// Nothing here can be emailed: `demo_data` forces the run into preview in config.\nconst cfg = $('config').first().json;\n\nif (cfg.airtable_enabled) {\n  throw new Error('demo roster reached with Airtable configured — check the IF gate');\n}\nif (!cfg.demo_data) {\n  return [{ json: { source: 'none', read_at: new Date().toISOString(),\n    students: [], brands: [], inboxes: [], pitches: [],\n    _note: 'No Airtable key and DEMO_ROSTER is off. Nothing to work on.' } }];\n}\n\nconst DAY = 86400000;\nconst now = Date.now();\nfunction iso(ms) { return new Date(ms).toISOString(); }\n\nlet seed = 20260904;\nfunction rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }\n\nconst STUDENTS = [\n  ['ST-01', 'Nadia Osei', '@nadiabuilds', 'Home & interiors', 'Instagram', 84000, 21000,\n   1400, 900, 'One in-feed reel + two stories',\n   'Grew from 12k to 84k in fourteen months; 6.1% average engagement'],\n  ['ST-02', 'Tomas Ferreira', '@tomcooks', 'Food', 'TikTok', 210000, 65000,\n   2200, 1500, 'One 45-second TikTok + usage rights',\n   'Three videos past 1M views this year; audience 71% UK'],\n  ['ST-03', 'Priya Raman', '@priyalifts', 'Fitness', 'Instagram', 46000, 12000,\n   900, 600, 'Two in-feed posts',\n   '4.8% engagement; 63% of audience aged 25-34'],\n  ['ST-04', 'Leo Hartmann', '@leoplays', 'Gaming', 'YouTube', 320000, 48000,\n   3500, 2400, 'One 60-second integration',\n   'Averages 48k views per upload across the last twenty videos'],\n  ['ST-05', 'Amara Chike', '@amaraskin', 'Beauty', 'TikTok', 128000, 39000,\n   1800, 1200, 'One TikTok + one story set',\n   'Two brand videos past 500k views; 82% female audience'],\n  ['ST-06', 'Iris Vandermeer', '@irisdraws', 'Art & craft', 'Instagram', 61000, 15000,\n   1100, 700, 'One carousel + two stories',\n   'Featured twice by the platform editorial team']\n];\n\nconst BRANDS = [\n  ['Home & interiors', 'Kestrel Living', 'Sofie Brandt', 'Head of Brand',\n   'launched a spring modular sofa line last month', 'Modular sofas', 'UK', '1-3k'],\n  ['Home & interiors', 'Northwood Ceramics', 'Ravi Menon', 'Marketing Manager',\n   'opened a second showroom in Leeds', 'Handmade tableware', 'UK', 'under 1k'],\n  ['Food', 'Copper Pot Sauces', 'Elena Ruiz', 'Growth Lead',\n   'moved into 400 Tesco stores in March', 'Cooking sauces', 'UK', '1-3k'],\n  ['Food', 'Grainhouse Bakery', 'Tom Aldridge', 'Founder',\n   'started shipping nationwide in February', 'Sourdough kits', 'UK', 'under 1k'],\n  ['Fitness', 'Vantage Athletic', 'Kim Dae-jung', 'Partnerships',\n   'released a womens training range in April', 'Training apparel', 'EU', '3-5k'],\n  ['Fitness', 'Rowan Supplements', 'Beth Okoye', 'Brand Manager',\n   'reformulated their protein line without sweeteners', 'Protein powder', 'UK', '1-3k'],\n  ['Gaming', 'Hexline Peripherals', 'Marc Dubois', 'Influencer Lead',\n   'shipped a low-latency wireless mouse in May', 'Gaming mice', 'EU', '3-5k'],\n  ['Gaming', 'Nightfall Studios', 'Sara Lindholm', 'Community Manager',\n   'announced an early-access date for their roguelike', 'Indie game', 'Global', '1-3k'],\n  ['Beauty', 'Lumen Skin', 'Aisha Rahman', 'Head of Growth',\n   'reformulated their serum to fragrance-free in March', 'Vitamin C serum', 'UK', '1-3k'],\n  ['Beauty', 'Verdant Haircare', 'Jonas Weber', 'Marketing Director',\n   'launched a refill programme across their range', 'Shampoo bars', 'EU', '3-5k'],\n  ['Art & craft', 'Paperfold Studio', 'Mei Tanaka', 'Founder',\n   'released a limited watercolour set with an illustrator', 'Watercolour sets', 'UK', 'under 1k'],\n  ['Art & craft', 'Inkwell Supply', 'Owen Blake', 'Partnerships',\n   'opened wholesale to independent shops this quarter', 'Fountain pens', 'UK', '1-3k']\n];\n\nconst students = STUDENTS.map(function (s, i) {\n  return { student_id: s[0], name: s[1], handle: s[2], niche: s[3], platform: s[4],\n    followers: s[5], avg_views: s[6], rate_card: s[7], min_rate: s[8], deliverables: s[9],\n    proof: s[10], status: 'Active',\n    started_on: iso(now - (20 + i * 6) * DAY),\n    monthly_target: 400 };\n});\n\n// Sixty contacts: each seed brand cloned across regions so the matcher has volume to work\n// with, which is what a 10,000-a-month target actually looks like.\nconst REGIONS = ['UK', 'EU', 'US', 'AU', 'CA'];\nconst brands = [];\nBRANDS.forEach(function (b, bi) {\n  REGIONS.forEach(function (region, ri) {\n    const n = bi * REGIONS.length + ri;\n    const local = ri === 0;\n    brands.push({\n      brand_id: 'BR-' + String(n + 1).padStart(3, '0'),\n      brand: local ? b[1] : b[1] + ' ' + region,\n      niche: b[0],\n      contact_name: local ? b[2] : b[2].split(' ')[0] + ' ' + ['Novak', 'Silva', 'Hughes',\n        'Bauer', 'Moreau'][ri],\n      // One in ten is a role mailbox, which the audit holds. They are where bounce rates\n      // come from and a demo that never shows one is not showing the gate working.\n      contact_email: (n % 10 === 3 ? 'info' : b[2].toLowerCase().split(' ')[0] + '.' +\n        b[2].toLowerCase().split(' ')[1]) + '@' +\n        b[1].toLowerCase().replace(/[^a-z]/g, '') + (local ? '.example' : '-' +\n        region.toLowerCase() + '.example'),\n      role: n % 7 === 5 ? '' : b[3],\n      // One in seven is a thin scraped record — the company and the product, and nothing\n      // else. The personalisation gate has to hold those: nothing true and specific to say\n      // means no pitch, not a generic one.\n      recent_signal: n % 7 === 5 ? '' : b[4],\n      product: b[5],\n      region: region,\n      budget_band: b[7],\n      status: 'New'\n    });\n  });\n});\n\nconst inboxes = [\n  { inbox_id: 'IN-1', email: 'nadia@outreach-one.example', domain: 'outreach-one.example',\n    student_id: '', warmed_days: 62, daily_cap: 40, sent_today: 0, bounce_rate: 0.006,\n    spam_rate: 0.0002, health_score: 94, state: 'Active' },\n  { inbox_id: 'IN-2', email: 'tomas@outreach-one.example', domain: 'outreach-one.example',\n    student_id: '', warmed_days: 58, daily_cap: 40, sent_today: 12, bounce_rate: 0.011,\n    spam_rate: 0.0004, health_score: 88, state: 'Active' },\n  // Still warming — sends nothing, whatever else is true of it.\n  { inbox_id: 'IN-3', email: 'priya@outreach-two.example', domain: 'outreach-two.example',\n    student_id: '', warmed_days: 6, daily_cap: 40, sent_today: 0, bounce_rate: 0.002,\n    spam_rate: 0, health_score: 91, state: 'Warming' },\n  // Over the bounce threshold — pulled from rotation until somebody cleans the list.\n  { inbox_id: 'IN-4', email: 'leo@outreach-two.example', domain: 'outreach-two.example',\n    student_id: '', warmed_days: 71, daily_cap: 40, sent_today: 4, bounce_rate: 0.052,\n    spam_rate: 0.0009, health_score: 74, state: 'Active' },\n  // The platform will not report health for this one. HOLD_UNKNOWN_INBOX decides.\n  { inbox_id: 'IN-5', email: 'amara@outreach-three.example', domain: 'outreach-three.example',\n    student_id: '', warmed_days: 40, daily_cap: 40, sent_today: 0, bounce_rate: null,\n    spam_rate: null, health_score: null, state: 'Active' },\n  { inbox_id: 'IN-6', email: 'iris@outreach-three.example', domain: 'outreach-three.example',\n    student_id: '', warmed_days: 45, daily_cap: 40, sent_today: 3, bounce_rate: 0.008,\n    spam_rate: 0.0001, health_score: 85, state: 'Active' }\n];\n\n// A pitch history, so the dedupe and the re-pitch window have something to catch.\nconst pitches = [];\nstudents.forEach(function (s, si) {\n  const pool = brands.filter(function (b) { return b.niche === s.niche; });\n  pool.slice(0, 4).forEach(function (b, bi) {\n    const age = bi === 0 ? 10 : (cfg.repitch_after_days + 30);\n    pitches.push({\n      pitch_id: 'P-' + s.student_id + '-' + b.brand_id,\n      student_id: s.student_id, student: s.name,\n      brand_id: b.brand_id, brand: b.brand,\n      contact: b.contact_name, email: b.contact_email,\n      inbox: inboxes[si % inboxes.length].email,\n      subject: '', body: '', facts_used: '',\n      sent_at: iso(now - age * DAY),\n      state: bi % 2 === 0 ? 'Sent' : 'Closed',\n      hold_reason: '', reply_at: '', reply_class: '', booked_at: '', deal_value: ''\n    });\n  });\n});\n\nreturn [{\n  json: {\n    source: 'demo',\n    read_at: new Date().toISOString(),\n    failures: [],\n    students: students,\n    brands: brands,\n    inboxes: inboxes,\n    pitches: pitches,\n    _note: 'DEMO ROSTER — ' + students.length + ' students, ' + brands.length +\n           ' brand contacts, ' + inboxes.length + ' inboxes, ' + pitches.length +\n           ' pitches already sent. The run is forced into preview; nothing here can be ' +\n           'emailed.'\n  }\n}];"
+      },
+      "id": "demo",
+      "name": "STOP: demo roster",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1300,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-roster",
+      "name": "one roster",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One candidate pitch per item: this creator, this brand contact, today.\n//\n// Matched on niche AND on rates. Both halves are\n// enforced here rather than left to the writer:\n//\n//   niche  a brand is only ever offered to a creator in the same niche. A gaming creator\n//          does not get a skincare brand because the volume target was short today.\n//   rates  a brand whose budget band tops out below the creator's minimum is not pitched\n//          at all. Sending it wastes the send, and it wastes the reply the person working\n//          the inbox has to read.\n//\n// Everything the dedupe needs comes from the pitch log, which is why that log has to be\n// written same-day. A log written tomorrow is a duplicate sent today.\nconst cfg = $('config').first().json;\nconst roster = $json;\n\nconst DAY = 86400000;\nconst now = Date.now();\n\n// Budget bands, lowest ceiling first. A band the config does not know is treated as\n// unknown, and unknown never blocks a pitch — it is a soft signal, not a gate.\nconst BAND_CEILING = { 'under 1k': 1000, '1-3k': 3000, '3-5k': 5000, '5-10k': 10000,\n  '10k+': 100000 };\n\nfunction stamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s));\n  return isNaN(ms) ? null : ms;\n}\n\n// What has already been sent, per student and per brand.\nconst sentByStudentBrand = {};\nconst sentByStudentToday = {};\nconst today = new Date().toISOString().slice(0, 10);\n(roster.pitches || []).forEach(function (p) {\n  const key = p.student_id + '|' + p.brand_id;\n  const at = stamp(p.sent_at);\n  if (!sentByStudentBrand[key] || at > sentByStudentBrand[key]) {\n    sentByStudentBrand[key] = at;\n  }\n  if (String(p.sent_at || '').slice(0, 10) === today) {\n    sentByStudentToday[p.student_id] = (sentByStudentToday[p.student_id] || 0) + 1;\n  }\n});\n\nconst suppressed = cfg.suppression || [];\nfunction isSuppressed(email) {\n  const e = String(email || '').toLowerCase();\n  const domain = e.split('@')[1] || '';\n  return suppressed.indexOf(e) !== -1 || suppressed.indexOf(domain) !== -1;\n}\n\nconst byNiche = {};\n(roster.brands || []).forEach(function (b) {\n  const k = String(b.niche || '');\n  if (!byNiche[k]) byNiche[k] = [];\n  byNiche[k].push(b);\n});\n\nconst perStudent = Number(cfg.pitches_per_student_per_day || 25);\nconst cap = Number(cfg.daily_cap || 0);\n\nconst out = [];\nconst skipped = { already_pitched: 0, too_recent: 0, budget: 0, suppressed: 0,\n  no_brands: 0, student_cap: 0 };\nlet total = 0;\n\n(roster.students || []).forEach(function (student) {\n  const pool = byNiche[String(student.niche || '')] || [];\n  if (!pool.length) { skipped.no_brands++; return; }\n\n  const alreadyToday = sentByStudentToday[student.student_id] || 0;\n  let budget = Math.max(0, perStudent - alreadyToday);\n  if (budget === 0) { skipped.student_cap++; return; }\n\n  const minRate = Number(student.min_rate || 0);\n\n  for (let i = 0; i < pool.length && budget > 0; i++) {\n    const brand = pool[i];\n    if (cap > 0 && total >= cap) break;\n\n    const key = student.student_id + '|' + brand.brand_id;\n    const last = sentByStudentBrand[key];\n    if (last !== undefined && last !== null) {\n      const days = (now - last) / DAY;\n      if (Number(cfg.max_per_brand_per_student || 1) <= 1 &&\n          days < Number(cfg.repitch_after_days || 90)) {\n        skipped.too_recent++;\n        continue;\n      }\n      if (days >= Number(cfg.repitch_after_days || 90)) {\n        // Fine to pitch again — a no from last quarter is not a no forever.\n      } else {\n        skipped.already_pitched++;\n        continue;\n      }\n    }\n\n    if (isSuppressed(brand.contact_email)) { skipped.suppressed++; continue; }\n\n    const ceiling = BAND_CEILING[String(brand.budget_band || '').toLowerCase()];\n    if (ceiling !== undefined && minRate > 0 && ceiling < minRate) {\n      skipped.budget++;\n      continue;\n    }\n\n    total++;\n    budget--;\n    out.push({\n      json: {\n        _has_work: true,\n        pitch_id: 'P-' + student.student_id + '-' + brand.brand_id + '-' +\n          today.replace(/-/g, ''),\n        student_id: student.student_id,\n        student: student.name,\n        handle: student.handle,\n        niche: student.niche,\n        platform: student.platform,\n        followers: student.followers,\n        avg_views: student.avg_views,\n        rate_card: student.rate_card,\n        min_rate: minRate,\n        deliverables: student.deliverables,\n        proof: student.proof,\n        brand_id: brand.brand_id,\n        brand: brand.brand,\n        contact: brand.contact_name,\n        email: brand.contact_email,\n        role: brand.role,\n        recent_signal: brand.recent_signal,\n        product: brand.product,\n        region: brand.region,\n        budget_band: brand.budget_band,\n        _roster: { source: roster.source, read_at: roster.read_at,\n                   inboxes: roster.inboxes || [], students: (roster.students || []).length }\n      }\n    });\n  }\n});\n\nif (!out.length) {\n  return [{\n    json: {\n      _has_work: false,\n      skipped: skipped,\n      source: roster.source,\n      read_at: roster.read_at,\n      _note: 'Nothing to pitch: ' + Object.keys(skipped).map(function (k) {\n        return k + ' ' + skipped[k];\n      }).join(', ')\n    }\n  }];\n}\n\nout.forEach(function (item) {\n  item.json._skipped = skipped;\n  item.json._candidates = out.length;\n});\nreturn out;"
+      },
+      "id": "match",
+      "name": "match brands to students",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "work-c",
+              "leftValue": "={{ $json._has_work }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "work",
+      "name": "anything to pitch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: the matcher produced no candidates.\n//\n// Almost always a real, reportable state rather than a fault: every brand in a creator's\n// niche has already been pitched inside the re-pitch window, or the day's per-student\n// budget is already spent. The summary says which, by count, so a quiet morning can be\n// told apart from a broken one.\nconst j = $json;\nconst s = j.skipped || {};\n\nconst reasons = [];\nif (s.already_pitched) reasons.push(s.already_pitched + ' already pitched');\nif (s.too_recent) reasons.push(s.too_recent + ' inside the re-pitch window');\nif (s.budget) reasons.push(s.budget + ' under the creator’s minimum rate');\nif (s.suppressed) reasons.push(s.suppressed + ' suppressed');\nif (s.no_brands) reasons.push(s.no_brands + ' creators with no brands in their niche');\nif (s.student_cap) reasons.push(s.student_cap + ' creators already at today’s budget');\n\nreturn [{\n  json: {\n    _has_work: false,\n    source: j.source,\n    read_at: j.read_at,\n    skipped: s,\n    headline: reasons.length\n      ? 'Nothing to pitch today: ' + reasons.join(', ') + '.'\n      : 'Nothing to pitch today, and nothing was filtered out — check the roster is loading.',\n    // No brands left in a niche is the one that needs a person. The rest are the system\n    // working.\n    needs_attention: (s.no_brands || 0) > 0 || reasons.length === 0,\n    recorded_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "nowork",
+      "name": "STOP: nothing to pitch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assembles the FACTS in code, then asks the model to write around them.\n//\n// This is the whole personalisation argument. The facts — what the brand just did, what the\n// creator's numbers actually are, what the deliverable is, what it costs — are read out of\n// the two records and never invented. The model gets them as a list and is asked for a\n// subject line and an opening line, in a named voice, with an explicit instruction not to\n// add anything that is not in the list.\n//\n// A brand record with nothing specific in it produces FEWER facts, not a vaguer sentence.\n// If it falls below MIN_FACTS the audit downstream holds the pitch. That is the difference\n// between personalisation and mail-merge: mail-merge always has something to say.\nconst cfg = $('config').first().json;\nconst p = $json;\n\nfunction fact(label, value) {\n  const v = String(value === undefined || value === null ? '' : value).trim();\n  return v ? { label: label, value: v } : null;\n}\n\n// Brand-side facts. These are the ones that prove the pitch was written for this company\n// and not for a list.\nconst brandFacts = [\n  fact('recent_signal', p.recent_signal),\n  fact('product', p.product),\n  fact('region', p.region),\n  fact('role', p.role),\n  fact('budget_band', p.budget_band)\n].filter(Boolean).filter(function (f) {\n  return cfg.fact_fields.indexOf(f.label) !== -1;\n});\n\n// Creator-side facts. Numbers, from the record, never rounded up by a model.\nconst creatorFacts = [\n  fact('followers', p.followers ? Number(p.followers).toLocaleString('en-GB') + ' followers on ' +\n    p.platform : ''),\n  fact('avg_views', p.avg_views ? Number(p.avg_views).toLocaleString('en-GB') +\n    ' average views' : ''),\n  fact('proof', p.proof),\n  fact('deliverables', p.deliverables)\n].filter(Boolean);\n\nconst facts = brandFacts.concat(creatorFacts);\n\n// The skeleton. This is what gets sent if there is no writer configured — it is stiff, and\n// it is true, and it is held for a human rather than sent as-is.\nconst skeleton = [\n  'Hi ' + String(p.contact || '').split(' ')[0] + ',',\n  '',\n  p.recent_signal\n    ? 'Saw that ' + p.brand + ' ' + p.recent_signal + '.'\n    : 'Writing about ' + p.brand + '.',\n  '',\n  'I look after partnerships for ' + p.student + ' (' + p.handle + ') — ' +\n    creatorFacts.map(function (f) { return f.value; }).slice(0, 2).join(', ') + '.',\n  '',\n  p.deliverables + ' runs ' + (p.rate_card ? '£' + p.rate_card : 'at our standard rate') +\n    '. Worth a conversation?',\n  '',\n  '— Deal Flow, on behalf of ' + p.student\n].join('\\n');\n\nconst system = [\n  'You write cold outreach for a creator partnerships agency.',\n  '',\n  'Rules, all of them hard:',\n  '1. Use ONLY the facts in the list. Do not add a claim, a number, a compliment or a',\n  '   detail that is not in it. If the list is thin, write a shorter email.',\n  '2. First line must be about the BRAND, not about the creator and not about you.',\n  '3. No greetings-filler. Never \"I hope this email finds you well\", \"quick question\",',\n  '   \"I came across your\", \"love what you are doing\" or anything of that family.',\n  '4. British English. Plain. No adjectives you would not say out loud.',\n  '5. ' + cfg.min_words + '-' + cfg.max_words + ' words in the body.',\n  '6. One ask at the end, and make it easy to answer with one word.',\n  '',\n  'Return JSON only: {\"subject\": \"...\", \"body\": \"...\"}'\n].join('\\n');\n\nconst user = [\n  'Brand: ' + p.brand,\n  'Contact: ' + p.contact + (p.role ? ' (' + p.role + ')' : ''),\n  'Creator: ' + p.student + ' ' + p.handle + ', ' + p.niche + ' on ' + p.platform,\n  '',\n  'Facts you may use:',\n  facts.map(function (f) { return '- ' + f.label + ': ' + f.value; }).join('\\n'),\n  '',\n  'The offer: ' + p.deliverables + (p.rate_card ? ' at £' + p.rate_card : ''),\n  '',\n  'Write the email.'\n].join('\\n');\n\nreturn [{\n  json: Object.assign({}, p, {\n    facts: facts,\n    fact_count: facts.length,\n    brand_fact_count: brandFacts.length,\n    subject: 'Partnership with ' + p.student + ' — ' + p.brand,\n    body: skeleton,\n    written_by: 'skeleton',\n    _needs_writer: cfg.ai_enabled === true,\n    _ai_system: system,\n    _ai_user: user\n  })\n}];"
+      },
+      "id": "pitch",
+      "name": "build the pitch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "writer-c",
+              "leftValue": "={{ $json._needs_writer }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "writer",
+      "name": "writer configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ai_url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $('config').first().json.ai_api_key }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('config').first().json.ai_model, max_tokens: 700, system: $json._ai_system, messages: [{ role: 'user', content: $json._ai_user }] }) }}"
+      },
+      "id": "ai",
+      "name": "AI - write the pitch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Anthropic Messages API. The prompt is assembled in 'build the pitch' so it is readable without opening this body. The model is given FACTS and told not to add any — it never sees a blank slate."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads the model's answer and keeps the skeleton when it cannot be trusted.\n//\n// A writer that times out, runs out of credits or returns something unparseable does not\n// fail the run and does not silently send an empty email. The skeleton — assembled from\n// facts, in code — stays, and the pitch is marked as unwritten so the audit downstream\n// holds it for a human.\nconst p = $('build the pitch').item.json;\nconst resp = $json || {};\n\nfunction textOf(r) {\n  if (typeof r === 'string') return r;\n  if (Array.isArray(r.content)) {\n    return r.content.map(function (c) { return c.text || ''; }).join('');\n  }\n  return r.completion || r.text || '';\n}\n\nlet subject = p.subject;\nlet body = p.body;\nlet by = 'skeleton';\nlet error = '';\n\nconst raw = textOf(resp).trim();\nif (!raw) {\n  error = resp.error ? (resp.error.message || String(resp.error)) : 'no answer from the writer';\n} else {\n  // The model was asked for JSON. Take the first {...} block rather than trusting that the\n  // whole answer is clean — a leading \"Here you go:\" is the most common failure and it is\n  // not worth a retry.\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start === -1 || end <= start) {\n    error = 'writer did not return JSON';\n  } else {\n    try {\n      const parsed = JSON.parse(raw.slice(start, end + 1));\n      if (parsed.subject && parsed.body) {\n        subject = String(parsed.subject).trim();\n        body = String(parsed.body).trim();\n        by = 'writer';\n      } else {\n        error = 'writer returned JSON without a subject or a body';\n      }\n    } catch (e) {\n      error = 'writer returned malformed JSON: ' + e.message;\n    }\n  }\n}\n\nreturn [{\n  json: Object.assign({}, p, {\n    subject: subject,\n    body: body,\n    written_by: by,\n    writer_error: error\n  })\n}];"
+      },
+      "id": "apply",
+      "name": "apply the written pitch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: no writer configured — the skeleton pitch stands.\n//\n// The pitch is real: the facts are assembled, the numbers are the creator's own, and it is\n// readable. It is also stiff, and the third hard gate is that pitches never read\n// templated. So it goes to the audit like every other pitch and will be held there unless\n// it happens to pass — which the skeleton, by design, mostly does not.\n//\n// A blank AI_API_KEY means \"a human finishes these\", not \"send them anyway\".\nconst p = $json;\n\nreturn [{\n  json: Object.assign({}, p, {\n    written_by: 'skeleton',\n    writer_error: 'AI_API_KEY is blank — the skeleton was not rewritten'\n  })\n}];"
+      },
+      "id": "nowriter",
+      "name": "STOP: no writer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-pitch",
+      "name": "one list of pitches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The personalisation gate. The third hard gate, made checkable.\n//\n// > Sharp written English — pitches read human and personal from line one.\n// > Never templated.\n//\n// Five checks, and a pitch that fails any of them is HELD, not softened and sent:\n//\n//   1. enough facts    at least MIN_FACTS specific details drawn from the records, of\n//                      which at least MIN_BRAND_FACTS must be about the BRAND. A pitch\n//                      made mostly of the creator's own numbers is a CV, not outreach.\n//   2. no template tells   nothing from BANNED_PHRASES survives.\n//   3. length          inside MIN_WORDS..MAX_WORDS.\n//   4. real recipient  not a role mailbox, not suppressed, a plausible address.\n//   5. no invention    every number in the body appears in the facts. A model that\n//                      rounds 84,000 up to \"nearly 100k\" has fabricated a media kit.\n//\n// Held pitches are not failures of the run. They are the run doing its job, and every one\n// of them is listed with the reason.\nconst cfg = $('config').first().json;\nconst p = $json;\n\nconst holds = [];\nconst body = String(p.body || '');\nconst subject = String(p.subject || '');\nconst lower = (subject + ' ' + body).toLowerCase();\n\n// 1. facts\nif (Number(p.fact_count || 0) < Number(cfg.min_facts || 0)) {\n  holds.push('only ' + (p.fact_count || 0) + ' usable facts, needs ' + cfg.min_facts +\n    ' — the brand record is too thin to say anything specific');\n}\nif (Number(p.brand_fact_count || 0) < Number(cfg.min_brand_facts || 1)) {\n  holds.push('only ' + (p.brand_fact_count || 0) + ' fact(s) about the brand itself, needs ' +\n    cfg.min_brand_facts + ' — this reads as a CV, not as outreach');\n}\n\n// 2. template tells\nconst tells = (cfg.banned_phrases || []).filter(function (phrase) {\n  return lower.indexOf(phrase) !== -1;\n});\nif (tells.length) holds.push('template tell: \"' + tells.join('\", \"') + '\"');\n\n// 3. length\nconst words = body.split(/\\s+/).filter(Boolean).length;\nif (words < Number(cfg.min_words || 0)) holds.push(words + ' words, under the ' +\n  cfg.min_words + '-word floor');\nif (words > Number(cfg.max_words || 9999)) holds.push(words + ' words, over the ' +\n  cfg.max_words + '-word ceiling');\n\n// 4. recipient\nconst email = String(p.email || '').toLowerCase().trim();\nconst localPart = email.split('@')[0] || '';\nconst domain = email.split('@')[1] || '';\nif (!/^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$/.test(email)) {\n  holds.push('not a plausible address: \"' + email + '\"');\n} else if ((cfg.role_prefixes || []).indexOf(localPart) !== -1) {\n  holds.push('role mailbox (' + localPart + '@) — nobody owns it, and it is where bounce ' +\n    'rates come from');\n} else if ((cfg.suppression || []).indexOf(email) !== -1 ||\n           (cfg.suppression || []).indexOf(domain) !== -1) {\n  holds.push('suppressed');\n}\n\n// 5. no invention. Every number in the body has to be traceable to a fact or to the offer.\nconst known = (p.facts || []).map(function (f) { return String(f.value); })\n  .concat([String(p.rate_card || ''), String(p.min_rate || ''), String(p.followers || ''),\n           String(p.avg_views || '')])\n  .join(' ').replace(/[,\\s]/g, '');\nconst invented = (body.match(/\\d[\\d,.]*k?/gi) || []).filter(function (raw) {\n  const n = raw.replace(/[,\\s]/g, '');\n  if (n.length < 3) return false;               // years, small counts, \"2 stories\"\n  return known.indexOf(n.replace(/k$/i, '')) === -1 && known.indexOf(n) === -1;\n});\nif (invented.length) {\n  holds.push('numbers not in the record: ' + invented.join(', ') +\n    ' — a rounded-up follower count is a fabricated media kit');\n}\n\n// The skeleton is honest but stiff, and stiff is what reads as templated.\nif (p.written_by === 'skeleton' && !holds.length) {\n  holds.push('unwritten skeleton — reads as a template, needs a writer or a human');\n}\n\nreturn [{\n  json: Object.assign({}, p, {\n    word_count: words,\n    audit_holds: holds,\n    audit_passed: holds.length === 0,\n    hold_reason: holds.join(' · ')\n  })\n}];"
+      },
+      "id": "audit",
+      "name": "audit the pitch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The deliverability gate. The second hard gate, and the one that fails CLOSED.\n//\n// > Deliverability literate — warmup, domain health, spam are second nature.\n//\n// An inbox sends only if it can be proved healthy. Five reasons it cannot:\n//\n//   warming        younger than MIN_WARMUP_DAYS. Nothing else about it matters.\n//   bouncing       above MAX_BOUNCE_RATE — pulled until somebody cleans the list.\n//   complaints     above MAX_SPAM_RATE.\n//   unhealthy      platform health score below MIN_HEALTH_SCORE.\n//   unknown        the platform will not report on it. HOLD_UNKNOWN_INBOX decides, and it\n//                  ships true, because an unknown inbox is not a healthy one.\n//\n// Then two ceilings, both enforced here rather than left to the sending platform: per\n// mailbox, and per DOMAIN. The second is the one people forget — five mailboxes on one\n// domain each politely under their own cap will still cook the domain between them.\n//\n// Runs once for the whole batch, because a per-item version cannot count what the batch is\n// already using.\nconst cfg = $('config').first().json;\nconst items = $input.all();\n\nconst inboxes = ((items[0] && items[0].json._roster && items[0].json._roster.inboxes) || [])\n  .map(function (i) { return Object.assign({}, i); });\n\nfunction health(inbox) {\n  const reasons = [];\n  const bounce = inbox.bounce_rate;\n  const spam = inbox.spam_rate;\n  const score = inbox.health_score;\n\n  if (Number(inbox.warmed_days || 0) < Number(cfg.min_warmup_days || 0)) {\n    reasons.push('warming (' + (inbox.warmed_days || 0) + 'd of ' + cfg.min_warmup_days + ')');\n  }\n  const unknown = bounce === null || bounce === undefined ||\n    score === null || score === undefined;\n  if (unknown) {\n    if (cfg.hold_unknown_inbox) reasons.push('health not reported — held by default');\n  } else {\n    if (Number(bounce) > Number(cfg.max_bounce_rate)) {\n      reasons.push('bounce ' + (Number(bounce) * 100).toFixed(1) + '% over ' +\n        (Number(cfg.max_bounce_rate) * 100).toFixed(1) + '%');\n    }\n    if (spam !== null && spam !== undefined && Number(spam) > Number(cfg.max_spam_rate)) {\n      reasons.push('spam complaints ' + (Number(spam) * 100).toFixed(2) + '% over ' +\n        (Number(cfg.max_spam_rate) * 100).toFixed(2) + '%');\n    }\n    if (Number(score) < Number(cfg.min_health_score)) {\n      reasons.push('health score ' + score + ' under ' + cfg.min_health_score);\n    }\n  }\n  if (String(inbox.state || '').toLowerCase() === 'paused') reasons.push('paused');\n  return reasons;\n}\n\n// Room left today, per mailbox and per domain, starting from what the platform says has\n// already gone out.\nconst perInboxCap = Number(cfg.max_per_inbox_day || 0);\nconst perDomainCap = Number(cfg.max_per_domain_day || 0);\nconst domainUsed = {};\nconst usable = [];\n\ninboxes.forEach(function (inbox) {\n  const reasons = health(inbox);\n  inbox._blocked = reasons;\n  inbox._sent = Number(inbox.sent_today || 0);\n  const d = String(inbox.domain || '');\n  domainUsed[d] = (domainUsed[d] || 0) + inbox._sent;\n  if (!reasons.length) usable.push(inbox);\n});\n\n// Fewest sent first, so the load spreads instead of hammering the first healthy mailbox.\nusable.sort(function (a, b) { return a._sent - b._sent; });\n\nconst out = [];\nlet sent = 0;\nlet heldByAudit = 0;\nconst inboxReport = inboxes.map(function (i) {\n  return { inbox: i.email, domain: i.domain, sent_today: i._sent,\n    blocked: i._blocked.join(' · ') };\n});\n\nitems.forEach(function (item) {\n  const p = item.json;\n\n  if (!p.audit_passed) {\n    heldByAudit++;\n    out.push({ json: Object.assign({}, p, {\n      inbox: '', _send: false, send_state: 'held',\n      send_reason: p.hold_reason, inbox_report: inboxReport }) });\n    return;\n  }\n\n  // Pick the first healthy mailbox with room, whose domain also has room.\n  let chosen = null;\n  for (let i = 0; i < usable.length; i++) {\n    const inbox = usable[i];\n    const d = String(inbox.domain || '');\n    const inboxRoom = perInboxCap <= 0 || inbox._sent < perInboxCap;\n    const domainRoom = perDomainCap <= 0 || (domainUsed[d] || 0) < perDomainCap;\n    if (inboxRoom && domainRoom) { chosen = inbox; break; }\n  }\n\n  if (!chosen) {\n    const anyHealthy = usable.length > 0;\n    out.push({ json: Object.assign({}, p, {\n      inbox: '', _send: false, send_state: 'held',\n      send_reason: anyHealthy\n        ? 'every healthy inbox is at its daily ceiling — this rolls to the next run'\n        : 'no inbox passed the health gate: ' + inboxes.map(function (i) {\n            return i.email + ' (' + i._blocked.join('; ') + ')';\n          }).join(' | '),\n      inbox_report: inboxReport }) });\n    return;\n  }\n\n  chosen._sent++;\n  domainUsed[String(chosen.domain || '')] =\n    (domainUsed[String(chosen.domain || '')] || 0) + 1;\n  usable.sort(function (a, b) { return a._sent - b._sent; });\n  sent++;\n\n  out.push({ json: Object.assign({}, p, {\n    inbox: chosen.email,\n    inbox_domain: chosen.domain,\n    _send: cfg.send_enabled === true,\n    send_state: cfg.send_enabled ? 'queued' : 'preview',\n    send_reason: cfg.send_enabled ? '' : 'preview — nothing is sent',\n    // In test mode every pitch is redirected to one address, so a real brand contact is\n    // never emailed while the copy is being checked.\n    to: cfg.test_send && cfg.test_email ? cfg.test_email : p.email,\n    inbox_report: inboxReport,\n    _totals: { candidates: items.length, sendable: sent, held_by_audit: heldByAudit }\n  }) });\n});\n\nout.forEach(function (o) {\n  o.json._totals = { candidates: items.length, sendable: sent, held_by_audit: heldByAudit,\n    inboxes_healthy: usable.length, inboxes_total: inboxes.length };\n});\nreturn out;"
+      },
+      "id": "inbox",
+      "name": "assign a healthy inbox",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "send-on-c",
+              "leftValue": "={{ $json._send }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "send-on",
+      "name": "sending this one?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Instantly v2 POST /leads body. One lead, with the written pitch attached as custom\n// variables so the campaign step can use {{subject}} and {{body}} verbatim.\n//\n// For Smartlead, change SEND_URL in config and the body here. Nothing else moves.\nconst cfg = $('config').first().json;\nconst p = $json;\n\nconst campaign = cfg.campaign_by_niche[p.niche] || cfg.campaign_id;\n\nreturn [{\n  json: Object.assign({}, p, {\n    campaign: campaign,\n    _body: {\n      campaign: campaign,\n      email: p.to,\n      first_name: String(p.contact || '').split(' ')[0],\n      last_name: String(p.contact || '').split(' ').slice(1).join(' '),\n      company_name: p.brand,\n      personalization: p.subject,\n      custom_variables: {\n        subject: p.subject,\n        body: p.body,\n        creator: p.student,\n        handle: p.handle,\n        niche: p.niche,\n        sent_from: p.inbox,\n        pitch_id: p.pitch_id\n      }\n    }\n  })\n}];"
+      },
+      "id": "payload",
+      "name": "payload for the campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.send_url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.send_api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}"
+      },
+      "id": "send",
+      "name": "[cred] Instantly - add to the campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2440,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Instantly v2 POST /leads. For Smartlead, change SEND_URL in config and the body in 'payload for the campaign'. Nothing else moves."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads the sending platform's answer to each push and turns it into one honest line.\n//\n// A lead the campaign rejected is NOT recorded as sent. The rule is: log every pitch,\n// reply and booked deal in the creator's dashboard, accurate and same day,\n// and a log that quietly upgrades a 4xx into a send is the thing that makes a student's\n// dashboard a lie.\nconst p = $('payload for the campaign').item.json;\nconst resp = $json || {};\n\n// Instantly v2 answers with the created lead. A rejection comes back with an error or with\n// nothing usable. `a && b` returns b, so the boolean coercion is deliberate.\nconst ok = !!(resp && !resp.error && (resp.id || resp.lead_id ||\n  (resp.data && resp.data.id)));\n\nreturn [{\n  json: Object.assign({}, p, {\n    sent: ok,\n    lead_id: ok ? (resp.id || resp.lead_id || resp.data.id) : null,\n    send_state: ok ? 'sent' : 'failed',\n    send_reason: ok ? '' : (\n      (resp.error && (resp.error.message || resp.error)) || 'no lead id returned'),\n    sent_at: new Date().toISOString(),\n    logged_at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "sent",
+      "name": "record what was sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: this pitch was not sent.\n//\n// Open this node to read the batch. In preview — how the workflow ships — every pitch is\n// here, fully written, with the inbox it would have gone from, the facts it was built on,\n// and for every held one, the audit's reason in plain words.\n//\n// That list is the deliverable of a first run: a whole batch of example pitches you can\n// read before one of them leaves the building, which is what \"personal and\n// non-templated\" looks like once it is checkable.\nconst cfg = $('config').first().json;\nconst p = $json;\n\nconst why = p.send_state === 'held'\n  ? p.send_reason\n  : cfg.forced_preview\n    ? 'PREVIEW (forced — the demo roster cannot email a real contact)'\n    : cfg.preview_only\n      ? 'PREVIEW — TEST_RUN is true and TEST_EMAIL is blank'\n      : 'sending is not configured (SEND_API_KEY or CAMPAIGN_ID is blank)';\n\nreturn [{\n  json: Object.assign({}, p, {\n    sent: false,\n    lead_id: null,\n    send_state: p.send_state === 'held' ? 'held' : 'preview',\n    send_reason: why,\n    sent_at: '',\n    logged_at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "notsent",
+      "name": "STOP: not sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-sent",
+      "name": "what happened",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "log-on-c",
+              "leftValue": "={{ $('config').first().json.log_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "log-on",
+      "name": "logging the pitches?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Every pitch, sent or held, as an Airtable row. Same day, which is the point.\n//\n// > Log every pitch, reply and booked deal in the student's dashboard — accurate and same\n// > day. Careless or slow with logging: sloppy data breaks the whole system.\n//\n// Held pitches are logged too, with the reason. A log that only records successes cannot\n// answer \"why did we only send 180 of the 400 we planned\", which is the first question\n// anybody asks on a Friday.\n//\n// Batched ten to a request, because that is Airtable's maximum for POST /records. One\n// request per pitch is four hundred requests for a normal day's run and will rate-limit\n// long before it finishes.\nconst cfg = $('config').first().json;\nconst F = cfg.pitch_fields;\nconst items = $input.all();\n\nconst BATCH = 10;\nconst out = [];\n\nfor (let i = 0; i < items.length; i += BATCH) {\n  const chunk = items.slice(i, i + BATCH).map(function (item) {\n    const p = item.json;\n    const row = {};\n    row[F.pitch_id] = p.pitch_id;\n    row[F.student_id] = p.student_id;\n    row[F.student] = p.student;\n    row[F.brand_id] = p.brand_id;\n    row[F.brand] = p.brand;\n    row[F.contact] = p.contact;\n    row[F.email] = p.email;\n    row[F.inbox] = p.inbox || '';\n    row[F.subject] = p.subject;\n    row[F.body] = p.body;\n    row[F.facts_used] = (p.facts || []).map(function (f) {\n      return f.label + '=' + f.value;\n    }).join(' | ');\n    row[F.sent_at] = p.sent_at || '';\n    row[F.state] = p.send_state;\n    row[F.hold_reason] = p.send_reason || '';\n    return { fields: row };\n  });\n  out.push({\n    json: {\n      _batch: (i / BATCH) + 1,\n      _count: chunk.length,\n      // typecast lets Airtable create a missing single-select option rather than 422ing the\n      // whole batch. A new hold reason should not stop the day's log being written.\n      _body: { records: chunk, typecast: true }\n    }\n  });\n}\n\nif (!out.length) {\n  return [{ json: { _batch: 0, _count: 0, _body: { records: [], typecast: true } } }];\n}\nreturn out;"
+      },
+      "id": "logrows",
+      "name": "rows for the pitch log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.airtable_url }}/{{ $('config').first().json.airtable_base }}/{{ $('config').first().json.pitches_table }}",
+        "options": {
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('config').first().json.airtable_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}"
+      },
+      "id": "logwrite",
+      "name": "[cred] Airtable - log the pitches",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3540,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Ten records per request, which is Airtable's maximum. typecast is on so a new hold reason creates the select option instead of 422ing the whole batch."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Did every pitch actually reach the dashboard?\n//\n// Counts the records Airtable says it created and compares that with the number of pitches\n// this run produced. A mismatch is reported as a LOG GAP, with the number — it is not\n// treated as a successful run that happened to write less.\n//\n// This is the check that makes \"accurate and same day\" a property rather than an intention.\nconst pitches = $('what happened').all().map(function (i) { return i.json; });\nconst responses = $input.all().map(function (i) { return i.json || {}; });\n\nlet created = 0;\nconst errors = [];\nresponses.forEach(function (r) {\n  if (Array.isArray(r.records)) { created += r.records.length; return; }\n  errors.push((r.error && (r.error.message || r.error.type || r.error)) ||\n    'batch returned no records');\n});\n\nconst gap = pitches.length - created;\n\nreturn pitches.map(function (p) {\n  return { json: Object.assign({}, p, {\n    logged: gap === 0,\n    log_gap: gap > 0,\n    log_written: created,\n    log_expected: pitches.length,\n    log_reason: gap === 0 ? '' :\n      gap + ' of ' + pitches.length + ' pitches did not reach the dashboard' +\n      (errors.length ? ' (' + errors.join('; ') + ')' : '')\n  }) };\n});"
+      },
+      "id": "logok",
+      "name": "confirm the log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: the pitch log was not written.\n//\n// This is a reportable state, not a quiet one. Same-day logging is part of\n// the job, so a run that sent pitches and could not log them is called out in the summary\n// with the count — it is a reconciliation the person working the inbox has to do by hand\n// tomorrow.\n//\n// In preview nothing was sent either, so there is nothing to reconcile.\nconst cfg = $('config').first().json;\nconst items = $input.all();\nconst sent = items.filter(function (i) { return i.json.sent === true; }).length;\n\n// Both the gap and its reason are read off what the run actually did, not off the mode it\n// was configured in. A run that sent mail has a reconciliation to do whatever TEST_RUN said.\nconst gap = sent > 0;\n\nreturn items.map(function (item) {\n  return { json: Object.assign({}, item.json, {\n    logged: false,\n    log_gap: gap,\n    log_reason: gap\n      ? 'Airtable is not configured — ' + sent +\n        ' sent pitch(es) are NOT in the dashboard and must be reconciled by hand'\n      : 'nothing was sent, so there is nothing to log'\n  }) };\n});"
+      },
+      "id": "nolog",
+      "name": "STOP: not logged",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "merge-log",
+      "name": "logged",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One message for the team, and a per-pitch record for whoever has to argue with it.\n//\n// The numbers that matter here are not \"how many did we send\". They are: how many were\n// held and why, how many inboxes are healthy, and whether the log matched the sends. All\n// three are the difference between 10,000 pitches a month and 10,000 pitches a month that\n// keep landing.\nconst cfg = $('config').first().json;\nconst items = $input.all().map(function (i) { return i.json; });\n\nconst quiet = items.filter(function (j) { return j._has_work === false; })[0];\nconst pitches = items.filter(function (j) { return j._has_work !== false && j.pitch_id; });\n\nconst totals = (pitches[0] && pitches[0]._totals) || {};\nconst sent = pitches.filter(function (p) { return p.sent === true; });\nconst failed = pitches.filter(function (p) { return p.send_state === 'failed'; });\nconst held = pitches.filter(function (p) { return p.send_state === 'held'; });\nconst preview = pitches.filter(function (p) { return p.send_state === 'preview'; });\n\n// Why things were held, grouped. A list of 180 reasons is not readable; six counts are.\nconst holdCounts = {};\nheld.forEach(function (p) {\n  (p.audit_holds && p.audit_holds.length ? p.audit_holds : [p.send_reason || 'held'])\n    .forEach(function (h) {\n      // Group on the shape of the reason, not its detail, so \"template tell: X\" and\n      // \"template tell: Y\" land in one bucket.\n      const key = String(h).split(':')[0].split('—')[0].trim();\n      holdCounts[key] = (holdCounts[key] || 0) + 1;\n    });\n});\n\nconst inboxReport = (pitches[0] && pitches[0].inbox_report) || [];\nconst blockedInboxes = inboxReport.filter(function (i) { return i.blocked; });\n\nconst logGap = pitches.filter(function (p) { return p.log_gap === true; }).length > 0;\nconst logReason = (pitches.filter(function (p) { return p.log_reason; })[0] || {}).log_reason;\n\nconst mode = cfg.forced_preview ? 'PREVIEW (forced — demo roster)'\n  : cfg.preview_only ? 'PREVIEW — nothing sent'\n  : cfg.test_send ? 'TEST — sent, redirected to ' + cfg.test_email\n  : 'LIVE';\n\nconst lines = [];\nlines.push('*Brand deal outreach* — ' + mode);\nif (quiet) {\n  lines.push(quiet.headline);\n} else {\n  lines.push(pitches.length + ' pitches written · ' + sent.length + ' sent · ' +\n    held.length + ' held · ' + preview.length + ' preview');\n  if (failed.length) lines.push(':warning: ' + failed.length + ' rejected by the campaign');\n  lines.push('inboxes: ' + (totals.inboxes_healthy || 0) + ' of ' +\n    (totals.inboxes_total || 0) + ' healthy');\n  if (blockedInboxes.length) {\n    lines.push('  ' + blockedInboxes.map(function (i) {\n      return i.inbox + ' — ' + i.blocked;\n    }).join('\\n  '));\n  }\n  if (Object.keys(holdCounts).length) {\n    lines.push('held because:');\n    Object.keys(holdCounts).sort(function (a, b) {\n      return holdCounts[b] - holdCounts[a];\n    }).forEach(function (k) { lines.push('  ' + holdCounts[k] + ' × ' + k); });\n  }\n  if (logGap) lines.push(':rotating_light: log gap — ' + logReason);\n}\n\n// Per student, because that is how the money works: $50 per student per month.\nconst byStudent = {};\npitches.forEach(function (p) {\n  const k = p.student || 'unknown';\n  if (!byStudent[k]) byStudent[k] = { student: k, written: 0, sent: 0, held: 0 };\n  byStudent[k].written++;\n  if (p.sent) byStudent[k].sent++;\n  if (p.send_state === 'held') byStudent[k].held++;\n});\n\nreturn [{\n  json: {\n    mode: cfg.mode,\n    source: quiet ? quiet.source : (pitches[0] && pitches[0]._roster\n      && pitches[0]._roster.source),\n    written: pitches.length,\n    sent: sent.length,\n    held: held.length,\n    preview: preview.length,\n    failed: failed.length,\n    hold_reasons: holdCounts,\n    inboxes_healthy: totals.inboxes_healthy || 0,\n    inboxes_total: totals.inboxes_total || 0,\n    blocked_inboxes: blockedInboxes,\n    log_gap: logGap,\n    log_reason: logReason || '',\n    by_student: Object.keys(byStudent).map(function (k) { return byStudent[k]; }),\n    pitches: pitches.map(function (p) {\n      return { pitch_id: p.pitch_id, student: p.student, brand: p.brand,\n        contact: p.contact, email: p.email, inbox: p.inbox, subject: p.subject,\n        words: p.word_count, facts: p.fact_count, state: p.send_state,\n        reason: p.send_reason || '' };\n    }),\n    summary: lines.join('\\n'),\n    _alert_body: { text: lines.join('\\n') }\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "build the run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "alert-on-c",
+              "leftValue": "={{ $('config').first().json.alert_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "alert-on",
+      "name": "alert configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.alert_webhook_url }}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._alert_body) }}"
+      },
+      "id": "alert",
+      "name": "Post the run summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4640,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "Slack incoming webhook shape. Any endpoint that accepts JSON works."
+    },
+    {
+      "parameters": {},
+      "id": "noalert",
+      "name": "STOP: no alert webhook",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4640,
+        420
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "end",
+      "name": "End",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Send personalised brand deal pitches from Airtable with Instantly\n\n**Who's it for**\nCreator-management agencies, talent managers and solo operators running paid brand-deal outreach at volume, who need every pitch to read as though a person wrote it and need to prove it rather than promise it.\n\n**How it works**\nOn a weekday schedule the run loads creators, brand targets, sending inboxes and the pitch log from Airtable, or builds an offline demo roster when no key is set. `match brands to students` pairs each creator with brands in their own niche whose budget clears their minimum rate and skips anyone pitched inside the re-pitch window. `build the pitch` assembles verifiable facts in code and hands the model that list with an instruction to add nothing to it. `audit the pitch` holds anything thin, templated, mis-sized or numerically unsupported. `assign a healthy inbox` fails closed: an inbox that cannot be proved warmed and clean sends nothing. Survivors are pushed into an Instantly campaign, every pitch — sent or held — is logged the same day, and a run summary is posted to Slack.\n\n**How to set up**\n1. Open `config` and add your Airtable personal access token and base id.\n2. Add the Anthropic key, the Instantly key and a campaign id.\n3. Add a Slack incoming webhook URL for the run summary.\n4. Leave `TEST_RUN = true` for the first run, read `STOP: not sent`, then set it to false.\n\n**Requirements**\nAn Airtable base with Students, Brands, Inboxes and Pitches tables. Anthropic, Instantly and Slack are optional: a blank key skips that branch instead of failing the run.\n\n**How to customize**\n`MIN_FACTS`, `BANNED_PHRASES`, `MIN_WORDS`/`MAX_WORDS`, `MIN_WARMUP_DAYS` and `PITCHES_PER_STUDENT_PER_DAY` in `config` control how strict each gate is.",
+        "height": 704,
+        "width": 900,
+        "color": 4
+      },
+      "id": "sticky-overview",
+      "name": "Sticky Note - Start here",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1980,
+        -604
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Trigger and config\n\n`Run it now` is for testing; `Every weekday, 08:00` is what runs in production.\n\n`config` is the only node you edit. The Airtable, Anthropic, Instantly and Slack keys, the daily volume caps, the deliverability thresholds and the banned-phrase list all live there. A blank key means that branch is skipped, not that the run fails.\n\n`Airtable configured?` decides whether the run reads your base or builds the offline demo roster.",
+        "height": 296,
+        "width": 700,
+        "color": 7
+      },
+      "id": "sticky-1",
+      "name": "Sticky Note - Trigger and config",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1980,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Read the roster, or build a demo one\n\nThe four `[cred] Airtable` nodes pull Students, Brands, Inboxes and the Pitches log in turn. `read the roster` folds all four responses into a single item, so nothing downstream touches an Airtable payload directly, and an empty read that actually errored is never reported as a quiet day.\n\nWith no Airtable key, `STOP: demo roster` builds a deterministic stand-in instead: six creators, sixty brand contacts and six sending inboxes with a deliberately mixed health picture, so the whole engine can be watched end to end before an account exists. Demo data forces the run into preview, so a fabricated contact can never be emailed.\n\n`one roster` merges whichever branch ran.",
+        "height": 296,
+        "width": 1280,
+        "color": 7
+      },
+      "id": "sticky-2",
+      "name": "Sticky Note - Read the roster",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1270,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Match brands to creators, then write the pitch\n\n`match brands to students` pairs each creator with brands in their own niche whose budget band clears their minimum rate, skips anyone already pitched inside the re-pitch window, and stops at the per-creator and per-run caps. Nothing to do is a reportable state rather than a fault: `STOP: nothing to pitch` says which filter took the volume, by count.\n\n`build the pitch` assembles the facts **in code** from the brand and creator records — what the brand just did, what the creator's numbers actually are, what the deliverable costs — and hands the model that list with an instruction to add nothing to it. `AI - write the pitch` returns a subject and a body; `apply the written pitch` keeps the code-built skeleton whenever the answer cannot be parsed, so a writer that times out never sends an empty email. With no key set, `STOP: no writer` passes the skeleton on to be held for a human.",
+        "height": 272,
+        "width": 1520,
+        "color": 7
+      },
+      "id": "sticky-3",
+      "name": "Sticky Note - Match and write",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        20,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. The two gates\n\n`audit the pitch` is the personalisation gate: enough specific facts, at least one of them about the brand, nothing from `BANNED_PHRASES`, inside the word range, a real recipient rather than a role mailbox, and every number in the body traceable back to a record. A thin brand record yields fewer facts, not a vaguer sentence, and the pitch is held.\n\n`assign a healthy inbox` is the deliverability gate, and it fails closed: warmed past `MIN_WARMUP_DAYS`, under the bounce and spam ceilings, above the health score, and inside both the per-mailbox and the per-domain daily cap. `HOLD_UNKNOWN_INBOX` ships true.\n\n`sending this one?` is where both verdicts land.",
+        "height": 368,
+        "width": 660,
+        "color": 7
+      },
+      "id": "sticky-4",
+      "name": "Sticky Note - The two gates",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1550,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. Send through the campaign\n\n`payload for the campaign` builds the Instantly v2 lead body with the written subject and body attached as custom variables, and routes to a per-niche campaign when one is configured. `[cred] Instantly - add to the campaign` pushes it, and `record what was sent` reads the answer back and refuses to record a rejected lead as sent.\n\nEverything held stops at `STOP: not sent`. In preview — which is how this ships — that node holds the whole batch: every pitch fully written, with the inbox it would have gone from and, for each held one, the reason in plain words. Read it before you go live.",
+        "height": 272,
+        "width": 860,
+        "color": 7
+      },
+      "id": "sticky-5",
+      "name": "Sticky Note - Send the batch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 6. Log every pitch, sent or held\n\n`rows for the pitch log` batches the run ten records to a request, which is Airtable's maximum, and writes held pitches too, each with its reason. A log that records only successes cannot answer why 180 of a planned 400 went out.\n\n`confirm the log` compares what Airtable says it created against what the run produced and reports any difference as a LOG GAP. `STOP: not logged` carries the count forward so the gap shows up in the summary instead of staying silent.",
+        "height": 248,
+        "width": 900,
+        "color": 7
+      },
+      "id": "sticky-6",
+      "name": "Sticky Note - Log every pitch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3090,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 7. Report the run\n\n`build the run summary` counts what was sent, what was held and why, how many inboxes were usable, and whether the log matched the sends.\n\n`alert configured?` posts that summary to Slack when `ALERT_WEBHOOK_URL` is set, and skips straight to `End` when it is not. The run finishes either way.",
+        "height": 200,
+        "width": 1070,
+        "color": 7
+      },
+      "id": "sticky-7",
+      "name": "Sticky Note - Report the run",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4000,
+        620
+      ]
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday, 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Airtable configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - students",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: demo roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - students": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - brand targets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - brand targets": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - inboxes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - inboxes": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - the pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - the pitch log": {
+      "main": [
+        [
+          {
+            "node": "read the roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the roster": {
+      "main": [
+        [
+          {
+            "node": "one roster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: demo roster": {
+      "main": [
+        [
+          {
+            "node": "one roster",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one roster": {
+      "main": [
+        [
+          {
+            "node": "match brands to students",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "match brands to students": {
+      "main": [
+        [
+          {
+            "node": "anything to pitch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything to pitch?": {
+      "main": [
+        [
+          {
+            "node": "build the pitch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing to pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: nothing to pitch": {
+      "main": [
+        [
+          {
+            "node": "build the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the pitch": {
+      "main": [
+        [
+          {
+            "node": "writer configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "writer configured?": {
+      "main": [
+        [
+          {
+            "node": "AI - write the pitch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - write the pitch": {
+      "main": [
+        [
+          {
+            "node": "apply the written pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply the written pitch": {
+      "main": [
+        [
+          {
+            "node": "one list of pitches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no writer": {
+      "main": [
+        [
+          {
+            "node": "one list of pitches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one list of pitches": {
+      "main": [
+        [
+          {
+            "node": "audit the pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "audit the pitch": {
+      "main": [
+        [
+          {
+            "node": "assign a healthy inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "assign a healthy inbox": {
+      "main": [
+        [
+          {
+            "node": "sending this one?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sending this one?": {
+      "main": [
+        [
+          {
+            "node": "payload for the campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "payload for the campaign": {
+      "main": [
+        [
+          {
+            "node": "[cred] Instantly - add to the campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Instantly - add to the campaign": {
+      "main": [
+        [
+          {
+            "node": "record what was sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record what was sent": {
+      "main": [
+        [
+          {
+            "node": "what happened",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not sent": {
+      "main": [
+        [
+          {
+            "node": "what happened",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "what happened": {
+      "main": [
+        [
+          {
+            "node": "logging the pitches?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logging the pitches?": {
+      "main": [
+        [
+          {
+            "node": "rows for the pitch log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rows for the pitch log": {
+      "main": [
+        [
+          {
+            "node": "[cred] Airtable - log the pitches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Airtable - log the pitches": {
+      "main": [
+        [
+          {
+            "node": "confirm the log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "confirm the log": {
+      "main": [
+        [
+          {
+            "node": "logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: not logged": {
+      "main": [
+        [
+          {
+            "node": "logged",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "logged": {
+      "main": [
+        [
+          {
+            "node": "build the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the run summary": {
+      "main": [
+        [
+          {
+            "node": "alert configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "alert configured?": {
+      "main": [
+        [
+          {
+            "node": "Post the run summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no alert webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the run summary": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no alert webhook": {
+      "main": [
+        [
+          {
+            "node": "End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    "outreach",
+    "brand-deals",
+    "deliverability",
+    "airtable",
+    "instantly"
+  ]
+}

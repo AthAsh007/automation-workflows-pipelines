@@ -1,0 +1,422 @@
+{
+  "name": "Subscribe newsletter signups to Mailchimp from a webhook and welcome them by email",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const TAG = \"MUNI MIND\"\n\nreturn {\n  TAG,\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "id": "e29eaac4-ce88-4a09-af4e-7c5d38e8a00a",
+      "name": "config"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "1827a4f6-a087-40ff-a5e2-dfd80666a89f",
+        "responseMode": "responseNode",
+        "options": {
+          "onlyRunIf": "={{ $json.body.event === \"subscribe_newsletter\" }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "16fa1817-7c2a-4af0-a7b7-c54439a94a4d",
+      "name": "When someone subscribes",
+      "webhookId": "1827a4f6-a087-40ff-a5e2-dfd80666a89f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $(\"When someone subscribes\").first().json.body;\n\ntry {\n  const requiredFields = [\n    \"firstName\",\n    \"lastName\",\n    \"emailAddress\",\n    \"organization\",\n    \"jobTitle\",\n    \"cityAndState\",\n  ];\n\n  // Check required fields\n  for (const field of requiredFields) {\n    if (\n      body?.[field] === undefined ||\n      body?.[field] === null ||\n      body?.[field] === \"\"\n    ) {\n      throw new Error(`${field} is required`);\n    }\n\n    // Must be string\n    if (typeof body?.[field] !== \"string\") {\n      throw new Error(`${field} must be a string`);\n    }\n\n    // Don't allow whitespace-only strings\n    if (body?.[field].trim() === \"\") {\n      throw new Error(`${field} cannot be empty`);\n    }\n  }\n\n  // Validate email\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\n  if (!emailRegex.test(body.emailAddress.trim())) {\n    throw new Error(\"emailAddress must be a valid email address\");\n  }\n\n  return {\n    valid: true,\n  };\n\n} catch (e) {\n  return {\n    valid: false,\n    message: e.message,\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ],
+      "id": "7fa4d405-af32-41c2-9042-06d234ca6190",
+      "name": "validate the signup"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "489baa4d-9f52-454b-9fc8-d0f614b7c10a",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        840,
+        0
+      ],
+      "id": "d7ebe7db-25f6-4e5b-835d-bfbdb139685d",
+      "name": "signup valid?"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "list": "f1445026ba",
+        "email": "={{ $('When someone subscribes').item.json.body.emailAddress }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mailchimp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "851f1def-58b8-476e-8362-c6c5a030690c",
+      "name": "[cred] Mailchimp - find the member",
+      "alwaysOutputData": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "list": "f1445026ba",
+        "email": "={{ $('When someone subscribes').item.json.body.emailAddress }}",
+        "status": "subscribed",
+        "options": {
+          "tags": "={{ $('config').item.json.TAG }}"
+        },
+        "mergeFieldsUi": {
+          "mergeFieldsValues": [
+            {
+              "name": "FNAME",
+              "value": "={{ $('When someone subscribes').item.json.body.firstName }}"
+            },
+            {
+              "name": "LNAME",
+              "value": "={{ $('When someone subscribes').item.json.body.lastName }}"
+            },
+            {
+              "name": "ORG",
+              "value": "={{ $('When someone subscribes').item.json.body.organization }}"
+            },
+            {
+              "name": "JOBTITLE",
+              "value": "={{ $('When someone subscribes').item.json.body.jobTitle }}"
+            },
+            {
+              "name": "CITYSTATE",
+              "value": "={{ $('When someone subscribes').item.json.body.cityAndState }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.mailchimp",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        190
+      ],
+      "id": "c1bd1629-5f02-4f25-9dee-211d97d56e99",
+      "name": "[cred] Mailchimp - add the subscriber"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "list": "f1445026ba",
+        "email": "={{ $('When someone subscribes').item.json.body.emailAddress }}",
+        "updateFields": {
+          "mergeFieldsUi": {
+            "mergeFieldsValues": [
+              {
+                "name": "FNAME",
+                "value": "={{ $('When someone subscribes').item.json.body.firstName }}"
+              },
+              {
+                "name": "LNAME",
+                "value": "={{ $('When someone subscribes').item.json.body.lastName }}"
+              },
+              {
+                "name": "ORG",
+                "value": "={{ $('When someone subscribes').item.json.body.organization }}"
+              },
+              {
+                "name": "JOBTITLE",
+                "value": "={{ $('When someone subscribes').item.json.body.jobTitle }}"
+              },
+              {
+                "name": "CITYSTATE",
+                "value": "={{ $('When someone subscribes').item.json.body.cityAndState }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.mailchimp",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        0
+      ],
+      "id": "1c81913e-231e-414f-a94a-640211f09dda",
+      "name": "[cred] Mailchimp - update the subscriber"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('When someone subscribes').item.json.body.emailAddress }}",
+        "subject": "Your newsletter was here",
+        "message": "=Here is the link to your PDFs newsletter\n\nhttps://google.com",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "c7e7dec1-9e5b-45d8-be17-35f84533162e",
+      "name": "[cred] Gmail - send the welcome email",
+      "webhookId": "b7b09ce9-e4c1-4704-8980-684212040c76"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        190
+      ],
+      "id": "21dd3d33-35f7-471c-a471-fb49f59b9884",
+      "name": "respond: signup rejected"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"valid\": true,\n  \"sent\": true,\n  \"message\": \"Successfully added to newsletter, and link was sent to email!\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1960,
+        0
+      ],
+      "id": "94fb846e-4d26-4409-98e8-982fba0d51e8",
+      "name": "respond: subscribed"
+    },
+    {
+      "parameters": {
+        "content": "## Subscribe newsletter signups to Mailchimp from a webhook and welcome them by email\n\n**Who's it for**\nAnyone running a newsletter signup form on their own site who wants the subscriber added to\nMailchimp and welcomed immediately, with the form told whether it worked.\n\n**How it works**\nYour signup form posts to the webhook. **`validate the signup`** checks the body before anything\nelse happens, and an invalid payload is answered with an error response rather than being allowed\nto reach Mailchimp. A valid signup is looked up first: an address already on the list is updated\nrather than re-added, so a repeat signup refreshes the record instead of creating a duplicate or\nfailing. Either way the subscriber gets a welcome email, and the form receives a success response.\nBoth outcomes end in an explicit response node, so the browser is never left waiting.\n\n**How to set up**\n1. Open **`config`** and set your Mailchimp audience id and the welcome email subject.\n2. Attach Mailchimp and Gmail credentials to the `[cred]` nodes.\n3. Copy the production URL of **`When someone subscribes`** into your form's action or fetch call.\n4. Post a test signup and check the response body.\n\n**Requirements**\nA Mailchimp account with an audience, and a Gmail account for the welcome email.\n\n**How to customize**\nThe welcome email is built in **`[cred] Gmail - send the welcome email`** — swap that node for any\nother sender without touching the rest. To capture extra fields, add them in\n**`validate the signup`** and pass them through as merge fields.",
+        "height": 972,
+        "width": 640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -1312
+      ],
+      "id": "sticky-00",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "### 1. Validate before anything else\n\n**`config`** holds the audience id and the welcome subject in one place.\n\n**`validate the signup`** checks the posted body *before* any Mailchimp call. A malformed or empty payload is answered with an error, so a broken form never spends an API call or writes a junk record.",
+        "height": 202,
+        "width": 1040,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -242
+      ],
+      "id": "sticky-01",
+      "name": "1. Validate before anything else"
+    },
+    {
+      "parameters": {
+        "content": "### 2. Find first, then add or update\n\nThe lookup is what makes this safe to call twice. An address already on the list takes the **update** branch; a new one takes **add**.\n\nWithout it, a returning subscriber either creates a duplicate or fails the run — and people do resubmit forms.",
+        "height": 268,
+        "width": 480,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        330
+      ],
+      "id": "sticky-02",
+      "name": "2. Find first, then add or update"
+    },
+    {
+      "parameters": {
+        "content": "### 3. Always answer the form\n\nBoth paths end in an explicit response node — one for the rejected signup, one for the successful one.\n\nA webhook that ends without responding leaves the visitor's browser waiting until it times out, which looks like a broken site even though the subscriber was added.",
+        "height": 290,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        -330
+      ],
+      "id": "sticky-03",
+      "name": "3. Always answer the form"
+    }
+  ],
+  "connections": {
+    "When someone subscribes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "validate the signup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate the signup": {
+      "main": [
+        [
+          {
+            "node": "signup valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "signup valid?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Mailchimp - find the member",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "respond: signup rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Mailchimp - find the member": {
+      "main": [
+        [
+          {
+            "node": "[cred] Mailchimp - update the subscriber",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "[cred] Mailchimp - add the subscriber",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Mailchimp - add the subscriber": {
+      "main": [
+        [
+          {
+            "node": "[cred] Gmail - send the welcome email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Mailchimp - update the subscriber": {
+      "main": [
+        [
+          {
+            "node": "[cred] Gmail - send the welcome email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Gmail - send the welcome email": {
+      "main": [
+        [
+          {
+            "node": "respond: subscribed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}

@@ -7,12 +7,12 @@ already have.
 
 | Mechanism | What it looks like in a brief | Template |
 | --- | --- | --- |
-| **Enrich, verify, suppress, push, report** | "Clay to Apollo to Instantly with a Slack digest" | [lead-enrichment-and-verification](../n8n/lead-enrichment-and-verification/) |
-| **Intake, acknowledge, route, chase, digest** | "Nothing should wait on whoever notices the form first" | [inbound-enquiry-router](../n8n/inbound-enquiry-router/) |
-| **Audit, auto-fix the safe class, report the rest** | "Our CRM is a mess but do not merge anything" | [crm-data-hygiene](../n8n/crm-data-hygiene/) |
+| **Enrich, verify, suppress, push, report** | "Clay to Apollo to Instantly with a Slack digest" | [lead-enrichment-and-verification-published](../n8n/lead-enrichment-and-verification-published/) |
+| **Intake, acknowledge, route, chase, digest** | "Nothing should wait on whoever notices the form first" | [inbound-enquiry-router-published](../n8n/inbound-enquiry-router-published/) |
+| **Audit, auto-fix the safe class, report the rest** | "Our CRM is a mess but do not merge anything" | [crm-data-hygiene-published](../n8n/crm-data-hygiene-published/) |
 | **Personalise from a record, attach, send, write back** | "Email each of them with their own report attached" | [personalised-outbound-email](../n8n/personalised-outbound-email/) |
-| **Generate, render, human approval, publish** | "Post daily to our page without embarrassing us" | [social-post-with-approval](../n8n/social-post-with-approval/) |
-| **Webhook, durable state, multi-step ladder, qualify, book, write back** | "SMS then a call, then get them on the recruiter's calendar" | [recruiting-candidate-engine](../n8n/recruiting-candidate-engine/) |
+| **Generate, render, human approval, publish** | "Post daily to our page without embarrassing us" | [social-post-with-approval-can-publish](../n8n/social-post-with-approval-can-publish/) |
+| **Webhook, durable state, multi-step ladder, qualify, book, write back** | "SMS then a call, then get them on the recruiter's calendar" | [recruiting-candidate-engine-published](../n8n/recruiting-candidate-engine-published/) |
 | **Classify, extract, validate, repair, route** | "Read the inbox and tell me which ones matter" | [prompts/](../prompts/) |
 | **Schedule, sense, materialise, test, alert** | "Run this every night and tell me when it breaks" | [orchestration/](../orchestration/) |
 
