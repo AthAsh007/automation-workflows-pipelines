@@ -1,0 +1,584 @@
+{
+  "name": "Report weekly cash runway from Google Sheets to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Report weekly cash runway from Google Sheets to Slack\n\n**Who's it for**\nFounders and finance leads at early-stage companies who track bank balances and weekly cash flow in Google Sheets. The Monday post answers one question, how many months of cash are left, and whether that number moved.\n\n**How it works**\n1. Every Monday at 08:30 it reads the Balances and Cashflow tabs, or sample data until a sheet is connected.\n2. Cash is the sum of balances in `BASE_CURRENCY`, with credit cards counted as negative. Accounts in other currencies are listed and left out.\n3. Weekly net burn is outflows minus inflows, averaged over the last 13 complete weeks and turned into a monthly figure. Weeks over twice the median burn are named as one-offs.\n4. Runway is cash divided by monthly burn, compared with the same figure a week earlier, and rated green from 12 months, amber from 6, red below that. One Slack message carries it all.\n\n**How to set up**\n1. Run it once as imported. It reports on sample numbers and stops at `STOP: preview - nothing posted`.\n2. Connect Google Sheets and put the spreadsheet id in `FINANCE_SHEET_ID`. Column names are set in `COLUMNS`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel, where the test report lands. Set `TEST_RUN = false` for the weekly post to `SLACK_CHANNEL_ID`.\n\n**Requirements**\n- A Google Sheet with Balances and Cashflow tabs\n- A Slack workspace\n\n**How to customize**\n- `GREEN_MONTHS` and `AMBER_MONTHS` set the colour thresholds.\n- `BURN_WEEKS` changes the averaging window from 13 weeks.\n- Set `EXCLUDE_ONE_OFFS = true` to leave unusual weeks out of the average.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "c3640de6-5717-4c4e-9a00-c3640de613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns Monday at 08:30 so the week just closed is complete. Thresholds, the burn window and column names all sit in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e8eaba6b-5717-4c4e-9a00-e8eaba6b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read balances and cash flow\n\nThe Cashflow tab is read after balances are collected into one item, so each tab is read once. `Load sample figures` provides both tabs until `FINANCE_SHEET_ID` is set.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "e7eab8d8-5717-4c4e-9a00-e7eab8d81001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Compute runway and trend\n\nThe current week is never counted because it is incomplete. Last week's runway is rebuilt from the same rows, so the trend works from the first run with no stored history.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "eaeabd91-5717-4c4e-9a00-eaeabd911002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post to Slack\n\nA live post needs `SLACK_CHANNEL_ID`. A test post goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank. In preview the full message is still on `Write the runway report` for checking.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "e9eabbfe-5717-4c4e-9a00-e9eabbfe1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "4e5edfbc-20bc-4cfc-a531-0531f0cf4e5e",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REPORT WEEKLY CASH RUNWAY FROM GOOGLE SHEETS TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// FINANCE_SHEET_ID blank -> SAMPLE balances and cash flow.\n// SLACK_CHANNEL_ID blank -> the report is built but not posted.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n\n// Google Sheets id with Balances and Cashflow tabs; blank uses sample data\nconst FINANCE_SHEET_ID = '';\n// column headers on the two tabs\nconst COLUMNS = {\n  account: \"Account\",\n  balance: \"Balance\",\n  currency: \"Currency\",\n  type: \"Type\",\n  week: \"Week starting\",\n  inflows: \"Inflows\",\n  outflows: \"Outflows\"\n};\n// only balances in this currency count as cash\nconst BASE_CURRENCY = 'USD';\n// complete weeks averaged for burn\nconst BURN_WEEKS = 13;\n// runway at or above this is green\nconst GREEN_MONTHS = 12;\n// runway at or above this is amber; below is red\nconst AMBER_MONTHS = 6;\n// true leaves weeks above 2x the median burn out of the average\nconst EXCLUDE_ONE_OFFS = false;\n// channel for the report; blank means nothing is posted\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    finance_sheet_id: FINANCE_SHEET_ID,\n    columns: COLUMNS,\n    base_currency: BASE_CURRENCY,\n    burn_weeks: BURN_WEEKS,\n    green_months: GREEN_MONTHS,\n    amber_months: AMBER_MONTHS,\n    exclude_one_offs: EXCLUDE_ONE_OFFS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: FINANCE_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "3cced0d8-fa1c-4d58-ad12-6d12d58b3cce",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "711ea74d-2ad0-413d-a533-25334068711e",
+      "name": "Every Monday at 08:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "3df3c389-9d64-42b9-a754-075454043df3",
+      "name": "Use sample figures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cbf55528-f577-48a8-a461-a461329bcbf5",
+              "leftValue": "={{ !$('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "6a46d635-b19c-47a5-a0c3-00c36b606a46",
+      "name": "Load sample figures",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until FINANCE_SHEET_ID is set. Fourteen weeks of flows with one large one-off week.\nconst monday = new Date(); monday.setUTCHours(0, 0, 0, 0); monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));\nconst wk = n => new Date(monday.getTime() - n * 7 * 864e5).toISOString().slice(0, 10);\nconst cashflow = [];\nfor (let n = 14; n >= 1; n--) cashflow.push({ 'Week starting': wk(n), Inflows: 8000, Outflows: n === 9 ? 70000 : 30000 });\nreturn [{ json: {\n  balances: [\n    { Account: 'Operating account', Balance: '482,400', Currency: 'USD', Type: 'bank' },\n    { Account: 'Reserve savings', Balance: 250000, Currency: 'USD', Type: 'bank' },\n    { Account: 'Company card', Balance: 12600, Currency: 'USD', Type: 'card' },\n    { Account: 'Berlin office', Balance: 5000, Currency: 'EUR', Type: 'bank' },\n  ],\n  cashflow,\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "9246bffd-f904-42ed-a6d7-b6d7c0589246",
+      "name": "Read the Balances tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.finance_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Balances"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "8fafdd29-49ef-4a59-aba9-8ba95c648faf",
+      "name": "Collect balances",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Many rows -> one item, so the Cashflow tab is read once.\nreturn [{ json: { balances: $input.all().map(i => i.json) } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "0e9f6d63-1133-4c73-a9ee-c9ee64da0e9f",
+      "name": "Read the Cashflow tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.finance_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Cashflow"
+        },
+        "options": {}
+      },
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "37fe2f55-7c60-46c5-aaee-baee334037fe",
+      "name": "Collect cash flow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pairs both tabs in the sample shape.\nreturn [{ json: { balances: $('Collect balances').first().json.balances, cashflow: $input.all().map(i => i.json) } }];\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "287112e7-09be-40b7-a2c6-32c6617e2871",
+      "name": "Combine figure sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "cbdb0e78-a813-48f8-ad7c-ad7c19ebcbdb",
+      "name": "Work out the runway",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Runway = cash / monthly burn. Monthly burn = average weekly net burn x 52 / 12.\n// Last week's runway is rebuilt from the same data (cash before last week's flow,\n// window shifted one week back), so the trend needs no stored history.\nconst cfg = $('config').first().json;\nconst col = cfg.columns;\nconst { balances, cashflow } = $input.first().json;\nconst num = v => typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^0-9.-]/g, '')) || 0;\nlet cash = 0; const excluded = [];\nfor (const b of balances) {\n  if (String(b[col.currency] || cfg.base_currency).toUpperCase() !== cfg.base_currency) { excluded.push(b[col.account] + ' (' + b[col.currency] + ')'); continue; }\n  const v = Math.abs(num(b[col.balance]));\n  cash += /card|credit|loan/i.test(String(b[col.type] || '')) ? -v : num(b[col.balance]);\n}\nconst thisMonday = new Date(); thisMonday.setUTCHours(0, 0, 0, 0); thisMonday.setUTCDate(thisMonday.getUTCDate() - ((thisMonday.getUTCDay() + 6) % 7));\nconst weeks = cashflow.map(r => ({ week: String(r[col.week]).slice(0, 10), net: num(r[col.outflows]) - num(r[col.inflows]) }))\n  .filter(w => w.week && new Date(w.week) < thisMonday).sort((a, b) => a.week.localeCompare(b.week));\nconst median = arr => { const s = [...arr].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : 0; };\nconst med = median(weeks.map(w => w['net']));\nconst oneOffs = weeks.filter(w => med > 0 && w['net'] > 2 * med);\nconst runwayFor = (win, c) => {\n  const used = cfg.exclude_one_offs ? win.filter(w => !oneOffs.includes(w)) : win;\n  const weekly = used.length ? used.reduce((s, w) => s + w['net'], 0) / used.length : 0;\n  const monthly = weekly * 52 / 12;\n  return { weekly, monthly, months: monthly > 0 ? c / monthly : null };\n};\nconst n = cfg.burn_weeks;\nconst now = runwayFor(weeks.slice(-n), cash);\nconst last = weeks.length ? weeks[weeks.length - 1] : { net: 0 };\nconst prev = runwayFor(weeks.slice(-n - 1, -1), cash + last['net']);\nconst rag = m => m === null ? 'GREEN' : m >= cfg.green_months ? 'GREEN' : m >= cfg.amber_months ? 'AMBER' : 'RED';\nconst r1 = x => x === null ? null : Math.round(x * 10) / 10;\nreturn [{ json: {\n  cash: Math.round(cash), weeks_used: Math.min(n, weeks.length), weekly_burn: Math.round(now.weekly), monthly_burn: Math.round(now.monthly),\n  runway_months: r1(now.months), last_week_months: r1(prev.months), change: now.months !== null && prev.months !== null ? r1(now.months - prev.months) : null,\n  status: rag(now.months), last_status: rag(prev.months), cash_out_date: now.months ? new Date(Date.now() + now.months * 30.44 * 864e5).toISOString().slice(0, 10) : null,\n  one_offs: oneOffs.map(w => w.week + ' (' + Math.round(w['net']).toLocaleString('en-US') + ')'), excluded,\n} }];\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "7b9b33c8-61c0-4548-a2da-22da4ffb7b9b",
+      "name": "Write the runway report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Short enough to read in a Slack preview: status and months in the first line.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst m = n => cfg.base_currency + ' ' + Math.round(n).toLocaleString('en-US');\nconst icon = { GREEN: ':large_green_circle:', AMBER: ':large_orange_circle:', RED: ':red_circle:' }[r.status];\nconst trend = r.change === null ? '' : r.change === 0 ? ' (no change on last week)' : ' (' + (r.change > 0 ? '+' : '') + r.change + ' on last week)';\nconst head = r.runway_months === null ? 'Cash-flow positive over the last ' + r.weeks_used + ' weeks' : r.runway_months + ' months of runway' + trend;\nconst text = [\n  (cfg.mode === 'test' ? '[TEST] ' : '') + icon + ' *' + r.status + '*: ' + head,\n  'Cash: ' + m(r.cash) + ' | Burn: ' + m(r.monthly_burn) + '/month (' + m(r.weekly_burn) + '/week, ' + r.weeks_used + '-week average)',\n  r.cash_out_date ? 'At this burn, cash runs out around ' + r.cash_out_date + '.' : '',\n  r.status !== r.last_status ? 'Status changed from ' + r.last_status + ' last week.' : '',\n  r.one_offs.length ? 'One-off weeks ' + (cfg.exclude_one_offs ? 'left out' : 'included') + ': ' + r.one_offs.join(', ') : '',\n  r.excluded.length ? 'Not counted (other currency): ' + r.excluded.join(', ') : '',\n].filter(Boolean).join('\\n');\nreturn [{ json: { text, send_to: cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id } }];\n"
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "375b3b6b-3326-47fb-a00c-000c1892375b",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "99e7584d-403b-423d-ab83-7b83856899e7",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "9e522bda-4560-4bba-a13b-c13b80f99e52",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "f39b6348-a4d4-4cc8-a9b8-29b83b7bf39b",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "fc820fa8-1c6b-4b28-ab20-bb201d1bfc82",
+      "name": "Post the report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 08:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample figures?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample figures?": {
+      "main": [
+        [
+          {
+            "node": "Load sample figures",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the Balances tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Balances tab": {
+      "main": [
+        [
+          {
+            "node": "Collect balances",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect balances": {
+      "main": [
+        [
+          {
+            "node": "Read the Cashflow tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Cashflow tab": {
+      "main": [
+        [
+          {
+            "node": "Collect cash flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample figures": {
+      "main": [
+        [
+          {
+            "node": "Combine figure sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect cash flow": {
+      "main": [
+        [
+          {
+            "node": "Combine figure sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine figure sources": {
+      "main": [
+        [
+          {
+            "node": "Work out the runway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out the runway": {
+      "main": [
+        [
+          {
+            "node": "Write the runway report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the runway report": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

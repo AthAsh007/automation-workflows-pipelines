@@ -1,0 +1,571 @@
+{
+  "name": "Alert Slack when a website fails two uptime checks in a row",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Alert Slack when a website fails two uptime checks in a row\n\n**Who's it for**\nSmall teams and agencies running 3 to 50 websites who want to hear about an outage before a customer does, without paying for a monitoring service or getting paged by one slow response.\n\n**How it works**\n1. Every 5 minutes each URL in `MONITORS` is requested with a `TIMEOUT_MS` limit. A manual run uses sample results until `USE_LIVE_CHECKS` is true.\n2. A check fails on a status outside 200-399, a timeout or connection error, or a missing keyword in the page body.\n3. A streak of failures is kept per URL. The site is marked down when the streak reaches `FAILS_BEFORE_ALERT` (2 by default), so one blip never alerts.\n4. Slack gets one message when a site goes down and one when it comes back, with the reason and how long it was down. Nothing repeats while the state holds.\n\n**How to set up**\n1. Run it once as imported. It evaluates sample results and stops at `STOP: dry run - nothing posted`.\n2. Put your sites in `MONITORS`, with an optional keyword that only appears on a healthy page, and set `USE_LIVE_CHECKS = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `DRY_RUN = false` and activate the workflow. Streaks are kept in workflow static data, which n8n saves for active workflows only.\n\n**Requirements**\n- Public URLs to check\n- A Slack workspace\n\n**How to customize**\n- `FAILS_BEFORE_ALERT` trades speed for noise: 2 means about 10 minutes to the first alert.\n- `TIMEOUT_MS` is the slowest response that still counts as up.\n- `MENTION` adds a Slack handle such as `<!here>` to down alerts only.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "309b8ce6-5717-4c4e-9a00-309b8ce613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 5 minutes. The URL list, keyword per URL, timeout and alert threshold all live in `config`, and `List monitors` turns the list into one item per URL.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6fc0616b-5717-4c4e-9a00-6fc0616b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Check every URL\n\n`Check each URL` is set to return errors and 5xx responses as data, so one dead site cannot stop the others being checked. `Load sample check results` stands in until `USE_LIVE_CHECKS` is true.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "6ec05fd8-5717-4c4e-9a00-6ec05fd81001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Keep streaks, alert on change\n\nOnly a change of state produces an alert: the failure that completes the streak, or the first success after a down alert. An ongoing outage stays quiet instead of posting every 5 minutes.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        0
+      ],
+      "id": "71c06491-5717-4c4e-9a00-71c064911002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post to Slack\n\nOne message per run holds every down and recovery, with the reason and duration. `Post the alert?` needs a live run and a channel, so the shipped workflow never posts.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "70c062fe-5717-4c4e-9a00-70c062fe1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "a0e8594d-c866-433d-a48a-948a4e68a0e8",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ALERT SLACK WHEN A WEBSITE FAILS TWO UPTIME CHECKS IN A ROW - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_CHECKS false -> SAMPLE results, so the streak logic can be watched offline.\n// SLACK_CHANNEL_ID blank -> no alert is posted.\n\n// true requests every URL below for real\nconst USE_LIVE_CHECKS = false;\n// what to check; keyword blank skips the body check\nconst MONITORS = [\n  {\n    name: \"Marketing site\",\n    url: \"https://www.northwind.example\",\n    keyword: \"Northwind\"\n  },\n  {\n    name: \"API health\",\n    url: \"https://api.northwind.example/health\",\n    keyword: \"ok\"\n  },\n  {\n    name: \"Shop\",\n    url: \"https://shop.northwind.example\",\n    keyword: \"Add to cart\"\n  },\n  {\n    name: \"Docs\",\n    url: \"https://docs.northwind.example\",\n    keyword: \"\"\n  },\n  {\n    name: \"Status page\",\n    url: \"https://status.northwind.example\",\n    keyword: \"\"\n  }\n];\n// a response slower than this counts as a failure\nconst TIMEOUT_MS = 8000;\n// consecutive failures before a site is called down\nconst FAILS_BEFORE_ALERT = 2;\n// channel for down and recovery alerts; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// added to down alerts; blank for none\nconst MENTION = '<!here>';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_checks: USE_LIVE_CHECKS,\n    monitors: MONITORS,\n    timeout_ms: TIMEOUT_MS,\n    fails_before_alert: FAILS_BEFORE_ALERT,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    mention: MENTION,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "c405d7b5-58e1-4125-a4f1-54f118e0c405",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "2e756c90-d270-4f90-a071-d071aa132e75",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "4695243e-5891-4cde-a0b7-c0b7b9bd4695",
+      "name": "List monitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per URL, so each request and its result stay paired by position.\nreturn $('config').first().json.monitors.filter(m => m.url).map(m => ({ json: m }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "3df050fc-5793-4a3c-a1ad-c1ada38f3df0",
+      "name": "Live checks on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a5749afa-1a95-40da-a2ca-d2ca4ed9a574",
+              "leftValue": "={{ $('config').first().json.use_live_checks }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "89084ff7-4c9c-48c7-a173-a1733b0e8908",
+      "name": "Check each URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-uptime-check"
+            }
+          ]
+        },
+        "options": {
+          "timeout": "={{ $('config').first().json.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "a2d42e49-de43-4179-a197-1197b844a2d4",
+      "name": "Read check results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Response (or error) i belongs to monitor i. A failure records the first reason found.\nconst monitors = $('List monitors').all().map(i => i.json);\nconst results = $input.all().map((it, i) => {\n  const m = monitors[i] || {};\n  const r = it.json;\n  const status = Number(r.statusCode || 0);\n  const body = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '');\n  const err = r.error ? (r.error.message || String(r.error)) : '';\n  const reason = err ? (/timeout|ETIMEDOUT|aborted/i.test(err) ? 'timed out' : 'connection error: ' + err.slice(0, 80)) :\n    status < 200 || status > 399 ? 'HTTP ' + status :\n    m.keyword && !body.includes(m.keyword) ? 'keyword \"' + m.keyword + '\" missing' : '';\n  return { name: m.name, url: m.url, ok: !reason, status, reason };\n});\nreturn [{ json: { results, sample_previous: null } }];\n"
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "b15acda5-8f6e-4c15-a43a-443a6650b15a",
+      "name": "Load sample check results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_CHECKS is true. Includes the state from \"previous runs\" so one\n// run shows a new outage, a first strike, an ongoing outage and a recovery.\nconst ago = m => new Date(Date.now() - m * 60000).toISOString();\nreturn [{ json: {\n  results: [\n    { name: 'Marketing site', url: 'https://www.northwind.example', ok: true, status: 200, reason: '' },\n    { name: 'API health', url: 'https://api.northwind.example/health', ok: false, status: 503, reason: 'HTTP 503' },\n    { name: 'Shop', url: 'https://shop.northwind.example', ok: false, status: 200, reason: 'keyword \"Add to cart\" missing' },\n    { name: 'Docs', url: 'https://docs.northwind.example', ok: false, status: 0, reason: 'timed out' },\n    { name: 'Status page', url: 'https://status.northwind.example', ok: true, status: 200, reason: '' },\n  ],\n  sample_previous: {\n    'https://api.northwind.example/health': { fails: 1, down: false, since: ago(5), reason: 'HTTP 502' },\n    'https://docs.northwind.example': { fails: 6, down: true, since: ago(30), reason: 'timed out' },\n    'https://status.northwind.example': { fails: 9, down: true, since: ago(47), reason: 'HTTP 500' },\n  },\n} }];\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "58a6f0fe-bde6-4d9e-a046-40467ffd58a6",
+      "name": "Combine check results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1408,
+        176
+      ]
+    },
+    {
+      "id": "e1de083b-4b14-43cb-a6b2-c6b2e062e1de",
+      "name": "Update failure streaks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Per URL: fails (current streak), down (alert already sent), since (first failure).\n// Down alert exactly when the streak reaches FAILS_BEFORE_ALERT; recovery alert only\n// for a site that was announced down. Everything else is silent.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst { results, sample_previous } = $input.first().json;\nconst state = sample_previous ? JSON.parse(JSON.stringify(sample_previous)) : (store.monitors || {});\nconst alerts = [];\nconst now = new Date();\nconst mins = iso => Math.max(1, Math.round((now - new Date(iso)) / 60000));\nfor (const r of results) {\n  const s = state[r.url] || { fails: 0, down: false, since: null, reason: '' };\n  if (r.ok) {\n    if (s.down) alerts.push({ kind: 'recovered', name: r.name, url: r.url, minutes: mins(s.since), reason: s.reason });\n    state[r.url] = { fails: 0, down: false, since: null, reason: '' };\n    continue;\n  }\n  s.fails += 1;\n  if (s.fails === 1) s.since = now.toISOString();\n  s.reason = r.reason;\n  if (!s.down && s.fails >= cfg.fails_before_alert) {\n    s.down = true;\n    alerts.push({ kind: 'down', name: r.name, url: r.url, minutes: mins(s.since), reason: r.reason, fails: s.fails });\n  }\n  state[r.url] = s;\n}\nconst known = new Set(results.map(r => r.url));\nfor (const k of Object.keys(state)) if (!known.has(k)) delete state[k];\nif (!sample_previous) store.monitors = state;\nconst summary = results.map(r => r.name + ': ' + (r.ok ? 'up' : r.reason + ' (' + state[r.url].fails + ' in a row)'));\nreturn [{ json: { alerts, summary, down_now: Object.values(state).filter(s => s.down).length } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "35e3e5ae-b683-4b4e-a04d-904d0aad35e3",
+      "name": "Anything changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "82aad604-8a21-4cc4-aab6-cab6262782aa",
+              "leftValue": "={{ $json.alerts.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "5ba25849-1ca8-4b79-a0a0-80a0fe445ba2",
+      "name": "STOP: no state change",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "ba1ed68b-2497-491b-ac7b-6c7b1372ba1e",
+      "name": "Write the alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Down first, then recoveries, in one message per run.\nconst cfg = $('config').first().json;\nconst a = $input.first().json.alerts;\nconst down = a.filter(x => x.kind === 'down'), up = a.filter(x => x.kind === 'recovered');\nconst lines = [\n  ...(down.length && cfg.mention ? [cfg.mention] : []),\n  ...down.map(x => ':red_circle: *' + x.name + '* is down: ' + x.reason + ' (' + x.fails + ' checks in a row, since ' + x.minutes + ' min ago) ' + x.url),\n  ...up.map(x => ':large_green_circle: *' + x.name + '* is back up after about ' + x.minutes + ' min (last error: ' + x.reason + ')'),\n];\nreturn [{ json: { text: lines.join('\\n'), down: down.length, recovered: up.length } }];\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "1edca18d-5a32-477d-a859-08594d281edc",
+      "name": "Post the alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d294685-3871-4ef5-ab79-4b797c706d29",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "6c2944f2-761d-4d52-a172-8172d3216c29",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "ff2028f4-fd03-44b4-a54a-a54a69d7ff20",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2784,
+        352
+      ]
+    },
+    {
+      "id": "35fd68f5-dd74-4e65-a369-23690ba035fd",
+      "name": "Post the alert to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List monitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List monitors": {
+      "main": [
+        [
+          {
+            "node": "Live checks on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live checks on?": {
+      "main": [
+        [
+          {
+            "node": "Check each URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample check results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check each URL": {
+      "main": [
+        [
+          {
+            "node": "Read check results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read check results": {
+      "main": [
+        [
+          {
+            "node": "Combine check results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample check results": {
+      "main": [
+        [
+          {
+            "node": "Combine check results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine check results": {
+      "main": [
+        [
+          {
+            "node": "Update failure streaks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update failure streaks": {
+      "main": [
+        [
+          {
+            "node": "Anything changed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything changed?": {
+      "main": [
+        [
+          {
+            "node": "Write the alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no state change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the alert": {
+      "main": [
+        [
+          {
+            "node": "Post the alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the alert?": {
+      "main": [
+        [
+          {
+            "node": "Post the alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

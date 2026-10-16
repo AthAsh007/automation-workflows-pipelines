@@ -1,0 +1,561 @@
+{
+  "name": "Post daily specials from Google Sheets to a Telegram channel",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Post daily specials from Google Sheets to a Telegram channel\n\n**Who's it for**\nCafes, restaurants and food trucks that keep their specials in a spreadsheet and post them to a Telegram channel for regulars. The kitchen edits the sheet; the post goes out on time without anyone opening the app.\n\n**How it works**\n1. The workflow wakes every hour and posts only at `POST_HOUR` in your `TIMEZONE`. Days in `CLOSED_WEEKDAYS` and dates in `CLOSED_DATES` are skipped. A manual run always previews.\n2. It reads the Specials tab, or 9 sample rows until a sheet is set. A row counts today when its Date is today, or its Day is today's weekday or Daily. A dated row replaces a weekday row with the same dish.\n3. Dishes marked sold out are dropped. Prices like \"12.5\" or \"£12.50\" are formatted in `CURRENCY`, and allergens become short tags such as [V] or [N] with a legend line.\n4. Dishes are grouped by section in menu order and posted as one message. If nothing is left, nothing is posted.\n\n**How to set up**\n1. Run it once as imported. It builds today's post from sample rows and stops at `STOP: preview - nothing sent`.\n2. Create a Specials tab with Day, Date, Section, Dish, Description, Price, Allergens and Sold out columns, connect Google Sheets and set `SPECIALS_SHEET_ID`.\n3. Add a Telegram bot as admin of your channel, connect it and set `TELEGRAM_CHAT_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_TELEGRAM_CHAT_ID` to a private chat. Set `TEST_RUN = false` to post to the channel.\n\n**Requirements**\n- A Google Sheet with a Specials tab\n- A Telegram bot added to your channel\n\n**How to customize**\n- `ALLERGEN_TAGS` maps allergen words in the sheet to the tag shown in the post.\n- `SECTION_ORDER` sets the order sections appear in.\n- Add holiday closures to `CLOSED_DATES` as YYYY-MM-DD.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "ec944d82-5717-4c4e-9a00-ec944d8213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nAn hourly schedule lets `POST_HOUR` live in `config` instead of in a cron string. Menu order, allergen tags, currency and closures are set there too.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e44837d7-5717-4c4e-9a00-e44837d71000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Check the day\n\n`Check day and hour` works in `TIMEZONE`, so a server in another region still posts at 11:00 local. Twenty-three of the 24 hourly runs, and every closed day, end at the STOP before the sheet is read.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "e3483644-5717-4c4e-9a00-e34836441001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read the specials\n\nThe kitchen owns the sheet; nothing here writes to it. `Load sample specials` keys its rows to today, so the dated override, sold-out and Daily rules all show in a preview.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "e6483afd-5717-4c4e-9a00-e6483afd1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Build and post\n\nA dated row replaces the weekday row for the same dish, so the chef can change one dish for one day. An empty menu ends at `STOP: nothing to post` instead of sending a header with no dishes.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "e548396a-5717-4c4e-9a00-e548396a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "9d3d45f9-63ef-4229-af43-cf43b3349d3d",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// POST DAILY SPECIALS FROM GOOGLE SHEETS TO A TELEGRAM CHANNEL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SPECIALS_SHEET_ID blank -> SAMPLE specials so the run works before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_TELEGRAM_CHAT_ID instead of the channel.\n\n// Google Sheets id holding the Specials tab; blank uses sample rows\nconst SPECIALS_SHEET_ID = '';\n// channel username or numeric chat id\nconst TELEGRAM_CHAT_ID = '@harbourcafe_specials';\n// IANA timezone for the posting hour and today\nconst TIMEZONE = 'Europe/London';\n// hour (24h) when the scheduled run posts\nconst POST_HOUR = 11;\n// weekdays with no post\nconst CLOSED_WEEKDAYS = [\n  \"Monday\"\n];\n// dates with no post (YYYY-MM-DD)\nconst CLOSED_DATES = [\n  \"2026-12-25\",\n  \"2026-12-26\",\n  \"2027-01-01\"\n];\n// currency code for prices\nconst CURRENCY = 'GBP';\n// sections in this order; anything else goes last\nconst SECTION_ORDER = [\n  \"Starter\",\n  \"Main\",\n  \"Dessert\",\n  \"Drink\"\n];\n// allergen word in the sheet -> tag in the post\nconst ALLERGEN_TAGS = {\n  vegetarian: \"V\",\n  vegan: \"VG\",\n  \"gluten free\": \"GF\",\n  nuts: \"N\",\n  dairy: \"D\",\n  egg: \"E\",\n  fish: \"F\",\n  shellfish: \"SF\",\n  sesame: \"SE\",\n  soy: \"SO\"\n};\n// first line of the post\nconst HEADER = 'Today at Harbour Cafe';\n// test mode posts here instead of the channel\nconst TEST_TELEGRAM_CHAT_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    specials_sheet_id: SPECIALS_SHEET_ID,\n    telegram_chat_id: TELEGRAM_CHAT_ID,\n    timezone: TIMEZONE,\n    post_hour: POST_HOUR,\n    closed_weekdays: CLOSED_WEEKDAYS,\n    closed_dates: CLOSED_DATES,\n    currency: CURRENCY,\n    section_order: SECTION_ORDER,\n    allergen_tags: ALLERGEN_TAGS,\n    header: HEADER,\n    test_telegram_chat_id: TEST_TELEGRAM_CHAT_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: SPECIALS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "721a9489-ec04-43b9-a1ef-91ef2904721a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "66779d78-46e9-47f8-aaed-faed64eb6677",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "0476d5a4-5f60-4a64-a414-c4142c870476",
+      "name": "Check day and hour",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Today and the hour in TIMEZONE. The hourly schedule posts only at POST_HOUR and\n// never on a closed day; a manual run always continues so it can be previewed.\nconst cfg = $('config').first().json;\nlet scheduled = false;\ntry { scheduled = $('Every hour').first() !== undefined; } catch (e) { scheduled = false; }\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, hourCycle: 'h23', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit' })\n  .formatToParts(new Date()).map(x => [x.type, x.value]));\nconst today = p.year + '-' + p.month + '-' + p.day;\nconst hour = Number(p.hour) % 24;\nconst closed = cfg.closed_weekdays.includes(p.weekday) ? 'closed on ' + p.weekday + 's' : cfg.closed_dates.includes(today) ? 'closed on ' + today : '';\nconst reason = !scheduled ? '' : closed ? closed : hour !== cfg.post_hour ? 'not the posting hour (' + hour + ':00)' : '';\nreturn [{ json: { today, weekday: p.weekday, hour, scheduled, closed, post: !reason, reason } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "cab9722d-1eda-461d-ad95-cd950488cab9",
+      "name": "Post today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7c5d2119-8b67-4349-a305-63057e147c5d",
+              "leftValue": "={{ $json.post }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "1efc5758-c5a8-4bd8-a896-1896840b1efc",
+      "name": "STOP: closed or not the posting hour",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "f32f39c9-ee25-44f9-a357-93578bc4f32f",
+      "name": "Specials sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bd349b5d-75c9-404d-a823-382318f8bd34",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1200,
+        176
+      ]
+    },
+    {
+      "id": "22b85bfb-d1de-4b8b-a1d5-51d539a222b8",
+      "name": "Read the Specials tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.specials_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Specials"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "5105d065-e037-42d5-af5a-4f5a92905105",
+      "name": "Load sample specials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until SPECIALS_SHEET_ID is set. Rows are keyed to today's weekday and date so\n// every selection rule has a case whatever day it runs.\nconst d = $('Check day and hour').first().json;\nconst other = d.weekday === 'Friday' ? 'Saturday' : 'Friday';\nconst tomorrow = new Date(Date.parse(d.today + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10);\nconst row = (Day, Date, Section, Dish, Description, Price, Allergens, Sold) => ({ Day, Date, Section, Dish, Description, Price, Allergens, 'Sold out': Sold });\nreturn [\n  row(d.weekday, '', 'Starter', 'Burrata', 'heritage tomato, basil oil', '9.5', 'vegetarian, dairy', ''),\n  row(d.weekday, '', 'Main', 'Hake', 'brown shrimp butter, samphire', '£19.00', 'fish, shellfish, dairy', ''),\n  row(d.weekday, '', 'Main', 'Mushroom risotto', 'aged parmesan', '16', 'vegetarian, dairy', 'yes'),\n  row('Daily', '', 'Dessert', 'Sticky toffee pudding', 'clotted cream', '8.00', 'gluten, dairy, egg', ''),\n  row('Daily', '', 'Drink', 'Rhubarb soda', 'house made', '4.5', 'vegan', ''),\n  row(other, '', 'Main', 'Lamb shoulder', 'not today', '24', '', ''),\n  row('', d.today, 'Main', 'Hake', 'chef changed it: brown butter, capers', '18.50', 'fish, dairy', ''),\n  row('', d.today, 'Special', 'Pistachio cake slice', 'one tray only', '5', 'nuts, egg, gluten', ''),\n  row('', tomorrow, 'Starter', 'Crab toast', 'tomorrow only', '11', 'shellfish, gluten', ''),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        352
+      ]
+    },
+    {
+      "id": "4d464076-4f64-4796-a56f-756f99c54d46",
+      "name": "Combine specials sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "2836794c-8452-498c-a226-d2260c9f2836",
+      "name": "Build today's specials post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Selection: dated rows for today win over weekday/Daily rows with the same dish.\n// Sold out = yes/true/x/1 in the Sold out column. Output is one plain-text post.\nconst cfg = $('config').first().json;\nconst d = $('Check day and hour').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r.Dish);\nconst norm = s => String(s || '').trim().toLowerCase();\nconst dated = rows.filter(r => String(r.Date || '').slice(0, 10) === d.today);\nconst weekly = rows.filter(r => !r.Date && [norm(d.weekday), 'daily'].includes(norm(r.Day)));\nconst byDish = new Map();\nfor (const r of weekly) byDish.set(norm(r.Dish), r);\nfor (const r of dated) byDish.set(norm(r.Dish), r);\nconst soldOut = [], dishes = [];\nfor (const r of byDish.values()) (/^(yes|true|x|1)$/i.test(String(r['Sold out'] || '').trim()) ? soldOut : dishes).push(r);\nconst money = v => {\n  const n = Number(String(v || '').replace(/[^\\d.,]/g, '').replace(',', '.'));\n  return n ? new Intl.NumberFormat('en-GB', { style: 'currency', currency: cfg.currency }).format(n) : '';\n};\nconst used = new Set();\nconst tags = a => String(a || '').split(/[,;]/).map(norm).filter(Boolean).map(x => cfg.allergen_tags[x]).filter(Boolean)\n  .map(t => { used.add(t); return '[' + t + ']'; }).join('');\nconst order = s => { const i = cfg.section_order.findIndex(x => norm(x) === norm(s)); return i < 0 ? 99 : i; };\ndishes.sort((a, b) => order(a.Section) - order(b.Section));\nconst lines = [cfg.header + ', ' + d.weekday + ' ' + d.today.slice(8) + '/' + d.today.slice(5, 7), ''];\nlet section = null;\nfor (const r of dishes) {\n  const sec = r.Section || 'More';\n  if (sec !== section) { if (section !== null) lines.push(''); lines.push(sec.toUpperCase()); section = sec; }\n  lines.push('- ' + r.Dish + (r.Description ? ', ' + r.Description : '') + ' ' + money(r.Price) + (tags(r.Allergens) ? ' ' + tags(r.Allergens) : ''));\n}\nconst legend = Object.entries(cfg.allergen_tags).filter(([, t]) => used.has(t)).map(([w, t]) => t + ' ' + w).join(', ');\nif (legend) lines.push('', legend);\nconst text = lines.join('\\n').slice(0, 4000);\nreturn [{ json: { text, dishes: dishes.length, sold_out: soldOut.map(r => r.Dish), today: d.today,\n  send_to: cfg.mode === 'test' ? cfg.test_telegram_chat_id : cfg.telegram_chat_id } }];\n"
+      },
+      "position": [
+        1888,
+        176
+      ]
+    },
+    {
+      "id": "87196181-f859-4331-a311-3311944c8719",
+      "name": "Anything to post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "01c30061-55d8-4c11-a674-0674db6c01c3",
+              "leftValue": "={{ $json.dishes > 0 && $json.send_to !== \"\" }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "50857277-c8ef-4347-a762-a762f98e5085",
+      "name": "STOP: nothing to post",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        352
+      ]
+    },
+    {
+      "id": "07434946-c531-4f66-a2c2-62c2c7550743",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "879bac0d-53bf-49fd-aae8-2ae8c3a8879b",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "e4aa6a82-c419-45e2-ae71-5e715bf1e4aa",
+      "name": "Post the specials to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $json.send_to }}",
+        "text": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2560,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Check day and hour",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check day and hour": {
+      "main": [
+        [
+          {
+            "node": "Post today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post today?": {
+      "main": [
+        [
+          {
+            "node": "Specials sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: closed or not the posting hour",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Specials sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Specials tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample specials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Specials tab": {
+      "main": [
+        [
+          {
+            "node": "Combine specials sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample specials": {
+      "main": [
+        [
+          {
+            "node": "Combine specials sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine specials sources": {
+      "main": [
+        [
+          {
+            "node": "Build today's specials post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build today's specials post": {
+      "main": [
+        [
+          {
+            "node": "Anything to post?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to post?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing to post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Post the specials to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

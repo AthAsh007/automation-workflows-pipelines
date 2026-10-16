@@ -1,0 +1,590 @@
+{
+  "name": "Turn Gmail support emails into Trello cards by category",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Turn Gmail support emails into Trello cards by category\n\n**Who's it for**\nSmall teams that run support from a Gmail inbox and plan the work on a Trello board. Each email becomes a card in the right list with a due date, without anyone copying it across.\n\n**How it works**\n1. The Gmail trigger picks up unread mail matching `GMAIL_QUERY` every minute. A manual run uses 6 sample emails instead.\n2. Auto-replies, bounces and mail from your own domain are skipped. Several messages from one thread in the same batch become one card.\n3. Keyword rules in `CATEGORIES` pick the list; urgency words pick the priority, and the priority sets the due date (4 hours for urgent, 7 days for low).\n4. A new thread creates a card with the sender, a trimmed body and the Gmail thread id. A later reply in that thread is added as a comment on the same card.\n\n**How to set up**\n1. Run it once as imported. It sorts the sample emails and stops at `STOP: dry run - Trello untouched`.\n2. Add a Gmail credential to `New support email` and set `GMAIL_QUERY` to match your support mail.\n3. Add a Trello credential to `Create the Trello card` and `Add the reply as a card comment`, then paste list ids into `CATEGORIES` and `FALLBACK_LIST_ID`, and label ids into `PRIORITY_LABEL_IDS`.\n4. Set `DRY_RUN = false` and activate the workflow. The thread-to-card memory is kept in static data, which n8n saves on activated runs.\n\n**Requirements**\n- A Gmail or Google Workspace inbox\n- A Trello board with one list per category\n- Trello API key and token\n\n**How to customize**\n- `CATEGORIES` holds the words, list id and label id for each category; the first match wins.\n- `DUE_HOURS` sets the due date per priority.\n- `SKIP_SENDERS` and `OWN_DOMAINS` keep robots and colleagues off the board.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "557bbd9f-5717-4c4e-9a00-557bbd9f13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe Gmail trigger polls every minute for unread mail matching `GMAIL_QUERY`; the manual trigger exists to try the rules on sample mail. Categories, list ids and due times all live in `config`.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "817dd602-5717-4c4e-9a00-817dd6021000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the email\n\n`Read the incoming email` flattens the Gmail message into sender, subject, body and thread. With no trigger data it returns a marker, so `Load sample support emails` runs instead and the same rules can be checked.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "827dd795-5717-4c4e-9a00-827dd7951001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Sort and plan the card\n\nSkips come first so an out-of-office never becomes a card. Messages are grouped by thread before categorising, and the first matching category wins, so the order of `CATEGORIES` is the tie-breaker.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "7f7dd2dc-5717-4c4e-9a00-7f7dd2dc1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write to Trello\n\nA thread already on the board gets a comment, not a second card. The card id is stored only after `Create the Trello card` succeeds, so a failed call is retried on the next email in that thread.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "807dd46f-5717-4c4e-9a00-807dd46f1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "8aa9fb18-f95c-4398-ac3f-1c3f024b8aa9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TURN GMAIL SUPPORT EMAILS INTO TRELLO CARDS BY CATEGORY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE emails; the Gmail trigger feeds real ones.\n// DRY_RUN true -> cards are planned and shown, Trello is not touched.\n\n// Gmail search the trigger polls (unread only); also set it on the trigger node\nconst GMAIL_QUERY = 'to:support@yourcompany.example';\n// first category whose words appear in the subject or body wins; list_id is the Trello list id\nconst CATEGORIES = [\n  {\n    name: \"Billing\",\n    words: [\n      \"invoice\",\n      \"refund\",\n      \"charged\",\n      \"payment\",\n      \"receipt\",\n      \"billing\"\n    ],\n    list_id: \"\",\n    label_id: \"\"\n  },\n  {\n    name: \"Bug\",\n    words: [\n      \"error\",\n      \"crash\",\n      \"broken\",\n      \"bug\",\n      \"not working\",\n      \"down\"\n    ],\n    list_id: \"\",\n    label_id: \"\"\n  },\n  {\n    name: \"Account access\",\n    words: [\n      \"password\",\n      \"login\",\n      \"log in\",\n      \"locked\",\n      \"2fa\",\n      \"sign in\"\n    ],\n    list_id: \"\",\n    label_id: \"\"\n  },\n  {\n    name: \"Feature request\",\n    words: [\n      \"feature\",\n      \"suggestion\",\n      \"would be great\",\n      \"could you add\",\n      \"idea\"\n    ],\n    list_id: \"\",\n    label_id: \"\"\n  }\n];\n// Trello list for mail that matches no category\nconst FALLBACK_LIST_ID = '';\n// make a card urgent\nconst URGENT_WORDS = [\n  \"urgent\",\n  \"asap\",\n  \"everyone\",\n  \"outage\",\n  \"production\"\n];\n// make a card high priority\nconst HIGH_WORDS = [\n  \"charged twice\",\n  \"refund\",\n  \"cannot\",\n  \"blocked\",\n  \"deadline\"\n];\n// categories that are low priority unless urgent words appear\nconst LOW_CATEGORIES = [\n  \"Feature request\"\n];\n// hours from arrival to the card due date\nconst DUE_HOURS = {\n  urgent: 4,\n  high: 24,\n  normal: 72,\n  low: 168\n};\n// Trello label id per priority; blank adds no label\nconst PRIORITY_LABEL_IDS = {\n  urgent: \"\",\n  high: \"\",\n  normal: \"\",\n  low: \"\"\n};\n// sender address fragments that are never carded\nconst SKIP_SENDERS = [\n  \"no-reply\",\n  \"noreply\",\n  \"mailer-daemon\",\n  \"postmaster\"\n];\n// subject fragments that mark an auto-reply\nconst SKIP_SUBJECTS = [\n  \"automatic reply\",\n  \"out of office\",\n  \"delivery status notification\",\n  \"undeliverable\"\n];\n// mail from these domains is internal and skipped\nconst OWN_DOMAINS = [\n  \"yourcompany.example\"\n];\n// how much of the email body goes onto the card\nconst BODY_CHARS = 1200;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    gmail_query: GMAIL_QUERY,\n    categories: CATEGORIES,\n    fallback_list_id: FALLBACK_LIST_ID,\n    urgent_words: URGENT_WORDS,\n    high_words: HIGH_WORDS,\n    low_categories: LOW_CATEGORIES,\n    due_hours: DUE_HOURS,\n    priority_label_ids: PRIORITY_LABEL_IDS,\n    skip_senders: SKIP_SENDERS,\n    skip_subjects: SKIP_SUBJECTS,\n    own_domains: OWN_DOMAINS,\n    body_chars: BODY_CHARS,\n    dry_run: DRY_RUN,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "05aa64cc-0448-4d0c-adc8-8dc84c1f05aa",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "205fa3bf-a68e-4e0f-ad57-5d57db06205f",
+      "name": "New support email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread",
+          "q": "to:support@yourcompany.example"
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "d3f60b9b-00e7-492b-ae16-de163502d3f6",
+      "name": "Read the incoming email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// When the Gmail trigger fired, normalise its messages. A manual run has none,\n// so it returns one marker item and the sample emails are used instead.\nlet mails = [];\ntry { if ($('New support email').isExecuted) mails = $('New support email').all().map(i => i.json); } catch (e) { mails = []; }\nif (!mails.length) return [{ json: { source: 'none' } }];\nreturn mails.map(m => ({ json: {\n  source: 'gmail', message_id: m.id, thread_id: m.threadId, subject: m.subject || '(no subject)',\n  from_email: (m.from?.value?.[0]?.address || '').toLowerCase(), from_name: m.from?.value?.[0]?.name || '',\n  body: String(m.text || '').trim(), received_at: m.date ? new Date(m.date).toISOString() : new Date().toISOString(),\n} }));\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "ea1cbbff-3882-424f-abfa-ebfa20c6ea1c",
+      "name": "Triggered by Gmail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "943f9072-efb6-40d2-ab78-db78c2a1943f",
+              "leftValue": "={{ $json.source === 'gmail' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "760ae35c-63c1-4e9c-aab7-0ab75f2f760a",
+      "name": "Load sample support emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. Six messages: one auto-reply, and two in the same thread.\nconst ago = m => new Date(Date.now() - m * 60000).toISOString();\nreturn [\n  { source: 'sample', message_id: 's1', thread_id: 'th-a1', subject: 'Charged twice this month', from_email: 'nora@pinegrove.example', from_name: 'Nora Webb', body: 'Hi, my card was charged twice for October. Can you refund one of them?', received_at: ago(40) },\n  { source: 'sample', message_id: 's2', thread_id: 'th-b2', subject: 'Dashboard down for everyone', from_email: 'ops@tallyhouse.example', from_name: 'Tally House Ops', body: 'Getting a 502 error on the dashboard for the whole team. Urgent please.', received_at: ago(12) },\n  { source: 'sample', message_id: 's3', thread_id: 'th-c3', subject: 'Idea: dark mode', from_email: 'kai@lumenart.example', from_name: 'Kai Duarte', body: 'Would be great to have a dark mode for late shifts.', received_at: ago(300) },\n  { source: 'sample', message_id: 's4', thread_id: 'th-d4', subject: 'Automatic reply: Out of office', from_email: 'beth@corner.example', from_name: 'Beth Lowe', body: 'I am away until Monday.', received_at: ago(30) },\n  { source: 'sample', message_id: 's5', thread_id: 'th-a1', subject: 'Re: Charged twice this month', from_email: 'nora@pinegrove.example', from_name: 'Nora Webb', body: 'Attaching the bank statement showing both charges.', received_at: ago(10) },\n  { source: 'sample', message_id: 's6', thread_id: 'th-e5', subject: 'Cannot log in after reset', from_email: 'ivan@ridgefield.example', from_name: 'Ivan Petrov', body: 'The password reset worked but login still says invalid.', received_at: ago(55) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "b8e8be35-6e35-4fa5-a566-35669360b8e8",
+      "name": "Combine email sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "29d93f61-1a00-4b11-a490-f490c66c29d9",
+      "name": "Sort into a category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Skip robots and colleagues, fold messages from one thread into one card, then\n// pick category (first match in CATEGORIES), priority and due date. A thread that\n// already has a card from an earlier run becomes a comment on it.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst known = memory.thread_cards || {};\nconst lc = s => String(s || '').toLowerCase();\nconst has = (text, words) => words.some(w => text.includes(w.toLowerCase()));\nconst byThread = {};\nconst out = [];\nfor (const { json: m } of $input.all().filter(i => i.json.source !== 'none').sort((a, b) => a.json.received_at.localeCompare(b.json.received_at))) {\n  const skip =\n    cfg.skip_senders.some(s => m.from_email.includes(s)) ? 'automated sender' :\n    cfg.skip_subjects.some(s => lc(m.subject).includes(s)) ? 'auto-reply' :\n    cfg.own_domains.includes(m.from_email.split('@')[1]) ? 'internal sender' : '';\n  if (skip) { out.push({ ...m, action: 'skip', reason: skip }); continue; }\n  (byThread[m.thread_id] ||= []).push(m);\n}\nfor (const [thread, msgs] of Object.entries(byThread)) {\n  const first = msgs[0], last = msgs[msgs.length - 1];\n  const text = lc(msgs.map(x => x.subject + ' ' + x.body).join(' '));\n  const cat = cfg.categories.find(c => has(text, c.words));\n  const category = cat ? cat.name : 'General';\n  const priority = has(text, cfg.urgent_words) ? 'urgent' : has(text, cfg.high_words) ? 'high' : cfg.low_categories.includes(category) ? 'low' : 'normal';\n  const due = new Date(new Date(first.received_at).getTime() + cfg.due_hours[priority] * 36e5).toISOString();\n  const labels = [cat?.label_id, cfg.priority_label_ids[priority]].filter(Boolean);\n  const body = msgs.map(x => '**' + x.from_name + '** (' + x.received_at.slice(0, 16).replace('T', ' ') + '):\\n' + x.body.slice(0, cfg.body_chars)).join('\\n\\n---\\n\\n');\n  const base = { thread_id: thread, subject: first.subject.replace(/^(re|fwd?):\\s*/i, ''), from_email: first.from_email, from_name: first.from_name,\n    category, priority, due, messages: msgs.length };\n  if (known[thread]) {\n    out.push({ ...base, action: 'comment', card_id: known[thread], comment: 'New email from ' + last.from_name + ':\\n\\n' + msgs.map(x => x.body.slice(0, cfg.body_chars)).join('\\n\\n---\\n\\n') });\n  } else {\n    out.push({ ...base, action: 'create', list_id: (cat && cat.list_id) || cfg.fallback_list_id, label_ids: labels,\n      card_name: '[' + priority.toUpperCase() + '] ' + first.subject.replace(/^(re|fwd?):\\s*/i, '') + ' (' + (first.from_name || first.from_email) + ')',\n      card_desc: 'From: ' + first.from_name + ' <' + first.from_email + '>\\nCategory: ' + category + '\\nGmail thread: ' + thread + '\\n\\n' + body });\n  }\n}\nreturn out.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "a70aad4a-712f-4a2a-a79d-a79d6de9a70a",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "1d35a20c-c440-464c-a1b4-21b4abdf1d35",
+      "name": "STOP: dry run - Trello untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "21019f6c-7ead-45ac-ac37-0c373d7f2101",
+      "name": "Choose the Trello action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b27a96a3-4efa-41b3-ac5b-0c5ba89ab27a",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "fa404e34-5098-45f4-abc0-9bc06197fa40",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "comment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "comment"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "ffef51b4-b7c1-4174-af1d-ff1ded17ffef",
+      "name": "Prepare the card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Exactly the Trello create-card body; kept as its own step so the card id that\n// comes back can be paired with its thread by position.\nreturn $input.all().map(i => ({ json: { thread_id: i.json.thread_id, body: {\n  idList: i.json.list_id, name: i.json.card_name, desc: i.json.card_desc, due: i.json.due,\n  idLabels: i.json.label_ids.join(','), pos: 'top',\n} } }));\n"
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "8dbbd88d-5486-4e7d-ab1d-9b1d5c288dbb",
+      "name": "Create the Trello card",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.trello.com/1/cards",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        208
+      ]
+    },
+    {
+      "id": "6ec49dab-ee33-463b-a55a-a55a3d526ec4",
+      "name": "Remember the card for this thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Maps Gmail thread -> Trello card, so the next reply in the thread is a comment.\n// Entries older than 60 days are dropped.\nconst memory = $getWorkflowStaticData('global');\nconst known = memory.thread_cards || {};\nconst seenAt = memory.thread_seen || {};\nconst prepared = $('Prepare the card').all();\nconst now = new Date().toISOString();\nconst out = $input.all().map((it, i) => {\n  const thread = prepared[i].json.thread_id;\n  known[thread] = it.json.id; seenAt[thread] = now;\n  return { json: { thread_id: thread, card_id: it.json.id, url: it.json.shortUrl || '' } };\n});\nconst cutoff = new Date(Date.now() - 60 * 864e5).toISOString();\nfor (const [t, at] of Object.entries(seenAt)) if (at < cutoff) { delete seenAt[t]; delete known[t]; }\nmemory.thread_cards = known; memory.thread_seen = seenAt;\nreturn out;\n"
+      },
+      "position": [
+        2784,
+        208
+      ]
+    },
+    {
+      "id": "3d59e4f4-b0ca-40b4-af7c-ff7cbdd73d59",
+      "name": "Add the reply as a card comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.trello.com/1/cards/' + $json.card_id + '/actions/comments' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.comment }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "69436c80-f566-4480-ab9d-4b9d8d836943",
+      "name": "STOP: skipped, not a support request",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        544
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New support email": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the incoming email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the incoming email": {
+      "main": [
+        [
+          {
+            "node": "Triggered by Gmail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triggered by Gmail?": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample support emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample support emails": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine email sources": {
+      "main": [
+        [
+          {
+            "node": "Sort into a category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort into a category": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Choose the Trello action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Trello untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose the Trello action": {
+      "main": [
+        [
+          {
+            "node": "Prepare the card",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add the reply as a card comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: skipped, not a support request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare the card": {
+      "main": [
+        [
+          {
+            "node": "Create the Trello card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create the Trello card": {
+      "main": [
+        [
+          {
+            "node": "Remember the card for this thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

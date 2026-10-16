@@ -1,0 +1,656 @@
+{
+  "name": "Screen job applications from a form with knockout questions into Airtable",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Screen job applications from a form with knockout questions into Airtable\n\n**Who's it for**\nFounders and hiring managers at small companies who get 50 to 300 applications per role and read every one, including the ones that fail a basic requirement. The knockouts are applied the same way every time, and every candidate hears back.\n\n**How it works**\n1. A candidate applies through the n8n form. A manual run uses four sample applications.\n2. Knockouts come first: a must-have answered No, no right to work, sponsorship the role cannot offer, too little experience, salary over the band plus `SALARY_STRETCH_PCT`, or a notice period over the limit.\n3. Applications that pass get a weighted score out of 100 from experience, salary fit, notice, nice-to-haves and a portfolio link. `SHORTLIST_SCORE` and above goes to review, the rest to hold.\n4. The candidate gets an email for their outcome, then a record with score, reasons and answers is created in Airtable.\n\n**How to set up**\n1. Run it once as imported. It scores the sample applications and stops at `STOP: preview - nothing sent`.\n2. Create an Airtable table with Name, Email, Role, Outcome, Score, Reasons and Answers fields, add an Airtable token credential to `Create candidate in Airtable`, and set `AIRTABLE_BASE_ID` and `AIRTABLE_TABLE`.\n3. Connect Gmail, edit `ROLES` for your open positions and activate the workflow to publish the form.\n4. Put your address in `TEST_EMAIL` to read each candidate email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Airtable base\n- A Gmail account\n- An n8n instance that can serve a public form\n\n**How to customize**\n- `ROLES` sets the salary band, minimum years, maximum notice, sponsorship and nice-to-haves per role.\n- `WEIGHTS` changes how the 100 points are split; `SHORTLIST_SCORE` moves the review line.\n- `REJECTION_TEXT` maps each knockout to the sentence the candidate reads.",
+        "height": 1072,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "602d5a32-5717-4c4e-9a00-602d5a3213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe form is the real entry point; a manual run takes the sample path. Roles, must-have answers, weights and rejection wording all sit in `config`, so a new opening is one more entry in `ROLES`.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "cc762307-5717-4c4e-9a00-cc7623071000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the application\n\n`config` records whether the form fired, and `Came from the form?` reads the answers or loads four sample applications that cover a shortlist, a sponsorship knockout, a must-have knockout and a borderline case.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "cb762174-5717-4c4e-9a00-cb7621741001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Knock out, then score\n\nKnockouts run before any scoring, so a strong score can never hide a hard requirement. Every outcome carries its reasons, and `Write the candidate email` uses the first knockout reason in words a candidate can act on.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "ce76262d-5717-4c4e-9a00-ce76262d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Email and file\n\nIn test mode the email goes to `TEST_EMAIL` and Airtable is left alone. Only a live run with `AIRTABLE_BASE_ID` set creates the record, and `Remember applicants` stores email and role only after Airtable returns an id.",
+        "height": 560,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        0
+      ],
+      "id": "cd76249a-5717-4c4e-9a00-cd76249a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "867cb66b-296f-42fb-a17e-a17e6392867c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SCREEN JOB APPLICATIONS FROM A FORM WITH KNOCKOUT QUESTIONS INTO AIRTABLE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run screens SAMPLE applications; the form trigger screens real ones.\n// AIRTABLE_BASE_ID blank -> no record is created.\n\n// one entry per open role; salaries are yearly in your currency\nconst ROLES = {\n  \"Senior Backend Engineer\": {\n    salary_min: 70000,\n    salary_max: 95000,\n    min_years: 5,\n    max_notice_weeks: 12,\n    sponsorship: false,\n    nice_to_have: [\n      \"Postgres\",\n      \"Kubernetes\",\n      \"TypeScript\"\n    ]\n  },\n  \"Customer Support Lead\": {\n    salary_min: 42000,\n    salary_max: 52000,\n    min_years: 3,\n    max_notice_weeks: 8,\n    sponsorship: true,\n    nice_to_have: [\n      \"Zendesk\",\n      \"SaaS\",\n      \"team lead\"\n    ]\n  }\n};\n// form question -> the only answer that passes\nconst MUST_HAVE = {\n  \"Can you work at least 4 hours overlapping 10:00-16:00 UK time?\": \"Yes\",\n  \"Can you join an on-site week in Lisbon once a quarter?\": \"Yes\"\n};\n// an ask this far above the band is scored low but not rejected\nconst SALARY_STRETCH_PCT = 10;\n// candidates this many years under the minimum still pass the knockout\nconst YEARS_GRACE = 1;\n// points per factor; should add up to 100\nconst WEIGHTS = {\n  experience: 30,\n  salary: 25,\n  notice: 15,\n  nice_to_have: 20,\n  portfolio: 10\n};\n// scores at or above this go to review\nconst SHORTLIST_SCORE = 70;\n// what the candidate reads for each knockout\nconst REJECTION_TEXT = {\n  must_have: \"the role needs {question}\",\n  right_to_work: \"the role needs the right to work in the country without a visa\",\n  sponsorship: \"we are not able to sponsor a visa for this role\",\n  experience: \"we are looking for at least {years} years in a similar role\",\n  salary: \"your expected salary is above the range we have for this role\",\n  notice: \"we need someone who can start within {weeks} weeks\"\n};\n// Airtable base id (starts with app); blank skips the record\nconst AIRTABLE_BASE_ID = '';\n// table name or id inside the base\nconst AIRTABLE_TABLE = 'Candidates';\n// used in candidate emails\nconst COMPANY_NAME = 'Northwind';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\n// The form trigger's item carries formMode; a manual run does not.\nconst FROM_FORM = Boolean($input.first() && ($input.first().json.formMode || $input.first().json.submittedAt));\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    roles: ROLES,\n    must_have: MUST_HAVE,\n    salary_stretch_pct: SALARY_STRETCH_PCT,\n    years_grace: YEARS_GRACE,\n    weights: WEIGHTS,\n    shortlist_score: SHORTLIST_SCORE,\n    rejection_text: REJECTION_TEXT,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    company_name: COMPANY_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    from_form: FROM_FORM,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "id": "9d768663-ddbc-4573-a512-0512e1da9d76",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "id": "cd71f90c-d417-4d4c-a6a1-26a1fedfcd71",
+      "name": "Job application form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "d500097f-b5cc-47cf-a7e7-37e7be46d500",
+      "parameters": {
+        "formTitle": "Apply to Northwind",
+        "formDescription": "Takes about 3 minutes. Every applicant hears back by email.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Full name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Role",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Senior Backend Engineer"
+                  },
+                  {
+                    "option": "Customer Support Lead"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Right to work",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "Need sponsorship"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Years in a similar role",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Expected yearly salary",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Notice period in weeks",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Can you work at least 4 hours overlapping 10:00-16:00 UK time?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Can you join an on-site week in Lisbon once a quarter?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Portfolio, GitHub or LinkedIn link"
+            },
+            {
+              "fieldLabel": "Anything else we should know?",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        400
+      ]
+    },
+    {
+      "id": "1ce4232d-2307-471d-afac-7fac1d881ce4",
+      "name": "Came from the form?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b96ab70b-c0a9-419b-aaa6-5aa6d7f2b96a",
+              "leftValue": "={{ $('config').first().json.from_form }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "id": "28f33bff-8d51-424f-aa58-3a58a0c628f3",
+      "name": "Read the form answers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form labels -> the application shape the screen reads.\nconst cfg = $('config').first().json;\nconst f = $('Job application form').first().json;\nreturn [{ json: {\n  name: String(f['Full name'] || '').trim(), email: String(f['Email'] || '').trim().toLowerCase(), role: f['Role'] || '',\n  right_to_work: f['Right to work'] || '', years: Number(f['Years in a similar role'] || 0),\n  salary: Number(f['Expected yearly salary'] || 0), notice_weeks: Number(f['Notice period in weeks'] || 0),\n  must_have: Object.fromEntries(Object.keys(cfg.must_have).map(q => [q, f[q] || ''])),\n  link: String(f['Portfolio, GitHub or LinkedIn link'] || '').trim(), note: f['Anything else we should know?'] || '',\n  submitted_at: f.submittedAt || new Date().toISOString(),\n} }];\n"
+      },
+      "position": [
+        736,
+        224
+      ]
+    },
+    {
+      "id": "cd510fa4-d9ac-4464-a3c3-e3c3b287cd51",
+      "name": "Load sample applications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Manual run: one strong candidate, one knockout per kind of rule, one middling.\nconst cfg = $('config').first().json;\nconst [qHours, qOnsite] = Object.keys(cfg.must_have);\nconst yes = { [qHours]: 'Yes', [qOnsite]: 'Yes' };\nreturn [\n  { name: 'Noor Haddad', email: 'noor.haddad@mailbox.example', role: 'Senior Backend Engineer', right_to_work: 'Yes', years: 7, salary: 88000, notice_weeks: 4,\n    must_have: yes, link: 'https://github.example/noorh', note: 'Ran Postgres and Kubernetes for a payments team; TypeScript daily.' },\n  { name: 'Tariq Bell', email: 'tariq.bell@mailbox.example', role: 'Senior Backend Engineer', right_to_work: 'Need sponsorship', years: 9, salary: 90000, notice_weeks: 8,\n    must_have: yes, link: '', note: '' },\n  { name: 'Ines Duarte', email: 'ines.duarte@mailbox.example', role: 'Customer Support Lead', right_to_work: 'Yes', years: 4, salary: 50000, notice_weeks: 12,\n    must_have: { [qHours]: 'Yes', [qOnsite]: 'No' }, link: '', note: 'Zendesk admin for 3 years.' },\n  { name: 'Marta Lind', email: 'marta.lind@mailbox.example', role: 'Customer Support Lead', right_to_work: 'Yes', years: 2, salary: 54000, notice_weeks: 6,\n    must_have: yes, link: '', note: 'Support at a SaaS startup.' },\n].map(json => ({ json: { ...json, submitted_at: new Date().toISOString() } }));\n"
+      },
+      "position": [
+        736,
+        400
+      ]
+    },
+    {
+      "id": "5bc52b69-c666-4499-a4cd-d4cd6c245bc5",
+      "name": "Combine applications",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        224
+      ]
+    },
+    {
+      "id": "113769c2-8cfa-4122-aabb-5abb44b11137",
+      "name": "Screen and score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Knockouts first: any one ends the screen with a reason the candidate can read.\n// Survivors get WEIGHTS points: experience (to 2x the minimum), salary fit, notice,\n// nice-to-have keywords in the note, and a portfolio link.\nconst cfg = $('config').first().json;\nconst W = cfg.weights;\nconst store = $getWorkflowStaticData('global');\nconst seen = store.applied || {};\nconst out = [];\nfor (const { json: a } of $input.all()) {\n  const role = cfg.roles[a.role];\n  const knock = [];\n  const say = (k, vars = {}) => Object.entries(vars).reduce((s, [x, v]) => s.replace('{' + x + '}', v), cfg.rejection_text[k]);\n  if (!role) { out.push({ ...a, outcome: 'hold', score: 0, reasons: ['role not in ROLES'], candidate_reason: '' }); continue; }\n  const key = a.email + '|' + a.role;\n  if (seen[key] && Date.now() - seen[key] < 90 * 864e5) { out.push({ ...a, outcome: 'duplicate', score: 0, reasons: ['applied to this role in the last 90 days'], candidate_reason: '' }); continue; }\n  for (const [q, want] of Object.entries(cfg.must_have)) if ((a.must_have[q] || '') !== want) knock.push(['must_have', say('must_have', { question: q.replace(/^(Can|Do) you /i, 'someone who can ').replace(/\\?$/, '').toLowerCase() })]);\n  if (a.right_to_work === 'No') knock.push(['right_to_work', say('right_to_work')]);\n  if (a.right_to_work === 'Need sponsorship' && !role.sponsorship) knock.push(['sponsorship', say('sponsorship')]);\n  if (a.years < role.min_years - cfg.years_grace) knock.push(['experience', say('experience', { years: role.min_years })]);\n  if (a.salary > role.salary_max * (1 + cfg.salary_stretch_pct / 100)) knock.push(['salary', say('salary')]);\n  if (a.notice_weeks > role.max_notice_weeks) knock.push(['notice', say('notice', { weeks: role.max_notice_weeks })]);\n  if (knock.length) {\n    out.push({ ...a, outcome: 'reject', score: 0, reasons: knock.map(k => k[0]), candidate_reason: knock[0][1] });\n    continue;\n  }\n  const exp = Math.min(1, a.years / (role.min_years * 2));\n  const sal = a.salary <= role.salary_max ? (a.salary >= role.salary_min ? 1 : 0.8) : 0.4;\n  const notice = a.notice_weeks <= 4 ? 1 : 1 - (a.notice_weeks - 4) / Math.max(1, role.max_notice_weeks - 4) * 0.6;\n  const text = (a.note || '').toLowerCase();\n  const hits = role.nice_to_have.filter(k => text.includes(k.toLowerCase()));\n  const nice = role.nice_to_have.length ? hits.length / role.nice_to_have.length : 0;\n  const parts = { experience: exp * W.experience, salary: sal * W.salary, notice: notice * W.notice, nice_to_have: nice * W.nice_to_have, portfolio: a.link ? W.portfolio : 0 };\n  const score = Math.round(Object.values(parts).reduce((x, y) => x + y, 0));\n  out.push({ ...a, outcome: score >= cfg.shortlist_score ? 'review' : 'hold', score, reasons: [\n    'experience ' + Math.round(parts.experience) + '/' + W.experience, 'salary ' + Math.round(parts.salary) + '/' + W.salary,\n    'notice ' + Math.round(parts.notice) + '/' + W.notice, 'nice-to-have ' + hits.join('+') + ' ' + Math.round(parts.nice_to_have) + '/' + W.nice_to_have,\n    'portfolio ' + parts.portfolio + '/' + W.portfolio], candidate_reason: '' });\n}\nreturn out.map(json => ({ json }));\n"
+      },
+      "position": [
+        1200,
+        224
+      ]
+    },
+    {
+      "id": "a1d2eace-2a11-466e-a2b7-92b7e28da1d2",
+      "name": "Write the candidate email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One email per outcome. Rejections give the first knockout reason in plain words.\nconst cfg = $('config').first().json;\nconst first = n => (n || '').split(' ')[0] || 'there';\nconst bodies = {\n  review: a => 'Thanks for applying for ' + a.role + '. Your application is with the hiring team now and you will hear from us within 5 working days.',\n  hold: a => 'Thanks for applying for ' + a.role + '. We are reviewing applications in batches and will let you know either way within 2 weeks.',\n  reject: a => 'Thanks for applying for ' + a.role + '. We are not taking your application further, because ' + a.candidate_reason + '. We will keep your details for 6 months in case another role fits.',\n};\nreturn $input.all().filter(i => bodies[i.json.outcome]).map(({ json: a }) => ({ json: { ...a,\n  send_to: cfg.mode === 'test' ? cfg.test_email : a.email,\n  subject: (a.outcome === 'reject' ? 'Your application for ' : 'We received your application for ') + a.role,\n  body: 'Hi ' + first(a.name) + ',\\n\\n' + bodies[a.outcome](a) + '\\n\\n' + cfg.company_name + ' hiring team',\n} }));\n"
+      },
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "id": "e3eb943c-cfd5-497c-ae1f-ae1f4d4fe3eb",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1664,
+        224
+      ]
+    },
+    {
+      "id": "5eaf2c8b-9f08-4f1b-abe4-6be4dd725eaf",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1888,
+        400
+      ]
+    },
+    {
+      "id": "15cb40dd-78ab-4dcd-ac34-3c34ce7815cb",
+      "name": "Email the candidate",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1888,
+        224
+      ]
+    },
+    {
+      "id": "dc54d80c-435b-4c4c-a23a-523a15dfdc54",
+      "name": "Live with Airtable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d2a4808-9fff-4588-adce-ddce9ebb2d2a",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2e2a499b-6254-472b-a5d8-a5d807022e2a",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2096,
+        224
+      ]
+    },
+    {
+      "id": "0309825a-2585-4a3a-a908-a908eb790309",
+      "name": "STOP: test send or no Airtable base",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2320,
+        400
+      ]
+    },
+    {
+      "id": "640b634d-695a-4d3d-a9a5-99a52468640b",
+      "name": "Create candidate in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: (a => ({ Name: a.name, Email: a.email, Role: a.role, Outcome: a.outcome, Score: a.score, Reasons: a.reasons.join('; '), Answers: 'Right to work: ' + a.right_to_work + '; years: ' + a.years + '; salary: ' + a.salary + '; notice: ' + a.notice_weeks + ' weeks; link: ' + (a.link || 'none'), Applied: a.submitted_at.slice(0, 10) }))($('Write the candidate email').item.json) }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2320,
+        224
+      ]
+    },
+    {
+      "id": "131e4b75-f5bf-48e5-ab22-cb223e20131e",
+      "name": "Remember applicants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Records email+role so a second application inside 90 days is marked duplicate.\nconst store = $getWorkflowStaticData('global');\nstore.applied = store.applied || {};\nconst recs = $input.all();\n$('Write the candidate email').all().forEach((a, i) => { if (recs[i]?.json.id) store.applied[a.json.email + '|' + a.json.role] = Date.now(); });\nreturn [{ json: { remembered: Object.keys(store.applied).length } }];\n"
+      },
+      "position": [
+        2544,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job application form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Came from the form?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Came from the form?": {
+      "main": [
+        [
+          {
+            "node": "Read the form answers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the form answers": {
+      "main": [
+        [
+          {
+            "node": "Combine applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample applications": {
+      "main": [
+        [
+          {
+            "node": "Combine applications",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine applications": {
+      "main": [
+        [
+          {
+            "node": "Screen and score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Screen and score": {
+      "main": [
+        [
+          {
+            "node": "Write the candidate email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the candidate email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the candidate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the candidate": {
+      "main": [
+        [
+          {
+            "node": "Live with Airtable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with Airtable?": {
+      "main": [
+        [
+          {
+            "node": "Create candidate in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send or no Airtable base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create candidate in Airtable": {
+      "main": [
+        [
+          {
+            "node": "Remember applicants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

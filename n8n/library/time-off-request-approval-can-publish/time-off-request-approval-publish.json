@@ -1,0 +1,1218 @@
+{
+  "name": "Route time-off requests from a form to managers with approve and decline links",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Route time-off requests from a form to managers with approve and decline links\n\n**Who's it for**\nTeams of 10 to 150 people who approve leave over chat and track it in a spreadsheet. Managers get the facts with each request and decide with one click, and the sheet stays the record.\n\n**How it works**\n1. An employee submits the n8n form with type and dates. Working days are counted without weekends or `PUBLIC_HOLIDAYS`.\n2. It reads the Employees and Requests tabs (or sample data), works out the allowance left this year, checks `BLACKOUT_PERIODS` and lists teammates already off on those days.\n3. Impossible requests (unknown email, dates in the past, over allowance) are refused by email with the reason. The rest are saved as pending and the manager gets approve and decline links.\n4. A click hits the second trigger, `Manager decision link`. The token and status are checked, the row is updated and the employee is told the outcome.\n\n**How to set up**\n1. Run it once as imported. It checks a sample request and stops at `STOP: preview - nothing stored or sent`.\n2. Create a sheet with an Employees tab (email, name, team, manager_email, allowance_days) and a Requests tab (id, email, name, team, type, first_day, last_day, days, status, token, created_at, decided_at), connect Google Sheets and set `LEAVE_SHEET_ID`.\n3. Activate the workflow and copy the production URL of `Manager decision link` into `DECISION_URL`.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet for staff and requests\n- A Gmail account\n- An n8n instance reachable from your managers' browsers\n\n**How to customize**\n- `MAX_TEAM_OFF` sets how many people from one team may be off on the same day before the manager is warned.\n- `COUNTED_TYPES` lists leave types that use allowance; `REFUSE_OVER_ALLOWANCE` decides whether going over is refused or only flagged.\n- `BLACKOUT_PERIODS` takes dates or yearly `MM-DD` ranges.",
+        "height": 1088,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "9e119bd5-5717-4c4e-9a00-9e119bd513e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Two entry points and settings\n\nThe form and the decision link share one `config`, which records which trigger fired. `Which entry point?` sends each to its reader; a manual run takes the sample request so the checks can be watched.",
+        "height": 896,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "cda5be88-5717-4c4e-9a00-cda5be881000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the request or the click\n\nBoth readers emit one item with an `entry` field, so everything after `Combine entry` handles requests and decisions with the same team data.",
+        "height": 896,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        912,
+        0
+      ],
+      "id": "cea5c01b-5717-4c4e-9a00-cea5c01b1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read staff and leave\n\n`Collect employees` folds the Employees rows into one item before `Read Requests tab`, so the second read runs once. Without a sheet, `Load sample team data` has two Platform teammates off in the requested week.",
+        "height": 896,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "cfa5c1ae-5717-4c4e-9a00-cfa5c1ae1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Decide and answer the click\n\n`Decide the outcome` refuses only what a manager could never approve and turns the rest into warnings. A decision link must match the stored token and still be pending, so a forwarded or reused link changes nothing.",
+        "height": 896,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        0
+      ],
+      "id": "d0a5c341-5717-4c4e-9a00-d0a5c3411003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Write the sheet and email\n\nThe pending row is saved before the manager email goes out, so a link can never point at a missing request. In test mode every email goes to `TEST_EMAIL` with the real recipient in the subject.",
+        "height": 896,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3408,
+        0
+      ],
+      "id": "d1a5c4d4-5717-4c4e-9a00-d1a5c4d41004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "7fd02424-bbba-40e4-a956-d9566f077fd0",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ROUTE TIME-OFF REQUESTS FROM A FORM TO MANAGERS WITH APPROVE AND DECLINE LINKS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// LEAVE_SHEET_ID blank -> SAMPLE staff and requests; nothing can be stored, so nothing is emailed.\n// Two entry points: the request form and the decision link. ENTRY below says which one started the run.\n\n// Google Sheets id holding the Employees and Requests tabs; blank uses sample data\nconst LEAVE_SHEET_ID = '';\n// production URL of the Manager decision link trigger\nconst DECISION_URL = 'https://your-n8n.example/webhook/time-off-decision';\n// leave types that use the yearly allowance\nconst COUNTED_TYPES = [\n  \"Vacation\",\n  \"Personal\"\n];\n// true refuses a request that would go below zero; false only warns the manager\nconst REFUSE_OVER_ALLOWANCE = true;\n// warn the manager when this many teammates are already off on an overlapping day\nconst MAX_TEAM_OFF = 2;\n// periods managers should think twice about: 'YYYY-MM-DD' or yearly 'MM-DD'\nconst BLACKOUT_PERIODS = [\n  {\n    from: \"12-15\",\n    to: \"12-31\",\n    reason: \"year-end close\"\n  }\n];\n// dates that do not count as working days\nconst PUBLIC_HOLIDAYS = [\n  \"2026-12-25\",\n  \"2026-12-28\",\n  \"2027-01-01\"\n];\n// used in email sign-offs\nconst COMPANY_NAME = 'Northwind';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\n// Which trigger started this run: the decision webhook carries a query, the form carries formMode.\nconst TRIGGER_ITEM = $input.first() ? $input.first().json : {};\nconst ENTRY = TRIGGER_ITEM.query !== undefined ? 'decision' : (TRIGGER_ITEM.formMode || TRIGGER_ITEM.submittedAt ? 'form' : 'manual');\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    leave_sheet_id: LEAVE_SHEET_ID,\n    decision_url: DECISION_URL,\n    counted_types: COUNTED_TYPES,\n    refuse_over_allowance: REFUSE_OVER_ALLOWANCE,\n    max_team_off: MAX_TEAM_OFF,\n    blackout_periods: BLACKOUT_PERIODS,\n    public_holidays: PUBLIC_HOLIDAYS,\n    company_name: COMPANY_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: LEAVE_SHEET_ID.trim() !== '',\n    entry: ENTRY,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "3fcbcc50-b4aa-4350-a4ed-a4edb3533fcb",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "fca6f5b8-f41b-4c38-adfa-7dfad3abfca6",
+      "name": "Time-off request form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "ee9ee8f0-4388-4df0-a6d5-b6d5a2b3ee9e",
+      "parameters": {
+        "formTitle": "Request time off",
+        "formDescription": "Your manager gets an email with your request and decides with one click.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Work email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Type",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Vacation"
+                  },
+                  {
+                    "option": "Personal"
+                  },
+                  {
+                    "option": "Sick"
+                  },
+                  {
+                    "option": "Unpaid"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "First day",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Last day",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Note for your manager",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "b93903ff-4118-4a4f-a0b7-80b7c8c6b939",
+      "name": "Manager decision link",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "d8f4556a-4314-484a-a7c0-77c0fcc9d8f4",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "time-off-decision",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        544
+      ]
+    },
+    {
+      "id": "ce69e416-58bf-4936-a2e1-c2e1c125ce69",
+      "name": "Which entry point?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "81aba3d3-346f-4fe3-aa1d-6a1d290a81ab",
+                    "leftValue": "={{ $json.entry }}",
+                    "rightValue": "form",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "form"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4585b1c7-4637-4997-a2a1-92a1959e4585",
+                    "leftValue": "={{ $json.entry }}",
+                    "rightValue": "decision",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "decision"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3d9ee5c7-e538-4d97-a496-c496419e3d9e",
+                    "leftValue": "={{ $json.entry }}",
+                    "rightValue": "manual",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "manual"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        496,
+        208
+      ]
+    },
+    {
+      "id": "f0b67c5e-6b26-4afe-a1b4-c1b4789df0b6",
+      "name": "STOP: unknown entry",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        720,
+        720
+      ]
+    },
+    {
+      "id": "e2b0aa86-9389-4ca6-ab4b-db4b2315e2b0",
+      "name": "Read the form answers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form labels -> the request shape the checker reads.\nconst f = $('Time-off request form').first().json;\nreturn [{ json: { entry: 'request', request: {\n  email: String(f['Work email'] || '').trim().toLowerCase(), type: f['Type'] || 'Vacation',\n  first_day: String(f['First day'] || '').slice(0, 10), last_day: String(f['Last day'] || '').slice(0, 10),\n  note: f['Note for your manager'] || '', submitted_at: f.submittedAt || new Date().toISOString(),\n} } }];\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "8aa674ab-24f8-4d3b-a3bf-d3bf0c528aa6",
+      "name": "Read the decision link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// GET ?id=&decision=&token= from the email link. Nothing is trusted until it matches the stored row.\nconst q = $('Manager decision link').first().json.query || {};\nreturn [{ json: { entry: 'decision', decision: {\n  id: String(q.id || ''), decision: String(q.decision || '').toLowerCase(), token: String(q.token || ''),\n} } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "3e85efc5-a241-4435-a0f2-a0f2bb303e85",
+      "name": "Load sample request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Manual run: a Mon-Fri vacation three weeks out from someone on the Platform team.\nconst d = new Date(); d.setUTCHours(0, 0, 0, 0);\nd.setUTCDate(d.getUTCDate() + 21 + ((8 - d.getUTCDay()) % 7 || 7));\nconst day = n => new Date(d.getTime() + n * 864e5).toISOString().slice(0, 10);\nreturn [{ json: { entry: 'request', request: {\n  email: 'dana.kowalski@northwind.example', type: 'Vacation', first_day: day(0), last_day: day(4),\n  note: 'Family trip, booked last month.', submitted_at: new Date().toISOString(),\n} } }];\n"
+      },
+      "position": [
+        960,
+        544
+      ]
+    },
+    {
+      "id": "1a6a205b-8a38-41eb-a5e5-05e57f421a6a",
+      "name": "Combine entry",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 3
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "871d10c5-5858-4535-a1e8-f1e8f030871d",
+      "name": "Leave sheet blank?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe892522-c5ad-4e82-a46c-546ced51fe89",
+              "leftValue": "={{ !$('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "6e7e6790-4448-4a90-a25e-e25e99136e7e",
+      "name": "Read Employees tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.leave_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Employees"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "def22ea5-78f1-4d15-af9f-af9f6b50def2",
+      "name": "Collect employees",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Many rows -> one item, so the Requests read below runs once, not once per employee.\nconst employees = $input.all().map(i => i.json).filter(r => r.email).map(r => ({\n  email: String(r.email).trim().toLowerCase(), name: r.name || r.email, team: r.team || '',\n  manager_email: String(r.manager_email || '').trim(), allowance_days: Number(r.allowance_days || 0),\n}));\nreturn [{ json: { employees } }];\n"
+      },
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "56207397-ea83-4a67-abf5-1bf5526e5620",
+      "name": "Read Requests tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.leave_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Requests"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        384
+      ]
+    },
+    {
+      "id": "e6aaa147-9a75-4117-ac6e-cc6e411ee6aa",
+      "name": "Collect team data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Requests rows joined with the employees read before them.\nconst requests = $input.all().map(i => i.json).filter(r => r.id).map(r => ({\n  id: String(r.id), email: String(r.email || '').toLowerCase(), name: r.name || '', team: r.team || '', type: r.type || '',\n  first_day: String(r.first_day || '').slice(0, 10), last_day: String(r.last_day || '').slice(0, 10),\n  days: Number(r.days || 0), status: String(r.status || '').toLowerCase(), token: String(r.token || ''), row_number: r.row_number,\n}));\nreturn [{ json: { employees: $('Collect employees').first().json.employees, requests } }];\n"
+      },
+      "position": [
+        2304,
+        384
+      ]
+    },
+    {
+      "id": "cd6046ff-23e8-4d4f-aa70-0a701bc6cd60",
+      "name": "Load sample team data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until LEAVE_SHEET_ID is set. Dana's teammates are already off in the same week.\nconst d = new Date(); d.setUTCHours(0, 0, 0, 0);\nd.setUTCDate(d.getUTCDate() + 21 + ((8 - d.getUTCDay()) % 7 || 7));\nconst day = n => new Date(d.getTime() + n * 864e5).toISOString().slice(0, 10);\nconst year = new Date().getUTCFullYear() + '-';\nreturn [{ json: {\n  employees: [\n    { email: 'dana.kowalski@northwind.example', name: 'Dana Kowalski', team: 'Platform', manager_email: 'lee.manager@northwind.example', allowance_days: 25 },\n    { email: 'raj.patel@northwind.example', name: 'Raj Patel', team: 'Platform', manager_email: 'lee.manager@northwind.example', allowance_days: 25 },\n    { email: 'mia.chen@northwind.example', name: 'Mia Chen', team: 'Platform', manager_email: 'lee.manager@northwind.example', allowance_days: 25 },\n    { email: 'sol.ortiz@northwind.example', name: 'Sol Ortiz', team: 'Sales', manager_email: 'ana.manager@northwind.example', allowance_days: 20 },\n  ],\n  requests: [\n    { id: 'TO-A1', email: 'dana.kowalski@northwind.example', name: 'Dana Kowalski', team: 'Platform', type: 'Vacation', first_day: year + '02-09', last_day: year + '02-13', days: 5, status: 'approved', token: 'used' },\n    { id: 'TO-A2', email: 'dana.kowalski@northwind.example', name: 'Dana Kowalski', team: 'Platform', type: 'Vacation', first_day: year + '06-01', last_day: year + '06-10', days: 8, status: 'approved', token: 'used' },\n    { id: 'TO-A3', email: 'raj.patel@northwind.example', name: 'Raj Patel', team: 'Platform', type: 'Vacation', first_day: day(2), last_day: day(3), days: 2, status: 'approved', token: 'used' },\n    { id: 'TO-A4', email: 'mia.chen@northwind.example', name: 'Mia Chen', team: 'Platform', type: 'Personal', first_day: day(4), last_day: day(4), days: 1, status: 'pending', token: 'tok_sample_mia' },\n    { id: 'TO-A5', email: 'sol.ortiz@northwind.example', name: 'Sol Ortiz', team: 'Sales', type: 'Vacation', first_day: day(0), last_day: day(4), days: 5, status: 'pending', token: 'tok_sample_sol' },\n  ],\n} }];\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "674c2284-4a50-4144-a93b-693b1ea7674c",
+      "name": "Combine team data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2528,
+        208
+      ]
+    },
+    {
+      "id": "01842e21-cd48-4dd1-a9ae-59aeffac0184",
+      "name": "Decide the outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One place decides every outcome for both entry points.\n//   request  -> refuse with a reason, or save as pending and ask the manager\n//   decision -> check the token and status, then approve or decline the stored row\nconst cfg = $('config').first().json;\nconst entry = $('Combine entry').first().json;\nconst { employees, requests } = $input.first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst year = today.slice(0, 4);\nconst send = to => cfg.mode === 'test' ? cfg.test_email : to;\nconst ymd = s => new Date(s + 'T00:00:00Z');\nconst workdays = (a, b) => {\n  let n = 0;\n  for (let t = ymd(a).getTime(); t <= ymd(b).getTime(); t += 864e5) {\n    const d = new Date(t), iso = d.toISOString().slice(0, 10);\n    if (d.getUTCDay() % 6 !== 0 && !cfg.public_holidays.includes(iso)) n++;\n  }\n  return n;\n};\nconst overlaps = (a1, a2, b1, b2) => a1 <= b2 && b1 <= a2;\nconst inBlackout = (first, last) => cfg.blackout_periods.filter(p => {\n  if (p.from.length === 5) {\n    for (let t = ymd(first).getTime(); t <= ymd(last).getTime(); t += 864e5) {\n      const md = new Date(t).toISOString().slice(5, 10);\n      if (md >= p.from && md <= p.to) return true;\n    }\n    return false;\n  }\n  return overlaps(first, last, p.from, p.to);\n});\n\nif (entry.entry === 'decision') {\n  const q = entry.decision;\n  const row = requests.find(r => r.id === q.id);\n  const bad = !row ? 'This request was not found.' :\n    !q.token || q.token !== row.token ? 'This link is not valid.' :\n    row.status !== 'pending' ? 'This request was already ' + row.status + '.' :\n    !['approve', 'decline'].includes(q.decision) ? 'Unknown decision.' : '';\n  if (bad) return [{ json: { entry: 'decision', action: 'bad_link', reply: bad, id: q.id } }];\n  const status = q.decision === 'approve' ? 'approved' : 'declined';\n  return [{ json: { entry: 'decision', action: 'apply_decision', id: row.id,\n    reply: 'Done: ' + row.name + ' ' + row.first_day + ' to ' + row.last_day + ' is ' + status + '. ' + row.name + ' has been emailed.',\n    sheet_row: { id: row.id, status, decided_at: new Date().toISOString() },\n    email: { to: send(row.email), original_to: row.email, subject: 'Your time off ' + row.first_day + ' to ' + row.last_day + ' was ' + status,\n      body: 'Hi ' + row.name.split(' ')[0] + ',\\n\\nYour ' + row.type.toLowerCase() + ' request for ' + row.first_day + ' to ' + row.last_day + ' (' + row.days + ' working days) was ' + status + ' by your manager.\\n\\n' + cfg.company_name + ' People team' } } }];\n}\n\nconst r = entry.request;\nconst emp = employees.find(e => e.email === r.email);\nconst days = r.first_day && r.last_day ? workdays(r.first_day, r.last_day) : 0;\nconst counted = cfg.counted_types.includes(r.type);\nconst used = emp ? requests.filter(x => x.email === emp.email && cfg.counted_types.includes(x.type) && x.first_day.startsWith(year))\n  .reduce((m, x) => (x.status === 'approved' ? { ...m, approved: m.approved + x.days } : x.status === 'pending' ? { ...m, pending: m.pending + x.days } : m), { approved: 0, pending: 0 }) : { approved: 0, pending: 0 };\nconst left = emp ? emp.allowance_days - used.approved - used.pending : 0;\nconst after = counted ? left - days : left;\nconst refuse =\n  !emp ? 'We could not find ' + r.email + ' on the staff list.' :\n  !r.first_day || !r.last_day || r.last_day < r.first_day ? 'The last day is before the first day.' :\n  r.first_day < today ? 'The first day is in the past.' :\n  days === 0 ? 'Those dates contain no working days.' :\n  counted && after < 0 && cfg.refuse_over_allowance ? 'This needs ' + days + ' days and you have ' + left + ' left this year (pending requests included).' : '';\nif (refuse) {\n  return [{ json: { entry: 'request', action: 'tell_employee', reason: refuse, reply: '',\n    email: { to: send(r.email), original_to: r.email, subject: 'Your time-off request could not be sent to your manager',\n      body: 'Hi,\\n\\nYour request for ' + r.first_day + ' to ' + r.last_day + ' was not sent on: ' + refuse + '\\n\\nFix the dates and submit the form again.\\n\\n' + cfg.company_name + ' People team' } } }];\n}\nconst away = requests.filter(x => x.team === emp.team && x.email !== emp.email && ['approved', 'pending'].includes(x.status)\n  && overlaps(r.first_day, r.last_day, x.first_day, x.last_day)).map(x => x.name + ' (' + x.status + ', ' + x.first_day + ' to ' + x.last_day + ')');\nconst blackouts = inBlackout(r.first_day, r.last_day).map(p => p.reason);\nconst warnings = [\n  ...(away.length >= cfg.max_team_off ? [away.length + ' of ' + emp.team + ' already off on these days'] : []),\n  ...blackouts.map(b => 'falls in a blackout period: ' + b),\n  ...(counted && after < 0 ? ['goes ' + Math.abs(after) + ' days over allowance'] : []),\n];\nconst rnd = n => { const a = new Uint8Array(n); (globalThis.crypto || { getRandomValues: x => x.map(() => Math.floor(Math.random() * 256)) }).getRandomValues(a); return Array.from(a, b => (b % 36).toString(36)).join(''); };\nconst id = 'TO-' + Date.now().toString(36).toUpperCase();\nconst token = rnd(24);\nconst link = d => cfg.decision_url + '?id=' + encodeURIComponent(id) + '&decision=' + d + '&token=' + token;\nconst body = [\n  'Hi,', '', emp.name + ' asks for ' + r.type.toLowerCase() + ' from ' + r.first_day + ' to ' + r.last_day + ' (' + days + ' working days).',\n  r.note ? 'Note: ' + r.note : '', '',\n  counted ? 'Allowance: ' + left + ' days left this year, ' + after + ' after this request.' : r.type + ' leave does not use allowance.',\n  away.length ? 'Also off in ' + emp.team + ': ' + away.join('; ') : 'Nobody else in ' + emp.team + ' is off on these days.',\n  warnings.length ? 'Check before approving: ' + warnings.join('; ') + '.' : '', '',\n  'Approve: ' + link('approve'), 'Decline: ' + link('decline'), '',\n  'Each link works once.',\n].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\\n');\nreturn [{ json: { entry: 'request', action: 'ask_manager', id, reply: '', days, allowance_left: left, allowance_after: after, away, warnings,\n  sheet_row: { id, email: emp.email, name: emp.name, team: emp.team, type: r.type, first_day: r.first_day, last_day: r.last_day,\n    days, status: 'pending', token, created_at: new Date().toISOString(), decided_at: '' },\n  email: { to: send(emp.manager_email), original_to: emp.manager_email,\n    subject: (warnings.length ? '[Check] ' : '') + 'Time off: ' + emp.name + ', ' + r.first_day + ' to ' + r.last_day, body } } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "1e8c6c5f-68b8-44af-afaa-9faa6a661e8c",
+      "name": "Reply on a decision link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6341a646-9505-4c66-a845-384560556341",
+              "leftValue": "={{ $json.entry === 'decision' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "4929ba29-9ba6-4759-a708-570805644929",
+      "name": "STOP: no browser to reply to",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        720
+      ]
+    },
+    {
+      "id": "7962433b-3a64-4ecb-a7f1-57f10f627962",
+      "name": "Reply to the manager",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ message: $json.reply }) }}",
+        "options": {}
+      },
+      "position": [
+        3216,
+        544
+      ]
+    },
+    {
+      "id": "d488c151-1c53-4201-a350-d350ba1cd488",
+      "name": "Store and send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "45ddc5ec-4e96-442c-a810-f8103bff45dd",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "46ddc77f-10ea-45cf-a292-c292804646dd",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "2de789c0-4571-4dc0-a523-f52328432de7",
+      "name": "STOP: preview - nothing stored or sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        384
+      ]
+    },
+    {
+      "id": "53a0dd4b-afee-43db-aef3-aef35fb253a0",
+      "name": "What to do?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "63e72ec3-bdd6-4fd3-a2cb-e2cbe77a63e7",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "ask_manager",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ask_manager"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a4876fe9-9e98-4119-a297-42976ca4a487",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "apply_decision",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "apply_decision"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5e74eb7e-ee37-401e-ae40-0e40aa7d5e74",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "tell_employee",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "tell_employee"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        3456,
+        208
+      ]
+    },
+    {
+      "id": "6977f5e8-a403-4d68-a745-674544db6977",
+      "name": "STOP: bad link - nothing to change",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3680,
+        720
+      ]
+    },
+    {
+      "id": "2b12f13a-5b93-431a-a326-a3264f992b12",
+      "name": "Pick new row columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the Requests tab columns go to Sheets.\nreturn [{ json: $input.first().json.sheet_row }];\n"
+      },
+      "position": [
+        3680,
+        208
+      ]
+    },
+    {
+      "id": "607bb6ba-3cdd-409a-a859-f8597519607b",
+      "name": "Save the pending request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.leave_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Requests"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3904,
+        208
+      ]
+    },
+    {
+      "id": "be15ede1-c3ef-4191-a7dc-57dc8cecbe15",
+      "name": "Email the manager approve and decline links",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $('Decide the outcome').first().json.email.to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $('Decide the outcome').first().json.email.original_to + '] ' : '') + $('Decide the outcome').first().json.email.subject }}",
+        "emailType": "text",
+        "message": "={{ $('Decide the outcome').first().json.email.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        4128,
+        208
+      ]
+    },
+    {
+      "id": "bdd6d1d0-3e62-40d0-a047-e047acd3bdd6",
+      "name": "Pick status columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// id is the match column; only status and decided_at change.\nreturn [{ json: $input.first().json.sheet_row }];\n"
+      },
+      "position": [
+        3680,
+        384
+      ]
+    },
+    {
+      "id": "ecb5f78d-e11c-4d7d-a115-31154728ecb5",
+      "name": "Update the request status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.leave_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Requests"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3904,
+        384
+      ]
+    },
+    {
+      "id": "f3282f4e-6ae6-42ee-a664-7664e30df328",
+      "name": "Email the employee the decision",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $('Decide the outcome').first().json.email.to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $('Decide the outcome').first().json.email.original_to + '] ' : '') + $('Decide the outcome').first().json.email.subject }}",
+        "emailType": "text",
+        "message": "={{ $('Decide the outcome').first().json.email.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        4128,
+        384
+      ]
+    },
+    {
+      "id": "c2aa8e23-589f-4133-a385-23859c1ac2aa",
+      "name": "Email the employee why it was refused",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.email.to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email.original_to + '] ' : '') + $json.email.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3680,
+        544
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time-off request form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manager decision link": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Which entry point?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which entry point?": {
+      "main": [
+        [
+          {
+            "node": "Read the form answers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the decision link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unknown entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the form answers": {
+      "main": [
+        [
+          {
+            "node": "Combine entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the decision link": {
+      "main": [
+        [
+          {
+            "node": "Combine entry",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Load sample request": {
+      "main": [
+        [
+          {
+            "node": "Combine entry",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Combine entry": {
+      "main": [
+        [
+          {
+            "node": "Leave sheet blank?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leave sheet blank?": {
+      "main": [
+        [
+          {
+            "node": "Load sample team data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Employees tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Employees tab": {
+      "main": [
+        [
+          {
+            "node": "Collect employees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect employees": {
+      "main": [
+        [
+          {
+            "node": "Read Requests tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Requests tab": {
+      "main": [
+        [
+          {
+            "node": "Collect team data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample team data": {
+      "main": [
+        [
+          {
+            "node": "Combine team data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect team data": {
+      "main": [
+        [
+          {
+            "node": "Combine team data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine team data": {
+      "main": [
+        [
+          {
+            "node": "Decide the outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide the outcome": {
+      "main": [
+        [
+          {
+            "node": "Store and send?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reply on a decision link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply on a decision link?": {
+      "main": [
+        [
+          {
+            "node": "Reply to the manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no browser to reply to",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store and send?": {
+      "main": [
+        [
+          {
+            "node": "What to do?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing stored or sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "What to do?": {
+      "main": [
+        [
+          {
+            "node": "Pick new row columns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pick status columns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email the employee why it was refused",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: bad link - nothing to change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick new row columns": {
+      "main": [
+        [
+          {
+            "node": "Save the pending request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save the pending request": {
+      "main": [
+        [
+          {
+            "node": "Email the manager approve and decline links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick status columns": {
+      "main": [
+        [
+          {
+            "node": "Update the request status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update the request status": {
+      "main": [
+        [
+          {
+            "node": "Email the employee the decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

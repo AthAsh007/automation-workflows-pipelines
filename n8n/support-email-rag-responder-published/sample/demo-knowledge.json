@@ -1,0 +1,27 @@
+[
+  {
+    "id": "portal-access",
+    "title": "Logging in to the client portal",
+    "text": "To reset your client portal password, open the portal login page and click \"Forgot password\". Enter the email address your account was set up with and we send a reset link that is valid for 60 minutes. If the link has expired, request a new one. If you no longer have access to that email address, reply to your account manager and we will move the login to a new address after confirming it with the account owner."
+  },
+  {
+    "id": "invoices",
+    "title": "Invoices and billing",
+    "text": "Invoices are issued on the 1st of each month and emailed to the billing contact on file. Payment is due within 14 days by bank transfer or card. You can download past invoices from Billing in the client portal. To change the billing contact or the company details printed on the invoice, reply with the new details and they will appear from the next invoice."
+  },
+  {
+    "id": "reporting",
+    "title": "Monthly reports",
+    "text": "Performance reports are published in the client portal by the 5th working day of each month and a link is emailed to the report contacts on your account. Live dashboards update daily. To add someone to the report emails, reply with their name and email address."
+  },
+  {
+    "id": "campaign-changes",
+    "title": "Requesting campaign changes",
+    "text": "Budget changes, pausing a campaign and new creative requests are handled within two working days of the request. Urgent pauses are actioned the same working day if requested before 3pm. Send change requests to support with the campaign name and the change you need."
+  },
+  {
+    "id": "onboarding",
+    "title": "Onboarding a new account",
+    "text": "New accounts need admin access to the ad accounts, analytics and the website tag manager. Your onboarding checklist in the client portal lists each access request, and the first campaigns go live about ten working days after all access is granted."
+  }
+]

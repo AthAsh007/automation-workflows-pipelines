@@ -14,12 +14,12 @@
 // you are inside the sub-account.
 const GHL_LOCATION_ID = '';
 
-// A Private Integration token (Settings -> Private Integrations -> create one, scope
-// contacts.write / opportunities.write / conversations.write), or a location API key. Both
-// blank -> the workflows build the exact payload and stop in front of the write, so you can
-// read what they would have sent. Neither is filled in here: this file ships to clients as a
-// work sample.
-const GHL_API_KEY      = '';
+// GoHighLevel signs in through an n8n credential, never through a value in this node.
+// Create a Header Auth credential: Name "Authorization", Value "Bearer <Private Integration
+// token>" (Settings -> Private Integrations, scopes contacts.write / opportunities.write /
+// conversations.write). Select it on every GoHighLevel node, then set this to true. Left
+// false, the workflows build the exact request and stop in front of the write.
+const GHL_CREDENTIAL_ADDED = false;
 const GHL_API_BASE     = 'https://services.leadconnectorhq.com';
 const GHL_API_VERSION  = '2021-07-28';
 
@@ -118,7 +118,7 @@ const REQUIRE_MESSAGE = false;   // false: a named contact with no message is st
 //                                   built in full and shown, so the first run after import
 //                                   is always safe.
 //   DRY_RUN false                -> the contact is created or updated and the touches send.
-// Both also need GHL_LOCATION_ID and GHL_API_KEY above; with either blank the workflows stay
+// Both also need GHL_LOCATION_ID and GHL_CREDENTIAL_ADDED above; without them the workflows stay
 // in preview whatever this says.
 const DRY_RUN = true;
 
@@ -156,7 +156,7 @@ const DEMO_PIPELINE = [
 
 const SETTINGS = {
   ghl_location_id: GHL_LOCATION_ID.trim(),
-  ghl_api_key:     GHL_API_KEY.trim(),
+  ghl_credential_added: GHL_CREDENTIAL_ADDED === true,
   ghl_api_base:    GHL_API_BASE.trim().replace(/\/+$/, ''),
   ghl_api_version: GHL_API_VERSION.trim(),
 
@@ -191,7 +191,7 @@ const SETTINGS = {
   dry_run:     MODE !== 'live',
   ghl_enabled: MODE === 'live'
     && GHL_LOCATION_ID.trim() !== ''
-    && GHL_API_KEY.trim() !== ''
+    && GHL_CREDENTIAL_ADDED === true
 };
 
 // config passes the incoming payload through untouched under `lead`, so whichever trigger

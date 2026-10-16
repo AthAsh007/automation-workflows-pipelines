@@ -1,0 +1,804 @@
+{
+  "name": "Draft Shopify product descriptions with OpenAI for products missing one",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Draft Shopify product descriptions with OpenAI for products missing one\n\n**Who's it for**\nShopify merchants with a catalogue where half the products were imported with no description. It gives every one a first draft to edit instead of a blank box, and never publishes copy on its own unless you tell it to.\n\n**How it works**\n1. Every Monday at 07:00 it reads active products from Shopify, or 6 sample products until Shopify is connected.\n2. Products whose description has fewer than 80 characters of text are picked, up to 10 per run; gift cards and products tagged `no-ai-copy` are skipped.\n3. With `USE_OPENAI` on, a model writes from the product facts only. With it off, a template builds an intro, the options and the features from tags.\n4. Each draft must be 120 to 1,200 characters and contain none of the phrases in `BANNED_CLAIMS` such as \"best\", \"guaranteed\" or \"clinically proven\". Failures are held with the reason.\n5. Passing drafts go to the `custom.description_draft` metafield, or straight into an empty description if `WRITE_MODE` is `body`.\n\n**How to set up**\n1. Run it once as imported. It drafts the sample products and stops at `STOP: dry run - Shopify untouched`.\n2. Add a Shopify access token credential to the three Shopify nodes, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Optionally add an OpenAI credential to the model under `Write the draft with OpenAI` and set `USE_OPENAI = true`.\n4. Set `DRY_RUN = false`. Review drafts in the product's metafields before copying them into the description.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_products and write_products\n- Optional: an OpenAI API key\n\n**How to customize**\n- `BANNED_CLAIMS` lists phrases a draft may not contain.\n- `TONE` is passed to the model; `TYPE_INTROS` sets the template opening per product type.\n- `WRITE_MODE` chooses between the draft metafield and the description itself.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7e50c21c-5717-4c4e-9a00-7e50c21c13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns Monday at 07:00 so new imports from the week get drafts. Banned claims, length limits, template openings and the write mode all live in `config`.",
+        "height": 656,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "51fbf051-5717-4c4e-9a00-51fbf0511000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Find products to draft\n\nDescriptions are measured as text after stripping HTML, so `<p>Apron.</p>` counts as missing. Internal tags such as sale or import markers are removed before they can become \"features\".",
+        "height": 656,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "50fbeebe-5717-4c4e-9a00-50fbeebe1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Draft the copy\n\nThe model only sees the facts block, never the web or other products. With `USE_OPENAI` off, `Draft from the template` produces the same shape, so the checks and writes behave identically either way.",
+        "height": 656,
+        "width": 800,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "4ffbed2b-5717-4c4e-9a00-4ffbed2b1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Check, then save\n\nEvery draft passes the same length and claims check whether a model or the template wrote it. The default is a draft metafield; even in body mode an existing description is never overwritten.",
+        "height": 656,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2432,
+        0
+      ],
+      "id": "4efbeb98-5717-4c4e-9a00-4efbeb981003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "30b1e11d-019e-4a0d-a6e5-56e5c53830b1",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// DRAFT SHOPIFY PRODUCT DESCRIPTIONS WITH OPENAI FOR PRODUCTS MISSING ONE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE products. USE_OPENAI false -> template drafts.\n// DRY_RUN true -> drafts are shown, nothing is written to Shopify.\n\n// set true after adding the Shopify credential to the three Shopify nodes\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// set true after adding an OpenAI credential to the model under Write the draft with OpenAI\nconst USE_OPENAI = false;\n// descriptions with less text than this count as missing\nconst MIN_DESCRIPTION_CHARS = 80;\n// most products drafted per run\nconst MAX_PER_RUN = 10;\n// products with these tags are never drafted\nconst SKIP_TAGS = [\n  \"no-ai-copy\"\n];\n// product types that are never drafted\nconst SKIP_TYPES = [\n  \"Gift Card\"\n];\n// tags that are not product features\nconst INTERNAL_TAG_PREFIXES = [\n  \"sale\",\n  \"import\",\n  \"collection:\",\n  \"yotpo\"\n];\n// style instruction for the model\nconst TONE = 'warm, plain and specific; short sentences; no hype';\n// template opening per product type; {title} and {vendor} are filled in\nconst TYPE_INTROS = {\n  Mug: \"{title} is a {vendor} mug made for the first coffee of the day.\",\n  Apron: \"{title} is a work apron from {vendor} for kitchen and studio.\",\n  Planter: \"{title} is a planter from {vendor} for indoor plants.\"\n};\n// a draft containing any of these is held\nconst BANNED_CLAIMS = [\n  \"best\",\n  \"guaranteed\",\n  \"cure\",\n  \"clinically proven\",\n  \"miracle\",\n  \"#1\",\n  \"world class\",\n  \"risk-free\"\n];\n// allowed draft length in characters of text\nconst DRAFT_LIMITS = {\n  min: 120,\n  max: 1200\n};\n// 'metafield' saves to custom.description_draft; 'body' writes the description itself\nconst WRITE_MODE = 'metafield';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    use_openai: USE_OPENAI,\n    min_description_chars: MIN_DESCRIPTION_CHARS,\n    max_per_run: MAX_PER_RUN,\n    skip_tags: SKIP_TAGS,\n    skip_types: SKIP_TYPES,\n    internal_tag_prefixes: INTERNAL_TAG_PREFIXES,\n    tone: TONE,\n    type_intros: TYPE_INTROS,\n    banned_claims: BANNED_CLAIMS,\n    draft_limits: DRAFT_LIMITS,\n    write_mode: WRITE_MODE,\n    dry_run: DRY_RUN,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "0ad0cdc5-f6f3-4235-aba8-1ba82d300ad0",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "b4da1f76-ba08-4696-adf2-bdf224c5b4da",
+      "name": "Every Monday at 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "68d1bd51-45e6-4e01-a963-29632e1c68d1",
+      "name": "Shopify connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d9ba5c1-e46c-4371-a512-d5123e0c3d9b",
+              "leftValue": "={{ $('config').first().json.use_shopify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "50a93e67-bda3-4437-ac3d-0c3dc0fe50a9",
+      "name": "Fetch active products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/products.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "status",
+              "value": "active"
+            },
+            {
+              "name": "fields",
+              "value": "id,title,body_html,product_type,vendor,tags,options,variants"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "85b3a75f-f2bb-4faf-a3bf-73bf996685b3",
+      "name": "Read Shopify products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Products -> the facts a description may use. Nothing else reaches the draft.\nconst out = [];\nfor (const page of $input.all()) for (const p of page.json.products || []) {\n  const prices = (p.variants || []).map(v => Number(v.price)).filter(n => !isNaN(n));\n  out.push({ json: { id: p.id, title: p.title, body_html: p.body_html || '', type: p.product_type || '', vendor: p.vendor || '',\n    tags: String(p.tags || '').split(',').map(t => t.trim()).filter(Boolean),\n    options: (p.options || []).filter(o => o.name !== 'Title').map(o => ({ name: o.name, values: o.values })),\n    price_min: prices.length ? Math.min(...prices) : null, price_max: prices.length ? Math.max(...prices) : null } });\n}\nreturn out;\n"
+      },
+      "position": [
+        944,
+        176
+      ]
+    },
+    {
+      "id": "743f12ad-f89a-4e9d-ab64-cb648908743f",
+      "name": "Load sample products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SHOPIFY is true. Three need a draft; one of those has a tag that\n// turns into a banned claim, so the check holds it.\nconst p = (id, title, body_html, type, tags, options, price_min, price_max) => ({ id, title, body_html, type, vendor: 'Kiln & Co', tags, options, price_min, price_max });\nreturn [\n  p(801, 'Speckled stoneware mug', '', 'Mug', ['stoneware', 'dishwasher-safe', 'handmade', 'sale-oct'], [{ name: 'Size', values: ['12oz', '16oz'] }], 24, 28),\n  p(802, 'Linen apron', '<p>Apron.</p>', 'Apron', ['washed-linen', 'adjustable-strap', 'two-pockets'], [{ name: 'Color', values: ['Sand', 'Charcoal', 'Sage'] }], 38, 38),\n  p(803, 'Walnut serving board', '<p>Cut from a single piece of American black walnut and finished with food-safe oil, this board is 40 cm long with a juice groove on one side and a flat serving face on the other.</p>', 'Board', ['walnut'], [], 65, 65),\n  p(804, 'Gift card', '', 'Gift Card', [], [{ name: 'Denominations', values: ['25', '50'] }], 25, 50),\n  p(805, 'Beeswax pillar candle', '', 'Candle', ['no-ai-copy'], [], 18, 18),\n  p(806, 'Ceramic planter', '', 'Planter', ['best-seller', 'drainage-hole'], [{ name: 'Size', values: ['Small', 'Large'] }], 22, 34),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "ed7751c1-439a-4f71-a395-2395720ced77",
+      "name": "Combine product sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "f3941dbd-7511-44ad-a3b8-53b82498f394",
+      "name": "Find products missing a description",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Strip HTML and count the text that is left. Short or empty -> needs a draft.\nconst cfg = $('config').first().json;\nconst text = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nconst picked = [];\nfor (const { json: p } of $input.all()) {\n  if (text(p.body_html).length >= cfg.min_description_chars) continue;\n  if (cfg.skip_types.includes(p.type)) continue;\n  if (p.tags.some(t => cfg.skip_tags.includes(t.toLowerCase()))) continue;\n  const features = p.tags.filter(t => !cfg.internal_tag_prefixes.some(x => t.toLowerCase().startsWith(x)))\n    .map(t => t.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()));\n  const price = p.price_min === null ? '' : p.price_min === p.price_max ? String(p.price_min) : p.price_min + ' to ' + p.price_max;\n  const facts = ['Title: ' + p.title, 'Type: ' + (p.type || 'n/a'), 'Brand: ' + p.vendor,\n    ...p.options.map(o => o.name + ': ' + o.values.join(', ')), 'Features: ' + (features.join(', ') || 'none listed'), 'Price: ' + (price || 'n/a')].join('\\n');\n  picked.push({ json: { id: p.id, title: p.title, type: p.type, vendor: p.vendor, options: p.options, features, facts, current: text(p.body_html) } });\n}\nreturn picked.slice(0, cfg.max_per_run);\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "204695ac-fd7f-47ec-ac36-0c36de3f2046",
+      "name": "OpenAI switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6becb5f2-f3a7-4e52-ac36-3c366c216bec",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "b13966c4-b65e-4184-a06a-006ac867b139",
+      "name": "Write the draft with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Style: {{ $('config').first().json.tone }}\nWrite a product description using only these facts:\n{{ $json.facts }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You write Shopify product descriptions. Use only the facts given; never invent materials, sizes, certifications or awards. No superlatives and no health or safety claims. Return HTML using only <p>, <ul> and <li>: one or two short paragraphs, then up to 5 bullet points. 60 to 150 words. Follow the style line in the message."
+        }
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "69648c59-79fa-4a89-a9cc-d9ccc6d46964",
+      "name": "Write the draft with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        336
+      ]
+    },
+    {
+      "id": "5769f11c-9839-405c-aab1-5ab1d36f5769",
+      "name": "Write the draft with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"description_html\": \"<p>A short paragraph.</p><ul><li>One fact</li></ul>\"\n}"
+      },
+      "position": [
+        1984,
+        336
+      ]
+    },
+    {
+      "id": "dc20f8bd-def8-4fad-ad61-fd615f98dc20",
+      "name": "Draft from the template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// No model: an intro from TYPE_INTROS, the options, and features from tags.\nconst cfg = $('config').first().json;\nreturn $input.all().map(({ json: p }) => {\n  const intro = (cfg.type_intros[p.type] || '{title} from {vendor}.').replace('{title}', p.title).replace('{vendor}', p.vendor);\n  const html = '<p>' + intro + '</p>'\n    + (p.options.length ? '<p>' + p.options.map(o => 'Available in ' + o.values.length + ' ' + o.name.toLowerCase() + (o.values.length === 1 ? '' : 's') + ': ' + o.values.join(', ') + '.').join(' ') + '</p>' : '')\n    + (p.features.length ? '<ul>' + p.features.map(f => '<li>' + f + '</li>').join('') + '</ul>' : '');\n  return { json: { ...p, draft_html: html, source: 'template' } };\n});\n"
+      },
+      "position": [
+        1856,
+        496
+      ]
+    },
+    {
+      "id": "902673f8-d1ae-4678-a381-a381736b9026",
+      "name": "Combine drafts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2240,
+        176
+      ]
+    },
+    {
+      "id": "73367da3-0213-48b3-a73a-b73a2b9a7336",
+      "name": "Check length and claims",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Model items carry only { output } and pair back to their product by position.\n// Every draft is measured as text and searched for BANNED_CLAIMS as whole words.\nconst cfg = $('config').first().json;\nconst products = $('Find products missing a description').all();\nconst text = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst esc = s => s.replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\$&');\nreturn $input.all().map((it, i) => {\n  const d = 'output' in it.json ? { ...products[i].json, draft_html: it.json.output?.description_html || '', source: 'openai' } : it.json;\n  const t = text(d.draft_html);\n  const claim = cfg.banned_claims.find(c => new RegExp('(^|[^a-z0-9])' + esc(c.toLowerCase()) + '([^a-z0-9]|$)').test(t.toLowerCase()));\n  const reason = !t ? 'empty draft' : t.length < cfg.draft_limits.min ? 'too short (' + t.length + ' chars)' : t.length > cfg.draft_limits.max ? 'too long (' + t.length + ' chars)' : claim ? 'banned claim: \"' + claim + '\"' : '';\n  return { json: { id: d.id, title: d.title, source: d.source, draft_html: d.draft_html, chars: t.length, ok: !reason, reason,\n    write_body: cfg.write_mode === 'body' && !d.current } };\n});\n"
+      },
+      "position": [
+        2480,
+        176
+      ]
+    },
+    {
+      "id": "3486da52-920b-44b2-adb0-bdb0f1c13486",
+      "name": "Passed the checks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d5c2e454-cfb7-4214-a895-48951277d5c2",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2704,
+        176
+      ]
+    },
+    {
+      "id": "f33c6184-2232-4044-a502-e502b9a7f33c",
+      "name": "STOP: held - draft failed checks",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2912,
+        352
+      ]
+    },
+    {
+      "id": "a96bba75-53c0-47e5-a5cc-25cc4520a96b",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2912,
+        176
+      ]
+    },
+    {
+      "id": "7e29bf61-f229-4b11-ae05-6e05466c7e29",
+      "name": "STOP: dry run - Shopify untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3136,
+        352
+      ]
+    },
+    {
+      "id": "c1d52386-17f1-45a6-abbf-0bbf2415c1d5",
+      "name": "Write into the description?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12a07b98-1908-4c18-af8a-df8a66cb12a0",
+              "leftValue": "={{ $json.write_body }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3136,
+        176
+      ]
+    },
+    {
+      "id": "9222eeeb-eb91-437b-a1d6-61d660129222",
+      "name": "Write the description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/products/' + $json.id + '.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ product: { id: $json.id, body_html: $json.draft_html } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3360,
+        176
+      ]
+    },
+    {
+      "id": "257cab6d-f2a4-4b5d-a68e-268e7348257c",
+      "name": "Save the draft metafield",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/products/' + $json.id + '/metafields.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ metafield: { namespace: 'custom', key: 'description_draft', type: 'multi_line_text_field', value: $json.draft_html } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3360,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 07:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Shopify connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch active products",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch active products": {
+      "main": [
+        [
+          {
+            "node": "Read Shopify products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Shopify products": {
+      "main": [
+        [
+          {
+            "node": "Combine product sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample products": {
+      "main": [
+        [
+          {
+            "node": "Combine product sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine product sources": {
+      "main": [
+        [
+          {
+            "node": "Find products missing a description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find products missing a description": {
+      "main": [
+        [
+          {
+            "node": "OpenAI switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI switched on?": {
+      "main": [
+        [
+          {
+            "node": "Write the draft with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft from the template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the draft with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write the draft with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the draft with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write the draft with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the draft with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Combine drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft from the template": {
+      "main": [
+        [
+          {
+            "node": "Combine drafts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine drafts": {
+      "main": [
+        [
+          {
+            "node": "Check length and claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check length and claims": {
+      "main": [
+        [
+          {
+            "node": "Passed the checks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Passed the checks?": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: held - draft failed checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Write into the description?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Shopify untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write into the description?": {
+      "main": [
+        [
+          {
+            "node": "Write the description",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save the draft metafield",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

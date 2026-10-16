@@ -1,0 +1,10 @@
+{
+  "source": "website",
+  "form": {
+    "full_name": "Growth Team",
+    "email": "outreach@spam-agency.example",
+    "phone": "",
+    "company": "",
+    "message": "We offer premium SEO services and high authority backlink packages for your site."
+  }
+}

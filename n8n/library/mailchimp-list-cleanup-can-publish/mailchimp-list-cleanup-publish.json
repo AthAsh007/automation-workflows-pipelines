@@ -1,0 +1,607 @@
+{
+  "name": "Archive unengaged subscribers in Mailchimp after a dry-run review",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Archive unengaged subscribers in Mailchimp after a dry-run review\n\n**Who's it for**\nMailchimp account owners paying for contacts who have not opened an email in months. It gives you a reviewed list of who would be archived before a single contact is touched.\n\n**How it works**\n1. On the 1st of each month it reads every subscribed member of one audience, or 8 sample members until Mailchimp is connected.\n2. A member is a candidate when they joined 90+ days ago, their profile has not changed in 180 days, and they have no opens and no clicks (or a 1-star rating with under 5% opens).\n3. Members with a protected tag, the Mailchimp VIP flag or a protected email domain are held back with the reason.\n4. If candidates exceed 30% of the audience the run stops, because that usually means missing stats. Otherwise up to 200 are archived and the count goes to Slack.\n\n**How to set up**\n1. Run it once as imported. It reviews the sample members and stops at `STOP: dry run - nothing archived`.\n2. Add a Mailchimp credential to both Mailchimp nodes, then set `MAILCHIMP_DC`, `LIST_ID` and `USE_MAILCHIMP = true`.\n3. Run it again and read the candidates and held-back reasons in `Pick members to archive`.\n4. When the list looks right, set `DRY_RUN = false`. Archived contacts keep their history and can be re-added.\n\n**Requirements**\n- A Mailchimp audience\n- Optional: a Slack workspace for the result\n\n**How to customize**\n- `MIN_TENURE_DAYS` and `STALE_DAYS` decide how long someone must be quiet before they qualify.\n- `PROTECT_TAGS` and `PROTECT_DOMAINS` keep customers, partners and staff on the list whatever their stats.\n- `MAX_ARCHIVE_PER_RUN` and `MAX_SHARE_PCT` limit how much one run can remove.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "ca7014aa-5717-4c4e-9a00-ca7014aa13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns on the 1st of each month or by hand. Every rule, protection list and cap is a constant in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "bab7810f-5717-4c4e-9a00-bab7810f1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the audience\n\nOne page of up to 1,000 subscribed members, trimmed with the fields parameter to the stats the rules need. `Load sample members` covers every rule so the review can be read before connecting.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "b9b77f7c-5717-4c4e-9a00-b9b77f7c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Decide who qualifies\n\n`Pick members to archive` checks protections before engagement and fails closed: if candidates pass `MAX_SHARE_PCT` of the audience the batch is emptied, since that pattern usually means stats did not load.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "bcb78435-5717-4c4e-9a00-bcb784351002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Archive and report\n\nThe DELETE call archives rather than erases, so history is kept and a contact can be restored. It runs only after `DRY_RUN` is switched off, one member per request.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "bbb782a2-5717-4c4e-9a00-bbb782a21003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "018da477-cd3b-4547-a1e6-61e6378e018d",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ARCHIVE UNENGAGED SUBSCRIBERS IN MAILCHIMP AFTER A DRY-RUN REVIEW - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_MAILCHIMP false -> SAMPLE members.\n// DRY_RUN true -> candidates are listed and nothing is archived.\n\n// set true after adding the Mailchimp credential\nconst USE_MAILCHIMP = false;\n// data centre from your API key, the part after the dash\nconst MAILCHIMP_DC = 'us21';\n// audience id (Audience > Settings > Audience name and defaults)\nconst LIST_ID = '';\n// members who joined more recently are never candidates\nconst MIN_TENURE_DAYS = 90;\n// profile unchanged for this many days\nconst STALE_DAYS = 180;\n// a 1-star member below this open rate also qualifies (0.05 = 5%)\nconst LOW_RATING_OPEN_RATE = 0.05;\n// tags that are never archived (case-insensitive)\nconst PROTECT_TAGS = [\n  \"customer\",\n  \"vip\",\n  \"partner\",\n  \"do-not-archive\"\n];\n// email domains that are never archived\nconst PROTECT_DOMAINS = [\n  \"yourcompany.example\"\n];\n// hard ceiling on archives per run, oldest members first\nconst MAX_ARCHIVE_PER_RUN = 200;\n// if more than this share of the audience qualifies, stop and archive nothing\nconst MAX_SHARE_PCT = 30;\n// channel for the live result; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_mailchimp: USE_MAILCHIMP,\n    mailchimp_dc: MAILCHIMP_DC,\n    list_id: LIST_ID,\n    min_tenure_days: MIN_TENURE_DAYS,\n    stale_days: STALE_DAYS,\n    low_rating_open_rate: LOW_RATING_OPEN_RATE,\n    protect_tags: PROTECT_TAGS,\n    protect_domains: PROTECT_DOMAINS,\n    max_archive_per_run: MAX_ARCHIVE_PER_RUN,\n    max_share_pct: MAX_SHARE_PCT,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "83a6b027-b9e3-49f7-ab00-2b00213e83a6",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "18c3fc17-1c99-4ae7-a228-9228daee18c3",
+      "name": "On the 1st of each month",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 1 * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "9f120213-aa83-4a23-a174-31744dca9f12",
+      "name": "Mailchimp connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed793d49-b779-4079-a1a5-71a58344ed79",
+              "leftValue": "={{ $('config').first().json.use_mailchimp }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "85e8ff36-df52-4a56-aa3c-fa3c770585e8",
+      "name": "Fetch subscribed members",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.mailchimp_dc + '.api.mailchimp.com/3.0/lists/' + $('config').first().json.list_id + '/members' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mailchimpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "subscribed"
+            },
+            {
+              "name": "count",
+              "value": "1000"
+            },
+            {
+              "name": "fields",
+              "value": "members.id,members.email_address,members.status,members.stats,members.member_rating,members.timestamp_opt,members.timestamp_signup,members.last_changed,members.vip,members.tags,total_items"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "6e04f51a-1ddc-40fa-a869-186964b96e04",
+      "name": "Read members",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Mailchimp members page -> one item with the member list and the audience size.\nconst page = $input.first().json;\nreturn [{ json: { members: page.members || [], total: page.total_items || (page.members || []).length } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "88f7c156-6b28-4276-aa5b-ea5b1be588f7",
+      "name": "Load sample members",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_MAILCHIMP is true. Same fields as Mailchimp /lists/{id}/members.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nconst m = (id, email, open, click, rating, joined, changed, extra = {}) => ({ id, email_address: email, status: 'subscribed',\n  stats: { avg_open_rate: open, avg_click_rate: click }, member_rating: rating, timestamp_opt: ago(joined), last_changed: ago(changed), vip: false, tags: [], ...extra });\nconst members = [\n  m('h01', 'dana.okafor@mailbox.example', 0, 0, 2, 400, 390),\n  m('h02', 'lee.marsh@inbox.example', 0, 0, 2, 260, 250),\n  m('h03', 'r.vance@studio.example', 0.03, 0, 1, 300, 290),\n  m('h04', 'buyer@bigcustomer.example', 0, 0, 2, 500, 480, { tags: [{ id: 1, name: 'Customer' }] }),\n  m('h05', 'ceo@friendly.example', 0, 0, 2, 500, 480, { vip: true }),\n  m('h06', 'intern@yourcompany.example', 0, 0, 2, 365, 365),\n  m('h07', 'new.signup@mailbox.example', 0, 0, 2, 30, 30),\n  m('h08', 'active.reader@inbox.example', 0.62, 0.11, 4, 700, 12),\n];\nreturn [{ json: { members, total: 40 } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "e271e5ea-37b1-40ca-a919-a9191149e271",
+      "name": "Combine member sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "1e782a6e-dec5-440e-ae6e-be6e04ed1e78",
+      "name": "Pick members to archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Candidate = tenure >= MIN_TENURE_DAYS, profile unchanged for STALE_DAYS, and\n// either no opens and no clicks, or a 1-star rating under LOW_RATING_OPEN_RATE.\n// Protection is checked before engagement, so a held member always shows why.\nconst cfg = $('config').first().json;\nconst { members, total } = $input.first().json;\nconst tags = new Set(cfg.protect_tags.map(t => t.toLowerCase()));\nconst domains = cfg.protect_domains.map(d => d.toLowerCase());\nconst days = iso => Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);\nconst candidates = [], held = [];\nlet active = 0;\nfor (const mem of members) {\n  if (mem.status !== 'subscribed') continue;\n  const email = String(mem.email_address).toLowerCase();\n  const open = mem.stats?.avg_open_rate || 0, click = mem.stats?.avg_click_rate || 0;\n  const silent = open === 0 && click === 0;\n  const weak = mem.member_rating <= 1 && open < cfg.low_rating_open_rate && click === 0;\n  if (!silent && !weak) { active++; continue; }\n  const tag = (mem.tags || []).map(t => t.name).find(n => tags.has(String(n).toLowerCase()));\n  const reason =\n    mem.vip ? 'VIP flag' :\n    tag ? 'protected tag \"' + tag + '\"' :\n    domains.some(d => email.endsWith('@' + d)) ? 'protected domain' :\n    days(mem.timestamp_opt) < cfg.min_tenure_days ? 'joined ' + days(mem.timestamp_opt) + ' days ago' :\n    days(mem.last_changed) < cfg.stale_days ? 'profile changed ' + days(mem.last_changed) + ' days ago' : '';\n  if (reason) { held.push({ email, reason }); continue; }\n  candidates.push({ id: mem.id, email, tenure_days: days(mem.timestamp_opt), open_rate: open, rating: mem.member_rating, why: silent ? 'no opens or clicks' : '1-star, ' + Math.round(open * 100) + '% opens' });\n}\ncandidates.sort((a, b) => b.tenure_days - a.tenure_days);\nconst share = total ? Math.round(candidates.length / total * 1000) / 10 : 0;\nconst aborted = share > cfg.max_share_pct;\nconst batch = aborted ? [] : candidates.slice(0, cfg.max_archive_per_run);\nfor (const c of candidates.slice(cfg.max_archive_per_run)) held.push({ email: c.email, reason: 'over MAX_ARCHIVE_PER_RUN, next run' });\nreturn [{ json: { batch, held, candidates: candidates.length, active, audience: total, share_pct: share,\n  aborted: aborted ? 'candidates are ' + share + '% of the audience, above MAX_SHARE_PCT ' + cfg.max_share_pct + '%' : '' } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "464887fe-dbff-449e-ae1c-0e1cc2fd4648",
+      "name": "Live with members to archive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a481925a-f918-4a3a-a6b4-86b45b79a481",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a58193ed-bb6d-4bdd-aee0-4ee05fc8a581",
+              "leftValue": "={{ $json.batch.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "5cd386af-1a81-45ff-a22b-022bb1765cd3",
+      "name": "STOP: dry run - nothing archived",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "b579c8f9-e4b0-4529-aabf-0abfd634b579",
+      "name": "One item per member",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "batch",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "ecb56989-a2be-48b9-ada8-6da8ce04ecb5",
+      "name": "Archive the member in Mailchimp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ 'https://' + $('config').first().json.mailchimp_dc + '.api.mailchimp.com/3.0/lists/' + $('config').first().json.list_id + '/members/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mailchimpApi",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "48699a60-659b-4c60-a432-14321fa34869",
+      "name": "Summarise the cleanup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Mailchimp answers a successful archive with 204 and no body, so the count comes from the batch.\nconst picked = $('Pick members to archive').first().json;\nconst n = $input.all().length;\nconst text = '*Mailchimp cleanup*: archived ' + n + ' of ' + picked.audience + ' members (' + picked.candidates + ' qualified, ' + picked.held.length + ' held back).';\nreturn [{ json: { text, archived: n } }];\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "b7a502b1-c963-4561-a63e-f63ebcbcb7a5",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "394e12df-35cf-432f-ad76-ed76a8e6394e",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "217e091e-33e5-4bbe-a85f-e85f07dd217e",
+      "name": "Post the result to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On the 1st of each month": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Mailchimp connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mailchimp connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch subscribed members",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch subscribed members": {
+      "main": [
+        [
+          {
+            "node": "Read members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read members": {
+      "main": [
+        [
+          {
+            "node": "Combine member sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample members": {
+      "main": [
+        [
+          {
+            "node": "Combine member sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine member sources": {
+      "main": [
+        [
+          {
+            "node": "Pick members to archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick members to archive": {
+      "main": [
+        [
+          {
+            "node": "Live with members to archive?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with members to archive?": {
+      "main": [
+        [
+          {
+            "node": "One item per member",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing archived",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per member": {
+      "main": [
+        [
+          {
+            "node": "Archive the member in Mailchimp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive the member in Mailchimp": {
+      "main": [
+        [
+          {
+            "node": "Summarise the cleanup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise the cleanup": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the result to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

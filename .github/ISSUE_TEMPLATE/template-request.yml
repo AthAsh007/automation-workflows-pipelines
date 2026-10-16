@@ -1,0 +1,34 @@
+name: Request a template
+description: A mechanism you want built, described by what it does rather than which tool it uses.
+title: "[request] <verb> <thing> from/to <where>"
+labels: ["template request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most requests turn out to be an existing mechanism in a different industry. Check
+        [docs/WORKFLOWS.md](https://github.com/AthAsh007/automation-workflows-pipelines/blob/main/docs/WORKFLOWS.md)
+        and the [template library](https://github.com/AthAsh007/automation-workflows-pipelines/tree/main/n8n/library) first.
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: What should it do
+      description: Trigger, the steps in order, and what it sends or writes at the end.
+      placeholder: "Every Monday, read open deals, find the ones with no activity in 14 days, create a follow-up task for the owner, post the list to Slack."
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Rules it has to respect
+      description: What must never happen, what gets held back, and what a person decides.
+  - type: input
+    id: services
+    attributes:
+      label: Services involved
+      placeholder: "Pipedrive, Slack"
+  - type: input
+    id: nearest
+    attributes:
+      label: Nearest existing template
+      description: If one is close, name it and say what is missing.

@@ -45,6 +45,9 @@ def load(path):
 # Directories held to rules 1, 2 and 5 only.
 RELAXED = {"archive", "starters"}
 
+# Directories whose JSON is not a workflow at all.
+NOT_WORKFLOWS = {"sample", "demo", "build", "dev"}
+
 
 def check(path, rel, relaxed):
     out = []
@@ -121,7 +124,9 @@ def main(root="."):
             path = os.path.join(dp, f)
             rel = os.path.relpath(path, root)
             parts = rel.replace("\\", "/").split("/")
-            if parts[0] != "n8n" or "sample" in parts or "demo" in parts:
+            # sample/ and demo/ hold fixtures; build/ and dev/ hold build inputs
+            # (publish specs, package.json), not workflows.
+            if parts[0] != "n8n" or NOT_WORKFLOWS & set(parts):
                 continue
             count += 1
             problems += check(path, rel, bool(RELAXED & set(parts)))

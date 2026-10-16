@@ -1,0 +1,606 @@
+{
+  "name": "Email a weekly overdue-task report from Asana to each project owner",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Email a weekly overdue-task report from Asana to each project owner\n\n**Who's it for**\nOperations leads and agency owners running 5 to 40 Asana projects, where overdue tasks pile up quietly because nobody opens the project view. Each owner gets one list on Monday morning and can fix dates or nudge people from it.\n\n**How it works**\n1. Every Monday at 08:00 it reads each project in `PROJECT_GIDS` (name and owner), then its incomplete tasks with due date, assignee and tags. Sample projects are used until Asana is connected.\n2. Tasks due before today are overdue. Tasks tagged with any of `SKIP_TAGS` are left out.\n3. Each task goes into a bucket from `BUCKETS` (1-7, 8-30 and over 30 days by default), oldest first, and unassigned tasks are flagged.\n4. Owners get one email each with every project they own. Projects with no owner go to `FALLBACK_EMAIL`.\n\n**How to set up**\n1. Run it once as imported. It reports on sample projects and stops at `STOP: preview - nothing sent`.\n2. Add an Asana credential to `Fetch project details` and `Fetch incomplete tasks`, put your project gids in `PROJECT_GIDS` and set `USE_ASANA = true`.\n3. Connect Gmail and set `FALLBACK_EMAIL`.\n4. Put your own address in `TEST_EMAIL` to receive every owner email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Asana workspace\n- A Gmail account\n\n**How to customize**\n- `BUCKETS` sets the overdue ranges and their labels.\n- `SKIP_TAGS` keeps parked work, such as tasks tagged on hold, out of the report.\n- `MAX_TASKS_PER_PROJECT` caps each project section; the rest is counted.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "db26fa1c-5717-4c4e-9a00-db26fa1c13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 08:00. Projects, buckets and skip tags live in `config`; `List projects` makes one item per project gid so details and tasks stay paired.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a9296851-5717-4c4e-9a00-a92968511000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read projects and tasks\n\nThe owner comes from the project, the tasks from a second call that asks only for incomplete ones. `Load sample projects` returns the same project-plus-tasks shape, including an unowned project and a task on hold.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "a82966be-5717-4c4e-9a00-a82966be1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find what is overdue\n\nTasks are grouped by owner email before any email is written, so someone who owns four projects gets one message. Tasks with no due date or a parked tag never count.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "a729652b-5717-4c4e-9a00-a729652b1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write and send\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every owner email comes to you with the real owner in the subject.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "a6296398-5717-4c4e-9a00-a62963981003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "affd1dc4-ae2f-4884-a472-34727b67affd",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EMAIL A WEEKLY OVERDUE-TASK REPORT FROM ASANA TO EACH PROJECT OWNER - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_ASANA false -> SAMPLE projects and tasks, so the run works before any credential exists.\n// Owners without an email address on Asana get their report sent to FALLBACK_EMAIL.\n\n// set true after adding the Asana credential to both Asana nodes\nconst USE_ASANA = false;\n// Asana project gids (the number in the project URL)\nconst PROJECT_GIDS = [\n  \"1204000000000001\",\n  \"1204000000000002\",\n  \"1204000000000003\",\n  \"1204000000000004\"\n];\n// overdue ranges, checked in order\nconst BUCKETS = [\n  {\n    max: 7,\n    label: \"1-7 days late\"\n  },\n  {\n    max: 30,\n    label: \"8-30 days late\"\n  },\n  {\n    max: 99999,\n    label: \"over 30 days late\"\n  }\n];\n// tasks with any of these tags are not reported\nconst SKIP_TAGS = [\n  \"on hold\",\n  \"someday\"\n];\n// most tasks listed per project; the rest is counted\nconst MAX_TASKS_PER_PROJECT = 15;\n// gets reports for projects without an owner email\nconst FALLBACK_EMAIL = 'ops@northwind.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_asana: USE_ASANA,\n    project_gids: PROJECT_GIDS,\n    buckets: BUCKETS,\n    skip_tags: SKIP_TAGS,\n    max_tasks_per_project: MAX_TASKS_PER_PROJECT,\n    fallback_email: FALLBACK_EMAIL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "a656fd30-2520-4e30-a6c3-d6c34573a656",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "e0a4d32e-fca8-40ce-a06f-a06f082de0a4",
+      "name": "Every Monday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "f63af940-2b55-4540-a1e4-71e413c3f63a",
+      "name": "List projects",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per project gid.\nreturn $('config').first().json.project_gids.map(gid => ({ json: { gid } }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "f54d629e-e20f-4d3e-a172-2172a95df54d",
+      "name": "Asana off?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5a43a383-5c31-4893-a027-a0277eba5a43",
+              "leftValue": "={{ !$('config').first().json.use_asana }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "c0136b86-c909-4da6-a311-8311ac15c013",
+      "name": "Load sample projects",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_ASANA is true. Same shape Read projects and tasks builds, dates relative to today.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst t = (gid, name, d, assignee, tags = []) => ({ gid, name, due_on: d === null ? null : day(d), assignee: assignee ? { name: assignee } : null, tags: tags.map(name => ({ name })),\n  permalink_url: 'https://app.asana.com/0/0/' + gid });\nreturn [\n  { project: { gid: 'p1', name: 'Website relaunch', owner: { name: 'Maya Torres', email: 'maya@northwind.example' } }, tasks: [\n    t('t11', 'Final copy for pricing page', 3, 'Ben Okoro'), t('t12', 'Accessibility audit', 12, null), t('t13', 'Redirect map', 45, 'Ana Ruiz'),\n    t('t14', 'Launch checklist', -2, 'Maya Torres'), t('t15', 'Legacy blog import', 20, 'Ben Okoro', ['On hold']), t('t16', 'Favicon', null, 'Ana Ruiz') ] },\n  { project: { gid: 'p2', name: 'Q4 newsletter', owner: { name: 'Maya Torres', email: 'maya@northwind.example' } }, tasks: [\n    t('t21', 'Draft issue 3', 1, 'Chloe Martin') ] },\n  { project: { gid: 'p3', name: 'Office move', owner: { name: 'Tom Reyes', email: 'tom@northwind.example' } }, tasks: [\n    t('t31', 'Book movers', 0, 'Tom Reyes'), t('t32', 'Order desks', -5, 'Tom Reyes') ] },\n  { project: { gid: 'p4', name: 'Vendor review', owner: null }, tasks: [\n    t('t41', 'Compare payroll vendors', 9, 'Esme Larsen') ] },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "48fff599-a5ed-4fc9-a437-94376e9448ff",
+      "name": "Fetch project details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://app.asana.com/api/1.0/projects/' + $json.gid }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "asanaApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "opt_fields",
+              "value": "name,owner.name,owner.email,permalink_url"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "f7265868-2fa4-47e8-a911-0911635bf726",
+      "name": "Fetch incomplete tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://app.asana.com/api/1.0/projects/' + $json.data.gid + '/tasks' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "asanaApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "completed_since",
+              "value": "now"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "opt_fields",
+              "value": "name,due_on,assignee.name,tags.name,permalink_url"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        352
+      ]
+    },
+    {
+      "id": "5d6b094f-f060-469f-a8ec-c8ecdad65d6b",
+      "name": "Read projects and tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Task page i belongs to project i; completed_since=now already left only incomplete tasks.\nconst projects = $('Fetch project details').all().map(i => i.json.data || {});\nreturn $input.all().map((it, i) => ({ json: { project: projects[i], tasks: it.json.data || [] } }));\n"
+      },
+      "position": [
+        1392,
+        352
+      ]
+    },
+    {
+      "id": "7b7d1f34-516e-46f4-a560-c5605a977b7d",
+      "name": "Combine project sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "f9a48337-7f94-4807-af09-5f09e4cef9a4",
+      "name": "Find overdue tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Overdue = due_on before today. Bucket by days late, oldest first; skip SKIP_TAGS.\nconst cfg = $('config').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst skip = cfg.skip_tags.map(s => s.toLowerCase());\nconst late = d => Math.round((new Date(today) - new Date(d)) / 864e5);\nconst owners = {};\nlet skipped = 0;\nfor (const { json: { project, tasks } } of $input.all()) {\n  if (!project?.gid) continue;\n  const overdue = [];\n  for (const t of tasks) {\n    if (!t.due_on || t.due_on >= today) continue;\n    if ((t.tags || []).some(g => skip.includes(String(g.name).toLowerCase()))) { skipped++; continue; }\n    const days = late(t.due_on);\n    overdue.push({ name: t.name, due_on: t.due_on, days, bucket: cfg.buckets.find(b => days <= b.max)?.label || 'late',\n      assignee: t.assignee?.name || '', url: t.permalink_url || '' });\n  }\n  if (!overdue.length) continue;\n  overdue.sort((a, b) => b.days - a.days);\n  const email = project.owner?.email || cfg.fallback_email;\n  const o = (owners[email] ||= { email, name: project.owner?.name || '', fallback: !project.owner?.email, projects: [] });\n  o.projects.push({ name: project.name, overdue, unassigned: overdue.filter(t => !t.assignee).length });\n}\nreturn [{ json: { owners: Object.values(owners), skipped } }];\n"
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "31b0754d-7bfd-4f3d-a9c6-19c6026831b0",
+      "name": "Anything overdue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "03827dd4-fb3e-4394-af74-8f74f7f70382",
+              "leftValue": "={{ $json.owners.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "dc0f65b5-fd9a-4f25-ab4b-8b4bdae0dc0f",
+      "name": "STOP: nothing overdue",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2304,
+        352
+      ]
+    },
+    {
+      "id": "a4806b85-9f2f-43f5-a8c8-28c8d170a480",
+      "name": "Write one email per owner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Per owner: each project, grouped by bucket, capped at MAX_TASKS_PER_PROJECT.\nconst cfg = $('config').first().json;\nreturn $input.first().json.owners.map(o => {\n  const total = o.projects.reduce((n, p) => n + p.overdue.length, 0);\n  const lines = ['Hi ' + (o.name.split(' ')[0] || 'there') + ',', '', total + ' overdue task' + (total === 1 ? '' : 's') + ' across ' + o.projects.length + ' project' + (o.projects.length === 1 ? '' : 's') + ':'];\n  if (o.fallback) lines.push('(These projects have no owner email on Asana, so this went to the fallback address.)');\n  for (const p of o.projects) {\n    lines.push('', p.name + ' (' + p.overdue.length + ' overdue' + (p.unassigned ? ', ' + p.unassigned + ' unassigned' : '') + ')');\n    const shown = p.overdue.slice(0, cfg.max_tasks_per_project);\n    for (const b of cfg.buckets.map(b => b.label)) {\n      const inB = shown.filter(t => t.bucket === b);\n      if (!inB.length) continue;\n      lines.push('  ' + b + ':');\n      for (const t of inB) lines.push('  - ' + t.name + ' (due ' + t.due_on + ', ' + (t.assignee || 'UNASSIGNED') + ') ' + t.url);\n    }\n    if (p.overdue.length > shown.length) lines.push('  ...and ' + (p.overdue.length - shown.length) + ' more');\n  }\n  lines.push('', 'Move the date, reassign or close what is no longer needed.');\n  return { json: { owner: o.email, total, subject: total + ' overdue Asana task' + (total === 1 ? '' : 's') + ' in your projects', body: lines.join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : o.email } };\n});\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "de345787-7f90-4357-afaa-8faaf1dede34",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "6fce6db0-1062-46b0-a654-a65439f36fce",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "b3201026-ecf7-4046-a419-64191f75b320",
+      "name": "Email the owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.owner + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List projects": {
+      "main": [
+        [
+          {
+            "node": "Asana off?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Asana off?": {
+      "main": [
+        [
+          {
+            "node": "Load sample projects",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch project details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch project details": {
+      "main": [
+        [
+          {
+            "node": "Fetch incomplete tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch incomplete tasks": {
+      "main": [
+        [
+          {
+            "node": "Read projects and tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample projects": {
+      "main": [
+        [
+          {
+            "node": "Combine project sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read projects and tasks": {
+      "main": [
+        [
+          {
+            "node": "Combine project sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine project sources": {
+      "main": [
+        [
+          {
+            "node": "Find overdue tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find overdue tasks": {
+      "main": [
+        [
+          {
+            "node": "Anything overdue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything overdue?": {
+      "main": [
+        [
+          {
+            "node": "Write one email per owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write one email per owner": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

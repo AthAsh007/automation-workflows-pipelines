@@ -1,0 +1,601 @@
+{
+  "name": "Convert multi-currency expenses in Google Sheets with daily exchange rates",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Convert multi-currency expenses in Google Sheets with daily exchange rates\n\n**Who's it for**\nTeams that log travel and supplier expenses in several currencies in one Google Sheet and need a single base-currency total for budgets or reimbursement. It fills the converted columns every morning so nobody looks rates up by hand.\n\n**How it works**\n1. Every day at 06:30 it fetches the latest rates for `BASE_CURRENCY` from open.er-api.com, which needs no API key.\n2. If the feed fails, or its rates are more than 36 hours old, the run stops before touching the sheet.\n3. Each expense row is converted to the base currency. Symbols such as € and £ are mapped to ISO codes, and rows already converted at the same rate are skipped.\n4. Unknown currencies, missing amounts and expenses more than 7 days older than the rate are flagged in an FX status column, then the rows are updated by ID.\n\n**How to set up**\n1. Run it once as imported. It fetches live rates, converts sample rows and stops at `STOP: dry run - sheet untouched`.\n2. Connect Google Sheets and put the spreadsheet id in `EXPENSE_SHEET_ID`. The Expenses tab needs ID, Date, Amount and Currency columns.\n3. Set `BASE_CURRENCY` to the currency your books are kept in.\n4. Check the output of `Convert each expense`, then set `DRY_RUN = false` to write the converted columns.\n\n**Requirements**\n- A Google Sheet with an Expenses tab\n- No exchange-rate account; the open.er-api.com feed is free\n\n**How to customize**\n- `SYMBOL_MAP` decides what a bare symbol such as $ means in your sheet.\n- `MAX_RATE_AGE_HOURS` and `DATE_GAP_DAYS` control the stale-rate flags.\n- `DECIMALS` sets rounding of the converted amount.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7c57b008-5717-4c4e-9a00-7c57b00813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 06:30, after the free feed has published the day's rates. Base currency, symbol meanings and staleness limits live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1b98562d-5717-4c4e-9a00-1b98562d1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Get rates and stop if stale\n\n`Fetch exchange rates` is a public call with no key. `Check the rates` fails closed: a feed error or a timestamp past `MAX_RATE_AGE_HOURS` ends the run before any row is read.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "1a98549a-5717-4c4e-9a00-1a98549a1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read expense rows\n\nThe sheet is read once, after the rates pass, and collected into one item. `Load sample expenses` stands in until `EXPENSE_SHEET_ID` is set.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "19985307-5717-4c4e-9a00-199853071002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Convert and write\n\nRows already holding today's rate are skipped, so re-runs make no changes. Bad rows are still written with a reason in FX status, so they show up on the sheet rather than vanishing.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "18985174-5717-4c4e-9a00-189851741003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "74958925-9629-4f95-ab5d-5b5d65d07495",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CONVERT MULTI-CURRENCY EXPENSES IN GOOGLE SHEETS WITH DAILY EXCHANGE RATES - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// EXPENSE_SHEET_ID blank -> SAMPLE expense rows. Rates are always fetched live (public, no key).\n// DRY_RUN true -> conversions are computed and shown, nothing is written.\n\n// Google Sheets id with an Expenses tab; blank uses sample rows\nconst EXPENSE_SHEET_ID = '';\n// ISO code every expense is converted into\nconst BASE_CURRENCY = 'USD';\n// symbols found in the Currency column and the code they mean\nconst SYMBOL_MAP = {\n  \"$\": \"USD\",\n  \"€\": \"EUR\",\n  \"£\": \"GBP\",\n  \"¥\": \"JPY\",\n  \"₹\": \"INR\",\n  \"C$\": \"CAD\",\n  \"A$\": \"AUD\"\n};\n// rates older than this stop the run\nconst MAX_RATE_AGE_HOURS = 36;\n// expenses older than this, converted at today's rate, are marked approximate\nconst DATE_GAP_DAYS = 7;\n// rounding of the converted amount\nconst DECIMALS = 2;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    expense_sheet_id: EXPENSE_SHEET_ID,\n    base_currency: BASE_CURRENCY,\n    symbol_map: SYMBOL_MAP,\n    max_rate_age_hours: MAX_RATE_AGE_HOURS,\n    date_gap_days: DATE_GAP_DAYS,\n    decimals: DECIMALS,\n    dry_run: DRY_RUN,\n    sheets_enabled: EXPENSE_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "a528397d-b3d6-446d-a69b-f69b11d8a528",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "48035f96-7fbc-4cb6-ae9a-4e9af4a54803",
+      "name": "Every day at 06:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 6 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "24e318cd-b1c8-4abd-a4e6-c4e629e824e3",
+      "name": "Fetch exchange rates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://open.er-api.com/v6/latest/' + $('config').first().json.base_currency }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "429b4871-c0e1-4f21-aef3-7ef37ffc429b",
+      "name": "Check the rates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The feed updates once a day. A failed call or a stale timestamp stops the run,\n// because writing yesterday's numbers as today's is worse than writing nothing.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst ok = r.result === 'success' && r.rates && r.base_code === cfg.base_currency;\nconst ageHours = ok ? (Date.now() / 1000 - r.time_last_update_unix) / 3600 : null;\nconst fresh = ok && ageHours <= cfg.max_rate_age_hours;\nreturn [{ json: { usable: Boolean(fresh), rates: ok ? r.rates : {}, rate_date: ok ? new Date(r.time_last_update_unix * 1000).toISOString().slice(0, 10) : '',\n  age_hours: ageHours === null ? null : Math.round(ageHours), problem: !ok ? 'feed error: ' + (r['error-type'] || r.result || 'no response') : !fresh ? 'rates are ' + Math.round(ageHours) + 'h old' : '' } }];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "7df58a5f-8194-42af-a768-a7681c667df5",
+      "name": "Rates usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "56b20c5f-635c-44af-a849-88490a6656b2",
+              "leftValue": "={{ $json.usable }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "1a70a52e-66d6-42ce-a702-a702e62d1a70",
+      "name": "STOP: rates unavailable - nothing converted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1184,
+        352
+      ]
+    },
+    {
+      "id": "f93f827b-4c02-4a0b-a7d6-27d61422f93f",
+      "name": "Expense sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cc2d47ef-88a7-433f-aaf8-9af8c836cc2d",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "d7864e86-11c3-40a6-aff2-3ff29f15d786",
+      "name": "Read the Expenses tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.expense_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Expenses"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "1386aa7c-4f54-4bbc-a6a9-66a9650f1386",
+      "name": "Collect expense rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet rows -> one item, matching the sample shape.\nreturn [{ json: { rows: $input.all().map(i => i.json) } }];\n"
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "c7cefa14-0c9a-4bd4-a8b6-b8b6ceb7c7ce",
+      "name": "Load sample expenses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until EXPENSE_SHEET_ID is set. Symbols, codes, a typo and an old receipt.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [{ json: { rows: [\n  { ID: 'EXP-101', Date: day(1), Description: 'Hotel, Lisbon', Amount: '412.00', Currency: '€' },\n  { ID: 'EXP-102', Date: day(2), Description: 'Train, London', Amount: '86.40', Currency: 'GBP' },\n  { ID: 'EXP-103', Date: day(3), Description: 'Client dinner, Tokyo', Amount: '18,600', Currency: 'JPY' },\n  { ID: 'EXP-104', Date: day(20), Description: 'Conference ticket', Amount: '799', Currency: 'C$' },\n  { ID: 'EXP-105', Date: day(2), Description: 'Taxi, Pune', Amount: '1450', Currency: 'IRN' },\n  { ID: 'EXP-106', Date: day(1), Description: 'Office snacks', Amount: '42.10', Currency: 'USD' },\n  { ID: 'EXP-107', Date: day(4), Description: 'Parking', Amount: '', Currency: 'EUR' },\n  { ID: 'EXP-108', Date: day(5), Description: 'Software licence', Amount: '120', Currency: 'EUR', 'Base amount': 150, Rate: 0.8 },\n] } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "600227ee-de7f-498e-a3f1-93f1466d6002",
+      "name": "Combine expense sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "423c78ab-d795-413b-a1ae-31ae7852423c",
+      "name": "Convert each expense",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// amount_in_base = amount / rate, where rate is units of that currency per 1 base.\n// A row already holding the same rate is left alone so re-runs write nothing new.\nconst cfg = $('config').first().json;\nconst { rates, rate_date } = $('Check the rates').first().json;\nconst base = cfg.base_currency;\nconst f = 10 ** cfg.decimals;\n// \"1.200,50\" and \"1,200.50\" both mean 1200.5: the last separator is the decimal one.\nconst toNum = v => {\n  let s = String(v ?? '').replace(/[^0-9.,-]/g, '');\n  if (!s) return null;\n  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');\n  if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\\./g, '').replace(',', '.') : s.replace(/,/g, '');\n  else if (lc > -1) s = /,\\d{3}$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');\n  const n = Number(s); return Number.isFinite(n) ? n : null;\n};\nconst out = [], tally = {};\nfor (const r of $input.first().json.rows) {\n  const raw = String(r.Currency || '').trim();\n  const code = (cfg.symbol_map[raw] || raw).toUpperCase();\n  const amount = toNum(r.Amount);\n  const rate = rates[code];\n  let status, converted = '';\n  if (amount === null) status = 'missing amount';\n  else if (!rate) status = 'unknown currency \"' + raw + '\"';\n  else {\n    if (Number(r.Rate) === rate && r['Base amount'] !== '' && r['Base amount'] !== undefined) { tally['already converted'] = (tally['already converted'] || 0) + 1; continue; }\n    converted = Math.round(amount / rate * f) / f;\n    const gap = Math.round((new Date(rate_date) - new Date(String(r.Date).slice(0, 10))) / 864e5);\n    status = code === base ? 'base currency' : gap > cfg.date_gap_days ? 'approximate: rate is ' + gap + ' days newer than expense' : 'converted';\n  }\n  const key = status.split(':')[0].split(' \"')[0];\n  tally[key] = (tally[key] || 0) + 1;\n  out.push({ json: { ID: r.ID, Currency: code || raw, 'Base amount': converted, 'Base currency': base, Rate: rate || '', 'Rate date': rate_date, 'FX status': status } });\n}\nif (out.length) out[0].json._tally = tally;\nreturn out;\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "aa830b9c-9b9b-42dc-a050-00501defaa83",
+      "name": "Write to the sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ffccb7ae-79be-4d4e-a277-6277a8adffcc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "00ccb941-3c12-4ef1-ab2f-ab2f358c00cc",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "a58c0ff4-aecd-4bb4-aa5c-9a5c5cd7a58c",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2784,
+        352
+      ]
+    },
+    {
+      "id": "a4b12a17-d853-48e7-a674-96743ceea4b1",
+      "name": "Drop helper fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the columns that belong on the sheet go to the update.\nreturn $input.all().map(({ json }) => { const { _tally, ...row } = json; return { json: row }; });\n"
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "bdd6e5c1-4ea4-4371-a51f-c51f7e0cbdd6",
+      "name": "Update the Expenses tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.expense_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Expenses"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3008,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 06:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Fetch exchange rates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch exchange rates": {
+      "main": [
+        [
+          {
+            "node": "Check the rates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the rates": {
+      "main": [
+        [
+          {
+            "node": "Rates usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rates usable?": {
+      "main": [
+        [
+          {
+            "node": "Expense sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: rates unavailable - nothing converted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expense sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Expenses tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample expenses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Expenses tab": {
+      "main": [
+        [
+          {
+            "node": "Collect expense rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect expense rows": {
+      "main": [
+        [
+          {
+            "node": "Combine expense sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample expenses": {
+      "main": [
+        [
+          {
+            "node": "Combine expense sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine expense sources": {
+      "main": [
+        [
+          {
+            "node": "Convert each expense",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert each expense": {
+      "main": [
+        [
+          {
+            "node": "Write to the sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the sheet?": {
+      "main": [
+        [
+          {
+            "node": "Drop helper fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop helper fields": {
+      "main": [
+        [
+          {
+            "node": "Update the Expenses tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

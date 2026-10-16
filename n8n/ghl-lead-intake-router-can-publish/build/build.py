@@ -44,7 +44,6 @@ def sticky(nid, pos, w, h, colour, content):
 
 
 GH_HEADERS = [
-    {"name": "Authorization", "value": "={{ 'Bearer ' + $('config').first().json.ghl_api_key }}"},
     {"name": "Version", "value": "={{ $('config').first().json.ghl_api_version }}"},
     {"name": "Accept", "value": "application/json"}]
 
@@ -56,6 +55,7 @@ def http_post(nid, name, pos, url, body, note):
     headers.insert(2, {"name": "Content-Type", "value": "application/json"})
     return {"parameters": {
                 "method": "POST", "url": url,
+                "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
                 "sendHeaders": True, "headerParameters": {"parameters": headers},
                 "sendBody": True, "specifyBody": "json", "jsonBody": body,
                 "options": {"timeout": 20000}},
@@ -67,6 +67,7 @@ def http_post(nid, name, pos, url, body, note):
 def http_get_opportunities(nid, name, pos):
     return {"parameters": {
                 "method": "GET",
+                "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
                 "url": "={{ $('config').first().json.ghl_api_base + '/opportunities/search' }}",
                 "sendQuery": True,
                 "queryParameters": {"parameters": [
@@ -157,7 +158,7 @@ w1.append(sticky("w1b", [860, 420], 460, 260, 3,
     "`DRY_RUN = true` (how it ships) builds the payload and stops in\n"
     "**STOP: GoHighLevel not configured**, where you can read the exact\n"
     "body that would have been sent.\n\n"
-    "Fill in `GHL_LOCATION_ID` and `GHL_API_KEY` and set `DRY_RUN = false`\n"
+    "Fill in `GHL_LOCATION_ID` and `GHL_CREDENTIAL_ADDED` and set `DRY_RUN = false`\n"
     "to write for real.\n\n"
     "A refused write lands on **STOP: GoHighLevel rejected the write**\n"
     "with the response on it — visible, not silent."))
@@ -174,7 +175,7 @@ w1.append(sticky("start1", [-1300, -1040], 560, 560, 1,
     "**Setup, in order**\n"
     "1. **config** — `GHL_LOCATION_ID`, `GHL_PIPELINE_ID`, the `STAGES` ids, the\n"
     "   `OWNERS` user ids and the `CUSTOM_FIELDS` ids, from your own account.\n"
-    "2. `GHL_API_KEY` — a Private Integration token with `contacts.write` and\n"
+    "2. `GHL_CREDENTIAL_ADDED` — a Private Integration token with `contacts.write` and\n"
     "   `opportunities.write`.\n"
     "3. Point the form, the email forward and the phone note at the **production**\n"
     "   webhook URL (`/webhook/ghl-lead`).\n"
@@ -251,7 +252,7 @@ w2.append(sticky("start2", [-1300, -1040], 560, 600, 1,
     "**Setup, in order**\n"
     "1. **config** — the same ids as workflow 01: location, pipeline, `STAGES`,\n"
     "   `OWNERS`, `CUSTOM_FIELDS`.\n"
-    "2. `GHL_API_KEY` — this one also needs `conversations.write` to send a touch.\n"
+    "2. `GHL_CREDENTIAL_ADDED` — this one also needs `conversations.write` to send a touch.\n"
     "3. `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID`, `SEQ_LAST_REPLY_FIELD_ID`\n"
     "   — where the counter and the two dates live on the contact.\n"
     "4. `SEQUENCE`, `MAX_TOUCHES`, `OPEN_STAGES` — the ladder and its stops. Leave\n"

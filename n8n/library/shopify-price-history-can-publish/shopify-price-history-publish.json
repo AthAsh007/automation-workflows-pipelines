@@ -1,0 +1,922 @@
+{
+  "name": "Record Shopify price changes into a Google Sheets price history",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Record Shopify price changes into a Google Sheets price history\n\n**Who's it for**\nShopify merchants and pricing managers who need to answer \"when did this price change and by how much\" without digging through admin logs, and who want to catch a 99.00 typed as 9.90 before it sells out.\n\n**How it works**\n1. Every day at 06:00 it reads all product variants from Shopify, or 7 sample variants until Shopify is connected.\n2. It loads the last snapshot from the Price snapshot tab and compares price and compare-at price for every variant.\n3. Each change becomes a history row: old and new price, delta, percent, and a type such as drop, rise, sale started, sale ended, new or removed.\n4. Drops of 25% or more are flagged, and a new price close to a tenth of the old one is marked as a possible decimal slip.\n5. History rows are appended, the snapshot is updated, and flagged drops go to Slack.\n\n**How to set up**\n1. Run it once as imported. It compares the sample data and stops at `STOP: dry run - sheet untouched`.\n2. Add a Shopify access token credential to `Fetch product variants`, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Create a sheet with a Price snapshot tab and a Price history tab and put its id in `PRICE_SHEET_ID`. The first live run fills the snapshot.\n4. Optionally set `SLACK_CHANNEL_ID`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_products\n- A Google Sheet with two tabs\n- Optional: a Slack workspace\n\n**How to customize**\n- `DROP_ALERT_PCT` sets how big a drop must be to reach Slack.\n- `IGNORE_UNDER_PCT` hides rounding changes below that percent.\n- `SKIP_PRODUCT_TYPES` leaves gift cards and samples out of the history.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7cbb063c-5717-4c4e-9a00-7cbb063c13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns daily at 06:00, before most stores change prices, so each row reads as one day's change. Thresholds and skipped product types live in `config`.",
+        "height": 1024,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d48b75f1-5717-4c4e-9a00-d48b75f11000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read current prices\n\n`Read Shopify variants` flattens products into variants and drops gift cards, whose price is a face value, not a price. `Load sample variants` stands in until `USE_SHOPIFY` is true.",
+        "height": 1024,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "d38b745e-5717-4c4e-9a00-d38b745e1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Compare with the snapshot\n\nThe snapshot tab is yesterday's price list. With an empty snapshot the run is a baseline: it fills the snapshot and writes no history, so the first day does not log every variant as new.",
+        "height": 1024,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "d28b72cb-5717-4c4e-9a00-d28b72cb1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write history and alert\n\nHistory is appended before the snapshot moves, so a failed append leaves yesterday's snapshot and the change is caught again tomorrow. Only flagged drops reach Slack; ordinary changes stay in the sheet.",
+        "height": 1024,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "d18b7138-5717-4c4e-9a00-d18b71381003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "c4b8aff4-b447-4bb4-a90d-390dfcd7c4b8",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// RECORD SHOPIFY PRICE CHANGES INTO A GOOGLE SHEETS PRICE HISTORY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE variants. PRICE_SHEET_ID blank -> SAMPLE snapshot, nothing written.\n// DRY_RUN true -> changes are computed and shown, nothing is written or posted.\n\n// set true after adding the Shopify credential to the fetch node\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// Google Sheets id with Price snapshot and Price history tabs\nconst PRICE_SHEET_ID = '';\n// drops of at least this percent are flagged and posted\nconst DROP_ALERT_PCT = 25;\n// price moves smaller than this percent are not recorded\nconst IGNORE_UNDER_PCT = 0.5;\n// Shopify product types left out\nconst SKIP_PRODUCT_TYPES = [\n  \"Gift Card\",\n  \"Sample\"\n];\n// channel for flagged drops; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    price_sheet_id: PRICE_SHEET_ID,\n    drop_alert_pct: DROP_ALERT_PCT,\n    ignore_under_pct: IGNORE_UNDER_PCT,\n    skip_product_types: SKIP_PRODUCT_TYPES,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: PRICE_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "273011e0-e7cf-4be0-abe4-4be497232730",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "6f473c90-7ed0-4f90-a3e0-63e0da136f47",
+      "name": "Every day at 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "620dd640-dd95-4240-adb7-5db72cc3620d",
+      "name": "Shopify connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d9ba5c1-e46c-4371-a512-d5123e0c3d9b",
+              "leftValue": "={{ $('config').first().json.use_shopify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "c23a1cdd-5b4d-49cd-a314-b3142278c23a",
+      "name": "Fetch product variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/products.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "fields",
+              "value": "id,title,product_type,variants"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "20d99a42-708a-49a2-a64f-a64f953120d9",
+      "name": "Read Shopify variants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Products -> one entry per variant with price and compare-at price as numbers.\nconst cfg = $('config').first().json;\nconst variants = [];\nfor (const page of $input.all()) for (const p of page.json.products || []) {\n  if (cfg.skip_product_types.includes(p.product_type)) continue;\n  for (const v of p.variants || []) variants.push({\n    variant_id: String(v.id), sku: v.sku || '', title: p.title + (v.title && v.title !== 'Default Title' ? ' / ' + v.title : ''),\n    price: Number(v.price), compare_at: v.compare_at_price ? Number(v.compare_at_price) : null,\n  });\n}\nreturn [{ json: { variants } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "55962fba-365b-499a-adbc-5dbc96195596",
+      "name": "Load sample variants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SHOPIFY is true. Paired with the sample snapshot to show every change type.\nreturn [{ json: { variants: [\n  { variant_id: '41', sku: 'LS-M', title: 'Linen shirt / M', price: 69, compare_at: null },\n  { variant_id: '42', sku: 'LS-L', title: 'Linen shirt / L', price: 79, compare_at: null },\n  { variant_id: '43', sku: 'WB-1', title: 'Wool beanie', price: 3.5, compare_at: null },\n  { variant_id: '44', sku: 'CB-1', title: 'Canvas bag', price: 52, compare_at: null },\n  { variant_id: '45', sku: 'SS-1', title: 'Silk scarf', price: 96, compare_at: 120 },\n  { variant_id: '47', sku: 'TEE-1', title: 'Organic tee', price: 29, compare_at: null },\n  { variant_id: '48', sku: 'SK-3', title: 'Merino socks 3-pack', price: 15, compare_at: null },\n] } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "e64e957c-06a0-46bc-ac5b-2c5ba40fe64e",
+      "name": "Combine variant sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "863c97a6-7c3c-4fc6-a1e9-41e996f5863c",
+      "name": "Snapshot sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c213c841-ad4b-4df1-a996-d9961c8cc213",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "1ba27d4d-5a1d-473d-aeb2-2eb24a681ba2",
+      "name": "Read the last snapshot",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.price_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Price snapshot"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "6b6af148-1773-4ac8-a18a-f18abd7b6b6a",
+      "name": "Load sample snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until PRICE_SHEET_ID is set: yesterday's prices.\nconst day = new Date(Date.now() - 864e5).toISOString().slice(0, 10);\nreturn [\n  ['41', 'LS-M', 'Linen shirt / M', 79, ''], ['42', 'LS-L', 'Linen shirt / L', 79, ''], ['43', 'WB-1', 'Wool beanie', 35, ''],\n  ['44', 'CB-1', 'Canvas bag', 45, ''], ['45', 'SS-1', 'Silk scarf', 120, ''], ['46', 'LB-1', 'Leather belt', 58, ''],\n  ['48', 'SK-3', 'Merino socks 3-pack', 12, 15],\n].map(([variant_id, sku, title, price, compare_at]) => ({ json: { variant_id, sku, title, price, compare_at, captured_at: day } }));\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "c7aeda4b-e52f-40db-a157-215728b2c7ae",
+      "name": "Combine snapshot sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "b8e9ce54-8839-4c14-a999-7999a877b8e9",
+      "name": "Compare with the snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every variant is new, removed, changed or unchanged. Changes get a type and a\n// percent; a drop of DROP_ALERT_PCT or more is flagged, and a new price close to a\n// tenth (or ten times) of the old one is marked as a possible decimal slip.\nconst cfg = $('config').first().json;\nconst now = new Date().toISOString();\nconst current = $('Combine variant sources').first().json.variants;\nconst num = v => v === '' || v === null || v === undefined ? null : Number(String(v).replace(/[^0-9.]/g, ''));\nconst snap = Object.fromEntries($input.all().map(i => i.json).filter(r => r.variant_id !== undefined && r.variant_id !== '')\n  .map(r => [String(r.variant_id), { ...r, price: num(r.price), compare_at: num(r.compare_at) }]));\nconst baseline = Object.keys(snap).length === 0;\nconst rows = [];\nconst seen = new Set();\nfor (const v of current) {\n  seen.add(v.variant_id);\n  const old = snap[v.variant_id];\n  if (!old) { rows.push({ ...v, old_price: '', new_price: v.price, delta: '', delta_pct: '', change: baseline ? 'baseline' : 'new', flag: '' }); continue; }\n  const delta = Math.round((v.price - old.price) * 100) / 100;\n  const pct = old.price ? Math.round(delta / old.price * 1000) / 10 : 0;\n  const compareChanged = (old.compare_at || null) !== (v.compare_at || null);\n  if (Math.abs(pct) < cfg.ignore_under_pct && !compareChanged) continue;\n  const change =\n    !old.compare_at && v.compare_at && delta < 0 ? 'sale started' :\n    old.compare_at && !v.compare_at && delta > 0 ? 'sale ended' :\n    delta < 0 ? 'drop' : delta > 0 ? 'rise' : 'compare-at changed';\n  const ratio = old.price ? v.price / old.price : 1;\n  const flag = (ratio > 0.09 && ratio < 0.11) || (ratio > 9 && ratio < 11) ? 'possible decimal slip' : pct <= -cfg.drop_alert_pct ? 'big drop' : '';\n  rows.push({ ...v, old_price: old.price, new_price: v.price, delta, delta_pct: pct, change, flag });\n}\nfor (const [id, old] of Object.entries(snap)) if (!seen.has(id)) rows.push({ variant_id: id, sku: old.sku, title: old.title, price: null, compare_at: null,\n  old_price: old.price, new_price: '', delta: '', delta_pct: '', change: 'removed', flag: '' });\nconst history = rows.filter(r => r.change !== 'baseline').map(r => ({ changed_at: now, variant_id: r.variant_id, sku: r.sku, title: r.title,\n  old_price: r.old_price, new_price: r.new_price, delta: r.delta, delta_pct: r.delta_pct, compare_at: r.compare_at ?? '', change: r.change, flag: r.flag }));\nconst snapshot = rows.filter(r => r.change !== 'removed').map(r => ({ variant_id: r.variant_id, sku: r.sku, title: r.title, price: r.price, compare_at: r.compare_at ?? '', captured_at: now }));\nreturn [{ json: { history, snapshot, flagged: history.filter(h => h.flag), baseline, checked: current.length } }];\n"
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "7e83e6a7-7118-4877-aa02-aa021fbe7e83",
+      "name": "Split history rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per history row for the append.\nreturn $input.first().json.history.map(json => ({ json }));\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "d225d2d7-2aff-45a7-a00b-600b772ed225",
+      "name": "Write to the sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ffccb7ae-79be-4d4e-a277-6277a8adffcc",
+              "leftValue": "={{ $('config').first().json.live && $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "179917df-700a-482f-a0a0-70a04de61799",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "0611b04e-9351-43ee-abc8-dbc8780d0611",
+      "name": "Append to price history",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.price_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Price history"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "40f80f6c-2300-45ac-a28e-b28e4d7f40f8",
+      "name": "Prepare snapshot rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// After the history is safe, the snapshot moves forward: changed and new variants only.\nreturn $('Compare with the snapshot').first().json.snapshot.map(json => ({ json }));\n"
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "9d2abbc7-070d-4397-accd-dccd4b9e9d2a",
+      "name": "Update the price snapshot",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.price_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Price snapshot"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "variant_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "f0c51f21-b218-4ed1-a1c4-b1c418acf0c5",
+      "name": "Write the price alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only flagged rows are posted; ordinary changes stay in the sheet.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst text = [\n  ':warning: *' + d.flagged.length + ' price change' + (d.flagged.length === 1 ? '' : 's') + ' to check*' + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  ...d.flagged.map(r => '• ' + r.title + ' (' + (r.sku || r.variant_id) + '): ' + r.old_price + ' -> ' + r.new_price + ' (' + r.delta_pct + '%), ' + r.flag),\n  '', d.history.length + ' changes recorded out of ' + d.checked + ' variants.',\n].join('\\n');\nreturn [{ json: { text, flagged: d.flagged.length } }];\n"
+      },
+      "position": [
+        2336,
+        352
+      ]
+    },
+    {
+      "id": "987f14ed-45ac-4cdd-ab08-0b0884c8987f",
+      "name": "Any flagged drops?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "56495c9e-bf71-473e-ab8b-2b8baf5d5649",
+              "leftValue": "={{ $json.flagged > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "205c605b-e6f6-41eb-a675-e675bf42205c",
+      "name": "STOP: no flagged drops",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        512
+      ]
+    },
+    {
+      "id": "5da5688a-8f6c-416a-aab8-4ab8dfa95da5",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        688
+      ]
+    },
+    {
+      "id": "da881154-f950-4f14-a1db-51db8f77da88",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        864
+      ]
+    },
+    {
+      "id": "e77ca593-4405-45a3-ae27-7e27094ae77c",
+      "name": "Live alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c4fc518e-9e82-412e-aa73-6a7337cdc4fc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        688
+      ]
+    },
+    {
+      "id": "73e7d79d-f0f0-488d-adf0-1df043b873e7",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        864
+      ]
+    },
+    {
+      "id": "18f2d0f5-1f49-4665-a9fa-29fa93a018f2",
+      "name": "Post flagged drops to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3216,
+        688
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 06:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Shopify connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch product variants",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch product variants": {
+      "main": [
+        [
+          {
+            "node": "Read Shopify variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Shopify variants": {
+      "main": [
+        [
+          {
+            "node": "Combine variant sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample variants": {
+      "main": [
+        [
+          {
+            "node": "Combine variant sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine variant sources": {
+      "main": [
+        [
+          {
+            "node": "Snapshot sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Snapshot sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the last snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the last snapshot": {
+      "main": [
+        [
+          {
+            "node": "Combine snapshot sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample snapshot": {
+      "main": [
+        [
+          {
+            "node": "Combine snapshot sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine snapshot sources": {
+      "main": [
+        [
+          {
+            "node": "Compare with the snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare with the snapshot": {
+      "main": [
+        [
+          {
+            "node": "Split history rows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the price alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split history rows": {
+      "main": [
+        [
+          {
+            "node": "Write to the sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the sheet?": {
+      "main": [
+        [
+          {
+            "node": "Append to price history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to price history": {
+      "main": [
+        [
+          {
+            "node": "Prepare snapshot rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare snapshot rows": {
+      "main": [
+        [
+          {
+            "node": "Update the price snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the price alert": {
+      "main": [
+        [
+          {
+            "node": "Any flagged drops?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any flagged drops?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no flagged drops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Live alert?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live alert?": {
+      "main": [
+        [
+          {
+            "node": "Post flagged drops to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

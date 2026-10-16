@@ -1,0 +1,581 @@
+{
+  "name": "Recover abandoned WooCommerce carts with a two-step Gmail sequence",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Recover abandoned WooCommerce carts with a two-step Gmail sequence\n\n**Who's it for**\nWooCommerce stores where checkout creates a pending order before payment, and customers drop off at the payment step. It works on those orders, so no cart-tracking plugin is needed.\n\n**How it works**\n1. Every hour it reads the last 4 days of WooCommerce orders, or 10 sample orders until WooCommerce is connected.\n2. Pending and on-hold orders are carts. An order paid since, or a newer paid order from the same email, ends the sequence.\n3. Step 1 goes after 1 hour. Step 2 goes after 24 hours and adds the `COUPON_CODE` when the cart is worth 100 or more. Nothing is sent after 72 hours.\n4. On-hold orders paid by bank transfer or cheque are left alone, since they are waiting on the customer's bank, not abandoned.\n5. After a live send the step is written to the order as `recovery_step`, so no step is ever sent twice.\n\n**How to set up**\n1. Run it once as imported. It previews against sample orders and stops at `STOP: preview - nothing sent`.\n2. Add a WooCommerce credential to `Fetch recent orders` and `Record the step on the order`, set `STORE_URL` and `USE_WOOCOMMERCE = true`.\n3. Create the coupon named in `COUPON_CODE` in WooCommerce (limit it to one use per customer), and connect Gmail.\n4. Put your address in `TEST_EMAIL` to get every message yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A WooCommerce store with REST API keys\n- A Gmail account\n- One coupon created in WooCommerce\n\n**How to customize**\n- `STEPS` holds the delay and subject of each message.\n- `COUPON_MIN_TOTAL` and `COUPON_CODE` control who gets the discount.\n- `MIN_CART_TOTAL` and `HOURLY_CAP` keep small carts and big batches out.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "13e0d186-5717-4c4e-9a00-13e0d18613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every hour at :15 so step 1 lands between 1 and 2 hours after checkout. Delays, subjects, the coupon and its threshold all sit in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9e2b868b-5717-4c4e-9a00-9e2b868b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read recent orders\n\nOne call returns paid and unpaid orders from the last 4 days, which is what lets the picker see that a customer bought on a second try. `Load sample orders` stands in until `USE_WOOCOMMERCE` is true.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "9d2b84f8-5717-4c4e-9a00-9d2b84f81001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick the step and write\n\nStop rules run before timing: paid, bought since, offline payment, too small, too old. A cart past 24 hours that never got step 1 goes straight to step 2 rather than receiving both at once.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "a02b89b1-5717-4c4e-9a00-a02b89b11002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and record\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test send leaves the orders alone; only a live send writes `recovery_step`, which is what stops a repeat.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "9f2b881e-5717-4c4e-9a00-9f2b881e1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "e5d573b7-9a97-4087-aa1e-aa1e194ee5d5",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// RECOVER ABANDONED WOOCOMMERCE CARTS WITH A TWO-STEP GMAIL SEQUENCE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_WOOCOMMERCE false -> SAMPLE orders.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Orders are only updated on a live run.\n\n// set true after adding the WooCommerce credential to both WooCommerce nodes\nconst USE_WOOCOMMERCE = false;\n// your store address, no trailing slash\nconst STORE_URL = 'https://shop.yourstore.example';\n// used in subjects and sign-off\nconst STORE_NAME = 'Harbor Tea Co';\n// sequence: hours since the order was created before each step\nconst STEPS = [\n  {\n    step: 1,\n    after_hours: 1,\n    subject: \"Your order at {store} is waiting\"\n  },\n  {\n    step: 2,\n    after_hours: 24,\n    subject: \"Still thinking it over? Your cart is saved\"\n  }\n];\n// carts older than this get nothing more\nconst STOP_AFTER_HOURS = 72;\n// existing WooCommerce coupon added to step 2\nconst COUPON_CODE = 'COMEBACK10';\n// step 2 includes the coupon only for carts at or above this total\nconst COUPON_MIN_TOTAL = 100;\n// carts below this are not chased\nconst MIN_CART_TOTAL = 15;\n// payment methods where on-hold means waiting for the bank, not abandoned\nconst OFFLINE_METHODS = [\n  \"bacs\",\n  \"cheque\",\n  \"cod\"\n];\n// hard ceiling on emails per run\nconst HOURLY_CAP = 30;\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_woocommerce: USE_WOOCOMMERCE,\n    store_url: STORE_URL,\n    store_name: STORE_NAME,\n    steps: STEPS,\n    stop_after_hours: STOP_AFTER_HOURS,\n    coupon_code: COUPON_CODE,\n    coupon_min_total: COUPON_MIN_TOTAL,\n    min_cart_total: MIN_CART_TOTAL,\n    offline_methods: OFFLINE_METHODS,\n    hourly_cap: HOURLY_CAP,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "240012e7-8e9d-40b7-af4d-0f4d617e2400",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "e6c19247-493a-4217-aaf6-caf6361ee6c1",
+      "name": "Every hour at :15",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "1a7d4295-c916-4605-ada2-ada2bd001a7d",
+      "name": "WooCommerce connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "42708a4f-9a27-479f-ad4c-1d4cffd64270",
+              "leftValue": "={{ $('config').first().json.use_woocommerce }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "c0308027-687c-49f7-aca9-9ca9913ec030",
+      "name": "Fetch recent orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $('config').first().json.store_url + '/wp-json/wc/v3/orders' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wooCommerceApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "after",
+              "value": "={{ new Date(Date.now() - 4 * 864e5).toISOString() }}"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            },
+            {
+              "name": "orderby",
+              "value": "date"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "fa1f86fa-224e-4cda-ac20-2c2072d9fa1f",
+      "name": "Read WooCommerce orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Order list -> the fields the sequence needs. recovery_step lives in order meta.\nconst out = [];\nfor (const page of $input.all()) {\n  const list = Array.isArray(page.json) ? page.json : [page.json];\n  for (const o of list) {\n    if (!o || !o.id) continue;\n    const meta = Object.fromEntries((o.meta_data || []).map(m => [m.key, m.value]));\n    out.push({ json: {\n      id: o.id, number: String(o.number || o.id), status: o.status, created: (o.date_created_gmt || o.date_created) + (String(o.date_created_gmt || '').endsWith('Z') ? '' : 'Z'),\n      paid: Boolean(o.date_paid || o.date_paid_gmt), total: Number(o.total || 0), currency: o.currency || 'USD',\n      email: String(o.billing?.email || '').toLowerCase(), first_name: o.billing?.first_name || '', payment_method: o.payment_method || '',\n      pay_url: o.payment_url || '', items: (o.line_items || []).map(li => li.quantity + ' x ' + li.name),\n      step: Number(meta.recovery_step || 0),\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "18886d02-1947-4062-a810-b810ae711888",
+      "name": "Load sample orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_WOOCOMMERCE is true. Three carts are due a step; the rest show each stop rule.\nconst ago = h => new Date(Date.now() - h * 36e5).toISOString();\nconst o = (id, status, hours, total, email, step, extra = {}) => ({ id, number: String(id), status, created: ago(hours), paid: status === 'processing' || status === 'completed',\n  total, currency: 'USD', email, first_name: email.split('@')[0].replace(/^./, c => c.toUpperCase()), payment_method: 'stripe',\n  pay_url: 'https://shop.yourstore.example/checkout/order-pay/' + id + '/?pay_for_order=true&key=wc_order_sample' + id,\n  items: ['1 x Sencha loose leaf 250g', '2 x Glass infuser mug'], step, ...extra });\nreturn [\n  o(301, 'pending', 2, 85, 'maya@lindenrow.example', 0),\n  o(302, 'pending', 26, 140, 'theo@copperfield.example', 1),\n  o(303, 'pending', 30, 60, 'iris@saltmarsh.example', 1),\n  o(304, 'pending', 0.5, 45, 'leo@whitby.example', 0),\n  o(305, 'pending', 5, 70, 'nina@hollins.example', 0),\n  o(306, 'on-hold', 3, 210, 'omar@greystone.example', 0, { payment_method: 'bacs' }),\n  o(307, 'pending', 26, 95, 'pia@fairhaven.example', 2),\n  o(308, 'pending', 80, 120, 'quin@ashby.example', 1),\n  o(309, 'pending', 3, 8, 'rae@morrow.example', 0),\n  o(310, 'processing', 1, 70, 'nina@hollins.example', 0),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "42b2f874-ae18-4c34-a951-9951b55742b2",
+      "name": "Combine order sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "58dbe0bc-ada3-4dfc-a8cf-d8cf45cf58db",
+      "name": "Pick the next step for each cart",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A cart gets at most one step per run: the highest step it has reached by age that\n// was not sent yet. A paid order from the same email after the cart ends the sequence.\nconst cfg = $('config').first().json;\nconst orders = $input.all().map(i => i.json);\nconst now = Date.now();\nconst steps = [...cfg.steps].sort((a, b) => a.after_hours - b.after_hours);\nconst paidAt = {};\nfor (const o of orders) if (o.paid || ['processing', 'completed'].includes(o.status)) {\n  if (!paidAt[o.email] || o.created > paidAt[o.email]) paidAt[o.email] = o.created;\n}\nconst due = [], held = [];\nfor (const o of orders.filter(o => ['pending', 'on-hold'].includes(o.status))) {\n  const hours = (now - new Date(o.created).getTime()) / 36e5;\n  const next = steps.filter(s => hours >= s.after_hours).pop();\n  const reason =\n    !o.email ? 'no email' :\n    o.paid ? 'paid' :\n    paidAt[o.email] && paidAt[o.email] > o.created ? 'bought since' :\n    o.status === 'on-hold' && cfg.offline_methods.includes(o.payment_method) ? 'awaiting offline payment (' + o.payment_method + ')' :\n    o.total < cfg.min_cart_total ? 'below MIN_CART_TOTAL' :\n    hours > cfg.stop_after_hours ? 'older than ' + cfg.stop_after_hours + 'h, sequence over' :\n    !next ? 'too soon (' + Math.round(hours * 60) + ' min)' :\n    o.step >= steps[steps.length - 1].step ? 'sequence finished' :\n    next.step <= o.step ? 'step ' + o.step + ' sent, next not due' : '';\n  if (reason) { held.push({ order: o.number, reason }); continue; }\n  due.push({ ...o, next_step: next.step, subject_tpl: next.subject, hours: Math.floor(hours),\n    coupon: next.step === steps[steps.length - 1].step && o.total >= cfg.coupon_min_total ? cfg.coupon_code : '' });\n}\ndue.sort((a, b) => b.total - a.total);\nfor (const o of due.slice(cfg.hourly_cap)) held.push({ order: o.number, reason: 'over HOURLY_CAP, next run' });\nreturn [{ json: { carts: due.slice(0, cfg.hourly_cap), held, checked: orders.length } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "988aad44-3562-4004-ad14-4d14c6e7988a",
+      "name": "Write each recovery email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain text, the cart contents, and the order's own pay link so the customer\n// lands back on payment with everything filled in.\nconst cfg = $('config').first().json;\nconst money = (n, c) => new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n);\nreturn $input.first().json.carts.map(o => {\n  const body = [\n    'Hi ' + (o.first_name || 'there') + ',', '',\n    o.next_step === 1 ? 'You started an order with us but did not finish paying. It is saved:' : 'Your order is still saved, in case you want to pick it up again:',\n    '', ...o.items.map(i => '- ' + i), 'Total: ' + money(o.total, o.currency), '',\n    'Finish your order: ' + o.pay_url,\n    ...(o.coupon ? ['', 'Use code ' + o.coupon + ' at checkout for 10% off this order.'] : []),\n    '', 'Questions about the order? Reply to this email.', '', cfg.store_name,\n  ].join('\\n');\n  return { json: { order_id: o.id, order: o.number, step: o.next_step, coupon: o.coupon, email: o.email,\n    subject: o.subject_tpl.replace('{store}', cfg.store_name), body, send_to: cfg.mode === 'test' ? cfg.test_email : o.email } };\n});\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "bfd09a38-ea27-48b8-a1b4-e1b4a02bbfd0",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "578f3f4f-9af0-4c9f-a0fa-30fab4d6578f",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "ed310658-d7cc-4ad8-ae54-1e540b0bed31",
+      "name": "Email the recovery message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST step ' + $json.step + ' to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "567dea77-2272-4b47-aa5a-1a5a518e567d",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "1de37d56-3201-4e76-acae-4cae4fe51de3",
+      "name": "STOP: test send - orders untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        384
+      ]
+    },
+    {
+      "id": "8b2fa21b-3d5a-47ab-a943-d943df828b2f",
+      "name": "Record the step on the order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('config').first().json.store_url + '/wp-json/wc/v3/orders/' + $('Write each recovery email').item.json.order_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wooCommerceApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ meta_data: [{ key: 'recovery_step', value: String($('Write each recovery email').item.json.step) }, { key: 'recovery_sent_at', value: new Date().toISOString() }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour at :15": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "WooCommerce connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WooCommerce connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch recent orders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch recent orders": {
+      "main": [
+        [
+          {
+            "node": "Read WooCommerce orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read WooCommerce orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine order sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the next step for each cart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the next step for each cart": {
+      "main": [
+        [
+          {
+            "node": "Write each recovery email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each recovery email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the recovery message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the recovery message": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record the step on the order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - orders untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

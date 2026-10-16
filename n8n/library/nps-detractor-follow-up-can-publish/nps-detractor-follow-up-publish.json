@@ -1,0 +1,981 @@
+{
+  "name": "Collect NPS from an n8n form and create HubSpot tasks for detractors",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Collect NPS from an n8n form and create HubSpot tasks for detractors\n\n**Who's it for**\nCustomer success teams at B2B companies who want an NPS survey without a survey tool, and want unhappy customers to reach a named person the same day.\n\n**How it works**\n1. Customers answer a four-question n8n form: email, score from 0 to 10, reason and company. A manual run uses a sample answer.\n2. The contact and its owner are looked up in HubSpot by email. The score sets the category (promoter 9-10, passive 7-8, detractor 0-6) and keywords tag the reason with themes such as support or pricing.\n3. Every answer is appended to a Google Sheets log with its category and themes.\n4. A detractor creates a high-priority HubSpot task for the account owner, due in one business day, and tags that owner in Slack. A promoter gets a short email asking for a review. Passives are logged only.\n\n**How to set up**\n1. Run it once from `Run manually`. It handles a sample detractor and stops at `STOP: not live - no task created`, `STOP: preview - nothing posted` and `STOP: not live - nothing logged`.\n2. Add a HubSpot private app credential to both HubSpot nodes and set `USE_HUBSPOT = true`. Map owner ids to Slack ids in `OWNERS`.\n3. Connect Google Sheets with `NPS_SHEET_ID`, Slack with `SLACK_CHANNEL_ID`, and Gmail. Set `REVIEW_URL` to your review page.\n4. Put your address in `TEST_EMAIL` to receive review requests yourself, then set `TEST_RUN = false` and share the form URL.\n\n**Requirements**\n- A HubSpot account with a private app token\n- A Google Sheet for the log\n- A Gmail account\n- Optional: a Slack workspace\n\n**How to customize**\n- `THEMES` maps each theme to the words that tag it.\n- `FALLBACK_OWNER_ID` takes detractors whose contact has no owner.\n- `REVIEW_URL` and `SENDER_NAME` shape the promoter email.",
+        "height": 1200,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "72f5c39a-5717-4c4e-9a00-72f5c39a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe n8n form is the survey, so there is no survey tool to pay for. `Run manually` replays a sample detractor. Themes, owners and links live in `config`.",
+        "height": 1200,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "268fe6ff-5717-4c4e-9a00-268fe6ff1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Find the owner, score and log\n\nThe owner is looked up before scoring so the log row names who is responsible. Every answer is logged, including passives, but only on a live run with `NPS_SHEET_ID` set.",
+        "height": 1200,
+        "width": 1744,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "258fe56c-5717-4c4e-9a00-258fe56c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Act on the category\n\n`Route by category` sends detractors to a HubSpot task and a Slack alert, promoters to a review request, passives to the log only. A blank or out-of-range score ends at `STOP: no valid score`. Each action has its own gate.",
+        "height": 1200,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        0
+      ],
+      "id": "288fea25-5717-4c4e-9a00-288fea251002",
+      "name": "Section 3 note"
+    },
+    {
+      "id": "58cc1235-7916-43a5-acbd-2cbdcf6058cc",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// COLLECT NPS FROM AN N8N FORM AND CREATE HUBSPOT TASKS FOR DETRACTORS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE answer. USE_HUBSPOT false -> SAMPLE contact and owner.\n// NPS_SHEET_ID blank -> nothing is logged. SLACK_CHANNEL_ID blank -> no alert.\n\n// set true after adding the HubSpot credential to both HubSpot nodes\nconst USE_HUBSPOT = false;\n// HubSpot owner id -> name and Slack member id\nconst OWNERS = {\n  \"101\": {\n    name: \"Maya Ortiz\",\n    slack_id: \"U01MAYA\"\n  },\n  \"102\": {\n    name: \"Theo Grant\",\n    slack_id: \"U02THEO\"\n  }\n};\n// owner for detractors whose contact has no owner or is not in HubSpot\nconst FALLBACK_OWNER_ID = '101';\n// theme -> words in the reason that tag it\nconst THEMES = {\n  support: [\n    \"support\",\n    \"response\",\n    \"ticket\",\n    \"answer\",\n    \"help\"\n  ],\n  reliability: [\n    \"bug\",\n    \"crash\",\n    \"slow\",\n    \"down\",\n    \"error\",\n    \"broken\"\n  ],\n  pricing: [\n    \"price\",\n    \"pricing\",\n    \"expensive\",\n    \"cost\",\n    \"invoice\",\n    \"billing\"\n  ],\n  onboarding: [\n    \"setup\",\n    \"onboarding\",\n    \"confusing\",\n    \"learn\",\n    \"training\"\n  ],\n  features: [\n    \"missing\",\n    \"feature\",\n    \"integration\",\n    \"wish\",\n    \"roadmap\"\n  ]\n};\n// link promoters are asked to review on\nconst REVIEW_URL = 'https://www.g2.com/products/yourcompany/take_survey';\n// Google Sheets id with an NPS tab; blank logs nothing\nconst NPS_SHEET_ID = '';\n// channel for detractor alerts; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// sign-off on the review request\nconst SENDER_NAME = 'Maya at Fieldnote';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_hubspot: USE_HUBSPOT,\n    owners: OWNERS,\n    fallback_owner_id: FALLBACK_OWNER_ID,\n    themes: THEMES,\n    review_url: REVIEW_URL,\n    nps_sheet_id: NPS_SHEET_ID,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: NPS_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "6a6efdcd-19be-4fbd-ae9b-9e9baee86a6e",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "71e94afa-6e73-40da-a709-07099ed971e9",
+      "name": "NPS survey form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "2ae0cb35-43db-4ca5-a4ed-a4ed30602ae0",
+      "parameters": {
+        "formTitle": "How are we doing?",
+        "formDescription": "Two minutes, four questions. Your answer goes straight to your account team.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "How likely are you to recommend us to a colleague? (0-10)",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "0"
+                  },
+                  {
+                    "option": "1"
+                  },
+                  {
+                    "option": "2"
+                  },
+                  {
+                    "option": "3"
+                  },
+                  {
+                    "option": "4"
+                  },
+                  {
+                    "option": "5"
+                  },
+                  {
+                    "option": "6"
+                  },
+                  {
+                    "option": "7"
+                  },
+                  {
+                    "option": "8"
+                  },
+                  {
+                    "option": "9"
+                  },
+                  {
+                    "option": "10"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What is the main reason for your score?",
+              "fieldType": "textarea"
+            },
+            {
+              "fieldLabel": "Company"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "12f46314-3f18-44d4-a28c-e28c5fb712f4",
+      "name": "Read the survey answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form submission when the form started the run; a sample detractor on a manual run.\nlet a = null;\ntry { a = $('NPS survey form').first().json; } catch (e) { a = null; }\nif (!a) a = { \"Email\": 'priya@harbour-dental.example', \"How likely are you to recommend us to a colleague? (0-10)\": '4',\n  \"What is the main reason for your score?\": 'Support takes days to answer and the invoice export keeps crashing.', \"Company\": 'Harbour Dental', submittedAt: new Date().toISOString() };\nconst raw = String(a[\"How likely are you to recommend us to a colleague? (0-10)\"] ?? '').trim();\nreturn [{ json: { email: String(a[\"Email\"] || '').trim().toLowerCase(), score: raw === '' ? null : Number(raw),\n  reason: String(a[\"What is the main reason for your score?\"] || '').trim(), company: String(a[\"Company\"] || '').trim(), submitted_at: a.submittedAt || new Date().toISOString() } }];\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "e9d6b7b8-32d2-4e38-abb5-cbb501abe9d6",
+      "name": "Use sample owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "09566272-cbbf-42d2-a377-6377a0a10956",
+              "leftValue": "={{ !$('config').first().json.use_hubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "774bdb0c-cd8f-4f4c-a05b-c05b4cdf774b",
+      "name": "Load sample owner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_HUBSPOT is true.\nreturn [{ json: { contact_id: '801', owner_id: '101', lifecycle: 'customer', hubspot_company: 'Harbour Dental' } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "1f21de1d-26a1-470d-a1e1-11e1de381f21",
+      "name": "Find the contact in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: $json.email }] }], properties: ['hubspot_owner_id', 'lifecyclestage', 'company'], limit: 1 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "a97bd333-8f65-4143-a2c5-32c50daaa97b",
+      "name": "Read the contact owner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search result -> contact id and owner; a person not in HubSpot gives empty values.\nconst r = $input.first().json.results?.[0];\nreturn [{ json: { contact_id: r?.id || '', owner_id: r?.properties?.hubspot_owner_id || '', lifecycle: r?.properties?.lifecyclestage || '', hubspot_company: r?.properties?.company || '' } }];\n"
+      },
+      "position": [
+        1184,
+        352
+      ]
+    },
+    {
+      "id": "11ecfa21-8229-49d1-a548-a54853ac11ec",
+      "name": "Combine owner sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1408,
+        176
+      ]
+    },
+    {
+      "id": "bc1e875d-fa11-4c4d-a3f0-d3f03cf8bc1e",
+      "name": "Score and tag the answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Standard NPS bands. Themes come from keywords so the log can be filtered by theme\n// without anyone reading every comment.\nconst cfg = $('config').first().json;\nconst a = $('Read the survey answer').first().json;\nconst o = $input.first().json;\nconst s = a.score;\nconst category = s === null || !(s >= 0 && s <= 10) ? 'invalid' : s >= 9 ? 'promoter' : s >= 7 ? 'passive' : 'detractor';\nconst low = a.reason.toLowerCase();\nconst themes = Object.keys(cfg.themes).filter(t => cfg.themes[t].some(w => low.includes(w)));\nconst owner_id = o.owner_id || cfg.fallback_owner_id;\nconst owner = cfg.owners[owner_id] || { name: 'owner ' + owner_id, slack_id: '' };\nreturn [{ json: { ...a, category, themes, contact_id: o.contact_id, in_hubspot: Boolean(o.contact_id), owner_id, owner_name: owner.name, owner_slack: owner.slack_id,\n  owner_was_fallback: !o.owner_id, company: a.company || o.hubspot_company } }];\n"
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "dd2ee695-986c-4a05-ac0e-6c0e3900dd2e",
+      "name": "Shape the log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One flat row per answer for the NPS tab.\nconst r = $input.first().json;\nreturn [{ json: { submitted_at: r.submitted_at, email: r.email, company: r.company, score: r.score ?? '', category: r.category, themes: r.themes.join(', '),\n  reason: r.reason, owner: r.owner_name, in_hubspot: r.in_hubspot ? 'yes' : 'no' } }];\n"
+      },
+      "position": [
+        1840,
+        352
+      ]
+    },
+    {
+      "id": "096ce74a-5a83-442a-a5cb-75cbd3e9096c",
+      "name": "Log switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7af55f00-668d-4f00-a793-c79330037af5",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7bf56093-28e2-40a3-a46b-746b244a7bf5",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2064,
+        352
+      ]
+    },
+    {
+      "id": "fec78c7c-3002-4dbc-aab5-4ab5b30ffec7",
+      "name": "STOP: not live - nothing logged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2288,
+        512
+      ]
+    },
+    {
+      "id": "cccd3482-1ba0-4fe2-a7a7-47a7b1f1cccd",
+      "name": "Append to the NPS log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.nps_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "NPS"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2288,
+        352
+      ]
+    },
+    {
+      "id": "acdef790-f91c-4a90-a8c6-68c68913acde",
+      "name": "Prepare the follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Everything each action needs, decided once: the detractor task (due next business\n// day at 10:00) and Slack text, or the promoter review email. Passives need nothing.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst out = { ...r };\nif (r.category === 'detractor') {\n  const due = new Date(); do { due.setDate(due.getDate() + 1); } while ([0, 6].includes(due.getDay())); due.setHours(10, 0, 0, 0);\n  out.task_subject = 'NPS ' + r.score + ' from ' + (r.company || r.email) + ': call back';\n  out.task_body = 'Score ' + r.score + '/10 from ' + r.email + (r.themes.length ? ' (themes: ' + r.themes.join(', ') + ')' : '') + '.\\nTheir words: \"' + (r.reason || 'no comment') + '\"\\nCall within one business day and log the outcome.';\n  out.due_ms = due.getTime();\n  const who = cfg.mode === 'live' && r.owner_slack ? '<@' + r.owner_slack + '>' : r.owner_name;\n  out.slack_text = (cfg.mode === 'test' ? '[TEST] ' : '') + ':rotating_light: *Detractor: ' + r.score + '/10* from ' + (r.company || r.email) + ' (' + r.email + ')\\n'\n    + '> ' + (r.reason || 'no comment') + '\\nOwner: ' + who + (r.owner_was_fallback ? ' (fallback, contact has no owner)' : '') + (r.themes.length ? ' | Themes: ' + r.themes.join(', ') : '');\n}\nif (r.category === 'promoter') {\n  // Short, one link, no incentive: review sites do not allow paid reviews.\n  out.subject = 'Thanks for the ' + r.score + '/10';\n  out.body = ['Hi,', '', 'Thank you for the ' + r.score + '/10. It means a lot to the team.', '',\n    'If you have two minutes, a short review would help other teams find us: ' + cfg.review_url, '', cfg.sender_name].join('\\n');\n  out.send_to = cfg.mode === 'test' ? cfg.test_email : r.email;\n}\nreturn [{ json: out }];\n"
+      },
+      "position": [
+        1840,
+        176
+      ]
+    },
+    {
+      "id": "76a785f7-7236-4ec7-ab55-db55c50e76a7",
+      "name": "Route by category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "2d14b171-d074-4821-a142-5142d0fc2d14",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "detractor",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "detractor"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f95d46fb-a9f7-468b-a07f-c07f94a2f95d",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "promoter",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "promoter"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ff16ef4e-c3b9-42ee-acfd-3cfda30dff16",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "passive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "passive"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        2528,
+        176
+      ]
+    },
+    {
+      "id": "fa641c2d-4433-401d-abbf-0bbf5a88fa64",
+      "name": "STOP: passive - logged only",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2752,
+        512
+      ]
+    },
+    {
+      "id": "cd9177ba-6820-419a-a982-2982fe19cd91",
+      "name": "STOP: no valid score",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2752,
+        688
+      ]
+    },
+    {
+      "id": "14ce9f4d-cbb2-493d-ab1b-6b1bd86814ce",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        176
+      ]
+    },
+    {
+      "id": "8983614b-5def-47db-a034-20346bb28983",
+      "name": "STOP: not live - no task created",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        352
+      ]
+    },
+    {
+      "id": "5cb6be68-92b0-4de8-af82-5f820d5b5cb6",
+      "name": "Create the HubSpot task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { hs_timestamp: String($json.due_ms), hs_task_subject: $json.task_subject, hs_task_body: $json.task_body, hs_task_status: 'NOT_STARTED', hs_task_priority: 'HIGH', hs_task_type: 'CALL', hubspot_owner_id: $json.owner_id }, associations: $json.contact_id ? [{ to: { id: $json.contact_id }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 204 }] }] : [] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2976,
+        176
+      ]
+    },
+    {
+      "id": "d184fc7a-427e-4a5a-abd1-3bd13859d184",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        352
+      ]
+    },
+    {
+      "id": "1a0f4970-2557-4670-ae21-8e21e7331a0f",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        512
+      ]
+    },
+    {
+      "id": "a3d96f12-07b3-4d72-acdc-8cdc3901a3d9",
+      "name": "Alert the owner in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.slack_text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2976,
+        688
+      ]
+    },
+    {
+      "id": "a8300a52-d1b5-44b2-a01c-d01cc1c1a830",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        864
+      ]
+    },
+    {
+      "id": "38197212-6e60-4072-a016-4016bc013819",
+      "name": "STOP: preview - no review request sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        1024
+      ]
+    },
+    {
+      "id": "2ad8cf1f-bb75-4b6f-aec0-eec073a62ad8",
+      "name": "Email the review request",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2976,
+        864
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NPS survey form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the survey answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the survey answer": {
+      "main": [
+        [
+          {
+            "node": "Use sample owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample owner?": {
+      "main": [
+        [
+          {
+            "node": "Load sample owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find the contact in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the contact in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Read the contact owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample owner": {
+      "main": [
+        [
+          {
+            "node": "Combine owner sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the contact owner": {
+      "main": [
+        [
+          {
+            "node": "Combine owner sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine owner sources": {
+      "main": [
+        [
+          {
+            "node": "Score and tag the answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and tag the answer": {
+      "main": [
+        [
+          {
+            "node": "Prepare the follow-up",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Shape the log row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the log row": {
+      "main": [
+        [
+          {
+            "node": "Log switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare the follow-up": {
+      "main": [
+        [
+          {
+            "node": "Route by category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log switched on?": {
+      "main": [
+        [
+          {
+            "node": "Append to the NPS log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - nothing logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by category": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: passive - logged only",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no valid score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Create the HubSpot task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - no task created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Alert the owner in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the review request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - no review request sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

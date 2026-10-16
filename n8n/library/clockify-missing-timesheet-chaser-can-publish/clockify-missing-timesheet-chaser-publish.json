@@ -1,0 +1,571 @@
+{
+  "name": "Chase missing Clockify hours in Slack every Friday",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Chase missing Clockify hours in Slack every Friday\n\n**Who's it for**\nAgencies and consultancies of 5 to 80 people who bill from Clockify and lose hours every week to timesheets nobody filled in. Managers get a short list on Friday afternoon while the week is still fresh.\n\n**How it works**\n1. Every Friday at 14:00 it pulls this week's Clockify summary report grouped by user, plus the workspace users, or sample data until Clockify is connected.\n2. Expected hours come from `TEAM`: weekly hours spread over each person's working days, minus any `PUBLIC_HOLIDAYS` that fall on one of those days.\n3. Anyone short by more than `SHORTFALL_HOURS` and `SHORTFALL_PCT` is listed. People missing from Clockify count as zero hours; Clockify users not in `TEAM` are ignored and reported.\n4. Each manager gets one Slack DM listing their people with logged, expected and missing hours, or the lists go to one channel.\n\n**How to set up**\n1. Run it once as imported. It checks sample hours and stops at `STOP: dry run - nothing posted`.\n2. Add a Clockify credential to `Fetch summary report` and `Fetch workspace users`, set `CLOCKIFY_WORKSPACE_ID` and `USE_CLOCKIFY = true`.\n3. Fill `TEAM` with each person's email, weekly hours, working days, Slack id and manager's Slack id. Connect Slack.\n4. Check the lists in `Group by manager`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Clockify workspace (any plan with the reports API)\n- A Slack workspace with a bot that can DM\n\n**How to customize**\n- `SHORTFALL_HOURS` and `SHORTFALL_PCT` decide how short counts as missing; both must be exceeded.\n- Set `CHANNEL_ID` to post every manager's list in one channel instead of DMs.\n- `PUBLIC_HOLIDAYS` lowers expected hours for anyone who works that day.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "3b63cbec-5717-4c4e-9a00-3b63cbec13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Friday at 14:00, early enough for people to fix the week. `TEAM` holds contracted hours and working days per person, which is what makes part-time staff come out right.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "26b7e521-5717-4c4e-9a00-26b7e5211000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read logged hours\n\nThe summary report gives seconds per user id in one call; `Fetch workspace users` turns ids into emails so they match `TEAM`. `Load sample hours` returns the same hours-by-email item when Clockify is off.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "25b7e38e-5717-4c4e-9a00-25b7e38e1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find who is short\n\nBoth thresholds must be exceeded, so 15 minutes short on a 40-hour week is ignored. Someone missing from Clockify counts as zero rather than disappearing, and an all-clear week ends at its own STOP.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "24b7e1fb-5717-4c4e-9a00-24b7e1fb1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Tell each manager\n\nManagers only see their own people, sorted by the biggest gap. `Post to Slack?` opens only on a live run; the DM goes to the manager's Slack id, or to `CHANNEL_ID` with the manager tagged.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "23b7e068-5717-4c4e-9a00-23b7e0681003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "a87f2d60-9c00-4f60-a81b-381b86a3a87f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CHASE MISSING CLOCKIFY HOURS IN SLACK EVERY FRIDAY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_CLOCKIFY false -> SAMPLE hours. CHANNEL_ID blank -> each manager gets a DM.\n// DRY_RUN true -> lists are built and shown, nothing is posted.\n\n// set true after adding the Clockify credential to both Clockify nodes\nconst USE_CLOCKIFY = false;\n// workspace id from Clockify settings\nconst CLOCKIFY_WORKSPACE_ID = '';\n// who should log what: weekly hours over working days (1 = Monday ... 5 = Friday)\nconst TEAM = [\n  {\n    email: \"ana@studio.example\",\n    slack_id: \"U01ANA\",\n    weekly_hours: 40,\n    days: [\n      1,\n      2,\n      3,\n      4,\n      5\n    ],\n    manager_slack_id: \"U0LEAD1\"\n  },\n  {\n    email: \"ben@studio.example\",\n    slack_id: \"U01BEN\",\n    weekly_hours: 40,\n    days: [\n      1,\n      2,\n      3,\n      4,\n      5\n    ],\n    manager_slack_id: \"U0LEAD1\"\n  },\n  {\n    email: \"chloe@studio.example\",\n    slack_id: \"U01CHLOE\",\n    weekly_hours: 24,\n    days: [\n      1,\n      2,\n      3\n    ],\n    manager_slack_id: \"U0LEAD1\"\n  },\n  {\n    email: \"dmitri@studio.example\",\n    slack_id: \"U01DMITRI\",\n    weekly_hours: 20,\n    days: [\n      2,\n      4\n    ],\n    manager_slack_id: \"U0LEAD2\"\n  },\n  {\n    email: \"esme@studio.example\",\n    slack_id: \"U01ESME\",\n    weekly_hours: 32,\n    days: [\n      1,\n      2,\n      3,\n      4\n    ],\n    manager_slack_id: \"U0LEAD2\"\n  }\n];\n// missing hours must be above this...\nconst SHORTFALL_HOURS = 2;\n// ...and above this percent of expected hours\nconst SHORTFALL_PCT = 5;\n// dates nobody is expected to log\nconst PUBLIC_HOLIDAYS = [\n  \"2026-12-25\",\n  \"2026-12-28\",\n  \"2027-01-01\"\n];\n// blank: DM each manager. Set: post every list in this channel\nconst CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_clockify: USE_CLOCKIFY,\n    clockify_workspace_id: CLOCKIFY_WORKSPACE_ID,\n    team: TEAM,\n    shortfall_hours: SHORTFALL_HOURS,\n    shortfall_pct: SHORTFALL_PCT,\n    public_holidays: PUBLIC_HOLIDAYS,\n    channel_id: CHANNEL_ID,\n    dry_run: DRY_RUN,\n    channel_mode: CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "d75fa2a4-463a-4764-a4fa-04fa6587d75f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "93d1ab6c-ca31-41ac-a164-2164117f93d1",
+      "name": "Every Friday at 14:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 14 * * 5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "cc252b64-c1b1-4424-a5e6-b5e69fc7cc25",
+      "name": "Clockify off?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9c435dab-8b96-463b-abc2-6bc2fd529c43",
+              "leftValue": "={{ !$('config').first().json.use_clockify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "66dbb46c-6162-4aac-a339-8339de7f66db",
+      "name": "Fetch summary report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://reports.api.clockify.me/v1/workspaces/' + $('config').first().json.clockify_workspace_id + '/reports/summary' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clockifyApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify((() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return { dateRangeStart: d.toISOString(), dateRangeEnd: new Date().toISOString(), summaryFilter: { groups: ['USER'] }, amountShown: 'HIDE_AMOUNT' }; })()) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "a907924b-2a7e-48db-ac87-8c87a0b2a907",
+      "name": "Fetch workspace users",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.clockify.me/api/v1/workspaces/' + $('config').first().json.clockify_workspace_id + '/users' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clockifyApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "ACTIVE"
+            },
+            {
+              "name": "page-size",
+              "value": "200"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        384
+      ]
+    },
+    {
+      "id": "001ea4a1-4d96-4c51-ab2f-ab2fae2c001e",
+      "name": "Read Clockify hours",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Summary report groupOne = one row per user with total seconds; users map id -> email.\nconst report = $('Fetch summary report').first().json;\nconst users = $input.all().map(i => i.json).filter(u => u.id);\nconst email = Object.fromEntries(users.map(u => [u.id, String(u.email || '').toLowerCase()]));\nconst hours = {};\nfor (const g of report.groupOne || []) if (email[g._id]) hours[email[g._id]] = Math.round(g.duration / 36) / 100;\nreturn [{ json: { hours, clockify_users: Object.values(email) } }];\n"
+      },
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "b05f8027-affb-49f7-a0d4-80d4913eb05f",
+      "name": "Load sample hours",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_CLOCKIFY is true. Hours by email for this week so far.\nreturn [{ json: {\n  hours: { 'ana@studio.example': 39.25, 'ben@studio.example': 27.5, 'chloe@studio.example': 24, 'dmitri@studio.example': 11, 'zoe.freelance@partner.example': 6 },\n  clockify_users: ['ana@studio.example', 'ben@studio.example', 'chloe@studio.example', 'dmitri@studio.example', 'zoe.freelance@partner.example'],\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "a5577185-1fb0-49f5-a0c4-c0c48b70a557",
+      "name": "Combine hour sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1392,
+        208
+      ]
+    },
+    {
+      "id": "52bf365d-aae1-4b4d-a4ef-74ef83f852bf",
+      "name": "Compare logged with expected",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Expected = weekly_hours / working days per week, for each working day this week\n// that is not a public holiday. Short only when BOTH thresholds are exceeded.\nconst cfg = $('config').first().json;\nconst { hours, clockify_users } = $input.first().json;\nconst monday = new Date(); monday.setUTCHours(0, 0, 0, 0); monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));\nconst week = Array.from({ length: 5 }, (_, i) => new Date(monday.getTime() + i * 864e5).toISOString().slice(0, 10));\nconst teamEmails = cfg.team.map(t => t.email.toLowerCase());\nconst rows = cfg.team.map(t => {\n  const perDay = t.weekly_hours / t.days.length;\n  const holidays = week.filter((d, i) => t.days.includes(i + 1) && cfg.public_holidays.includes(d));\n  const expected = Math.round((t.weekly_hours - holidays.length * perDay) * 100) / 100;\n  const inClockify = clockify_users.includes(t.email.toLowerCase());\n  const logged = hours[t.email.toLowerCase()] || 0;\n  const missing = Math.round((expected - logged) * 100) / 100;\n  const short = missing > cfg.shortfall_hours && expected > 0 && missing / expected * 100 > cfg.shortfall_pct;\n  return { email: t.email, slack_id: t.slack_id, manager: t.manager_slack_id, expected, logged, missing, short,\n    holidays: holidays.length, note: inClockify ? '' : 'not found in Clockify' };\n});\nconst unknown = clockify_users.filter(e => !teamEmails.includes(e));\nreturn [{ json: { week_start: week[0], rows, short: rows.filter(r => r.short), unknown } }];\n"
+      },
+      "position": [
+        1632,
+        208
+      ]
+    },
+    {
+      "id": "78b89ed3-140c-4ae3-a345-b345d40a78b8",
+      "name": "Anyone short?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "76b18fca-8e20-44aa-aee4-3ee4a06976b1",
+              "leftValue": "={{ $json.short.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "5c1f6b6e-8422-450e-a235-22350ded5c1f",
+      "name": "STOP: everyone logged their hours",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2080,
+        384
+      ]
+    },
+    {
+      "id": "1a25a849-1642-4b79-ac1f-ec1fee441a25",
+      "name": "Group by manager",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message per manager, biggest gap first. In channel mode the manager is tagged.\nconst cfg = $('config').first().json;\nconst c = $input.first().json;\nconst by = {};\nfor (const r of c.short) (by[r.manager] ||= []).push(r);\nreturn Object.entries(by).map(([manager, list]) => {\n  list.sort((a, b) => b.missing - a.missing);\n  const lines = list.map(r => '- <@' + r.slack_id + '>: ' + r.logged + 'h of ' + r.expected + 'h, ' + r.missing + 'h missing' + (r.holidays ? ' (holiday taken off)' : '') + (r.note ? ' (' + r.note + ')' : ''));\n  const text = [(cfg.channel_mode ? '<@' + manager + '> ' : '') + 'Timesheets for the week of ' + c.week_start + ': ' + list.length + (list.length === 1 ? ' person is' : ' people are') + ' short.', ...lines, 'A nudge before 17:00 keeps this week billable.'].join('\\n');\n  return { json: { manager, target: cfg.channel_mode ? cfg.channel_id : manager, people: list.length, text } };\n});\n"
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "ccde72c6-a696-40e6-a637-163798d5ccde",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "4e0eb771-1428-4e21-af8e-8f8e1afc4e0e",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "fdf22d5a-5636-453a-a527-c5270a79fdf2",
+      "name": "Send the list to the manager",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.target }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Friday at 14:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Clockify off?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clockify off?": {
+      "main": [
+        [
+          {
+            "node": "Load sample hours",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch summary report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch summary report": {
+      "main": [
+        [
+          {
+            "node": "Fetch workspace users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch workspace users": {
+      "main": [
+        [
+          {
+            "node": "Read Clockify hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample hours": {
+      "main": [
+        [
+          {
+            "node": "Combine hour sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Clockify hours": {
+      "main": [
+        [
+          {
+            "node": "Combine hour sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine hour sources": {
+      "main": [
+        [
+          {
+            "node": "Compare logged with expected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare logged with expected": {
+      "main": [
+        [
+          {
+            "node": "Anyone short?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anyone short?": {
+      "main": [
+        [
+          {
+            "node": "Group by manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: everyone logged their hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group by manager": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Send the list to the manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

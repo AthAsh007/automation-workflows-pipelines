@@ -1,0 +1,814 @@
+{
+  "name": "Answer Telegram FAQ messages from a Google Sheets knowledge table",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Answer Telegram FAQ messages from a Google Sheets knowledge table\n\n**Who's it for**\nSmall businesses that get the same ten questions on Telegram every day and want a bot that answers those from a sheet anyone on the team can edit, and passes the rest to a human.\n\n**How it works**\n1. Telegram posts each message to the webhook. A manual run uses 8 sample messages and 6 sample FAQ rows.\n2. The FAQ tab is read fresh on every message, so an edited answer is live on the next question.\n3. Each row scores on keyword phrases found in the message (60%) and shared words with its question (40%). The best row answers if it reaches 0.45 and beats the runner-up.\n4. Below the line, or on /human, the user gets a handoff message and your admin chat gets the question with a link back to the user.\n5. A chat sending more than 3 messages a minute gets one \"slow down\" reply, then silence until the minute passes.\n\n**How to set up**\n1. Run it once as imported. It answers the sample messages and stops at `STOP: preview - no replies sent`.\n2. Create a sheet with an FAQ tab (question, keywords, answer, enabled) and put its id in `FAQ_SHEET_ID`.\n3. Add your bot token as a Telegram credential on both Telegram nodes, activate the workflow and point the bot at the webhook with setWebhook.\n4. Put your own chat id in `TEST_CHAT_ID` so the bot answers only you, and `ADMIN_CHAT_ID` for handoffs. Set `DRY_RUN = false` to answer everyone.\n\n**Requirements**\n- A Telegram bot token from BotFather\n- A Google Sheet with an FAQ tab\n\n**How to customize**\n- `CONFIDENCE_MIN` and `MARGIN` decide when the bot answers instead of handing off.\n- `RATE_LIMIT` and `RATE_WINDOW_SECONDS` set the flood limit.\n- `WELCOME_TEXT` and `HANDOFF_TEXT` are the fixed replies.",
+        "height": 1040,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "a77e970f-5717-4c4e-9a00-a77e970f13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nTelegram posts each update to the webhook, which answers at once; the manual trigger replays sample messages. Thresholds, rate limits and fixed replies live in `config`.",
+        "height": 1040,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e07bc272-5717-4c4e-9a00-e07bc2721000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the message\n\nOnly text messages go on; edits, stickers and joins stop here. `Collect the messages` turns them into one item so the FAQ sheet is read once, not once per message.",
+        "height": 1040,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "e17bc405-5717-4c4e-9a00-e17bc4051001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read the FAQ table\n\nThe sheet is read on every run, so an answer edited by anyone on the team is live for the next question. Rows with enabled set to no are dropped before scoring.",
+        "height": 1040,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "de7bbf4c-5717-4c4e-9a00-de7bbf4c1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Match, reply and hand off\n\nThe flood check runs before scoring so a spammer costs nothing. An answer needs both `CONFIDENCE_MIN` and a `MARGIN` over the runner-up; a near tie goes to a person rather than a coin flip.",
+        "height": 1040,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "df7bc0df-5717-4c4e-9a00-df7bc0df1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "229ff112-7065-4f72-a2ea-42ea9701229f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ANSWER TELEGRAM FAQ MESSAGES FROM A GOOGLE SHEETS KNOWLEDGE TABLE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE messages. FAQ_SHEET_ID blank -> SAMPLE FAQ rows.\n// DRY_RUN true -> the bot only replies to TEST_CHAT_ID; nobody else gets a message. ADMIN_CHAT_ID blank -> no handoff alerts.\n\n// Google Sheets id with an FAQ tab; blank uses sample rows\nconst FAQ_SHEET_ID = '';\n// best match must reach this score (0 to 1) to be sent\nconst CONFIDENCE_MIN = 0.45;\n// best match must beat the second by this much\nconst MARGIN = 0.1;\n// messages per chat allowed inside the window\nconst RATE_LIMIT = 3;\n// length of the rate-limit window\nconst RATE_WINDOW_SECONDS = 60;\n// reply to /start and /help\nconst WELCOME_TEXT = 'Hi! Ask me about pricing, refunds, orders, trials or passwords. Type /human to reach a person.';\n// reply when no answer is confident\nconst HANDOFF_TEXT = 'I am not sure about that one, so I have passed it to the team. Someone will reply here during business hours.';\n// sent once when a chat hits the limit\nconst SLOW_DOWN_TEXT = 'You are sending messages quickly. I will catch up in a minute.';\n// your own chat id; while DRY_RUN is true the bot answers only this chat\nconst TEST_CHAT_ID = '';\n// chat that receives handoff alerts; blank skips them\nconst ADMIN_CHAT_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    faq_sheet_id: FAQ_SHEET_ID,\n    confidence_min: CONFIDENCE_MIN,\n    margin: MARGIN,\n    rate_limit: RATE_LIMIT,\n    rate_window_seconds: RATE_WINDOW_SECONDS,\n    welcome_text: WELCOME_TEXT,\n    handoff_text: HANDOFF_TEXT,\n    slow_down_text: SLOW_DOWN_TEXT,\n    test_chat_id: TEST_CHAT_ID,\n    admin_chat_id: ADMIN_CHAT_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: FAQ_SHEET_ID.trim() !== '',\n    admin_enabled: ADMIN_CHAT_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "22c22c16-dbd0-4136-a726-3726492522c2",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "946b80cf-dcae-461f-ae12-ae122e56946b",
+      "name": "Telegram update received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "f5e9f3ce-203f-4f6e-ae51-0e51d38df5e9",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-faq-bot",
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "e965b037-3d69-4507-a411-b4113dcee965",
+      "name": "Read the Telegram update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Webhook body is a Telegram Update. Only text messages are answered; edits,\n// stickers and joins are ignored. A manual run returns a marker for the sample path.\nlet bodies = [];\ntry { if ($('Telegram update received').isExecuted) bodies = $('Telegram update received').all().map(i => i.json.body || {}); } catch (e) { bodies = []; }\nif (!bodies.length) return [{ json: { source: 'none' } }];\nreturn bodies.filter(b => b.message && typeof b.message.text === 'string').map(b => ({ json: { source: 'webhook',\n  chat_id: String(b.message.chat.id), user: b.message.from?.first_name || '', username: b.message.from?.username || '',\n  text: b.message.text, at: new Date((b.message.date || Date.now() / 1000) * 1000).toISOString() } }));\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "db0c19ad-75ab-459d-a9f1-a9f12c08db0c",
+      "name": "Update received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "08bc2860-e5cd-4a60-aa49-aa49e1a308bc",
+              "leftValue": "={{ $json.source === 'webhook' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "aa3caa2a-db65-410a-a9c9-69c97009aa3c",
+      "name": "Load sample messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. Chat 5550105 sends four messages inside a minute.\nconst at = s => new Date(Date.now() - s * 1000).toISOString();\nreturn [\n  ['5550101', 'Ana', 'How much does the pro plan cost per month?', 300],\n  ['5550102', 'Ben', 'I want my money back, can I get a refund for order 4471?', 280],\n  ['5550103', 'Cy', '/start', 260],\n  ['5550104', 'Dee', 'Do you deliver to Antarctica by drone?', 240],\n  ['5550105', 'Eli', 'I am locked out, password reset does not work', 50],\n  ['5550105', 'Eli', 'hello??', 40],\n  ['5550105', 'Eli', 'anyone there', 30],\n  ['5550105', 'Eli', 'please answer', 20],\n].map(([chat_id, user, text, s]) => ({ json: { source: 'sample', chat_id, user, username: '', text, at: at(s) } }));\n"
+      },
+      "position": [
+        944,
+        384
+      ]
+    },
+    {
+      "id": "91e8c71c-f711-465c-ad01-bd018d6f91e8",
+      "name": "Combine message sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        208
+      ]
+    },
+    {
+      "id": "c2ff3eeb-05b4-437b-a210-d2101012c2ff",
+      "name": "Collect the messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item holding every message, so the FAQ sheet is read once per run.\nreturn [{ json: { messages: $input.all().map(i => i.json).filter(m => m.source !== 'none') } }];\n"
+      },
+      "position": [
+        1392,
+        208
+      ]
+    },
+    {
+      "id": "a37cbd04-1271-43c4-a76e-676ea927a37c",
+      "name": "FAQ sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8269b343-fe34-4c53-aeab-8eab97fa8269",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        208
+      ]
+    },
+    {
+      "id": "3e27c970-2ec8-4670-a02e-d02e67333e27",
+      "name": "Read the FAQ rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.faq_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "FAQ"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "4abf007f-7294-4ecf-a332-3332ad464abf",
+      "name": "Load sample FAQ rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until FAQ_SHEET_ID is set. The last row is switched off.\nreturn [\n  { question: 'How much does it cost?', keywords: 'price, pricing, cost, how much, plan', answer: 'Starter is $12/month, Pro is $29/month, billed monthly. Annual billing saves 2 months.', enabled: 'yes' },\n  { question: 'How do I get a refund?', keywords: 'refund, money back, return, charged', answer: 'Refunds are open for 14 days after purchase. Reply with your order number and we will process it within 2 working days.', enabled: 'yes' },\n  { question: 'Where is my order?', keywords: 'where is my order, tracking, shipped, delivery, arrive', answer: 'Every order gets a tracking link by email on the day it ships. Orders ship within 2 working days.', enabled: 'yes' },\n  { question: 'Do you have a free trial?', keywords: 'trial, free, try it', answer: 'Yes, 14 days free with no card needed: sign up on our website.', enabled: 'yes' },\n  { question: 'How do I reset my password?', keywords: 'password, reset, log in, login, locked out', answer: 'Use Forgot password on the login page. The link expires after 30 minutes, so use it straight away.', enabled: 'yes' },\n  { question: 'What are your opening hours?', keywords: 'hours, open, weekend', answer: 'Mon to Fri, 9:00 to 17:00.', enabled: 'no' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1856,
+        384
+      ]
+    },
+    {
+      "id": "3975e963-b41b-4873-a9d4-69d408da3975",
+      "name": "Combine FAQ sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "af1cd101-36ec-4ab1-a102-41027fccaf1c",
+      "name": "Match each message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Rate limit first (static memory + this batch), then commands, then FAQ scoring:\n// 0.6 x keyword phrases found (2 = full) + 0.4 x share of message words in the question.\nconst cfg = $('config').first().json;\nconst { messages } = $('Collect the messages').first().json;\nconst STOP = new Set('a an and are can do does for from get has have how i if in is it me my of on or our the this to we what when where which who why will with you your please any anyone there hello hi'.split(' '));\nconst words = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\\s+/).filter(w => w.length > 2 && !STOP.has(w)).map(w => w.length > 4 && w.endsWith('s') ? w.slice(0, -1) : w);\nconst faq = $input.all().map(i => i.json).filter(r => r.question && r.answer && !/^(no|false|0)$/i.test(String(r.enabled ?? 'yes').trim()))\n  .map(r => ({ ...r, phrases: String(r.keywords || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean), qwords: new Set(words(r.question)) }));\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.recent || {};\nconst now = Date.now(), win = cfg.rate_window_seconds * 1000;\nconst out = [];\nfor (const m of [...messages].sort((a, b) => a.at.localeCompare(b.at))) {\n  const list = (seen[m.chat_id] || []).filter(t => now - t < win);\n  list.push(new Date(m.at).getTime()); seen[m.chat_id] = list;\n  if (list.length > cfg.rate_limit + 1) { out.push({ ...m, kind: 'silent', reason: 'rate limited' }); continue; }\n  if (list.length === cfg.rate_limit + 1) { out.push({ ...m, kind: 'slow_down', reply: cfg.slow_down_text }); continue; }\n  const cmd = m.text.trim().split(/\\s+/)[0].toLowerCase();\n  if (cmd === '/start' || cmd === '/help') { out.push({ ...m, kind: 'welcome', reply: cfg.welcome_text }); continue; }\n  if (cmd === '/human') { out.push({ ...m, kind: 'handoff', reply: cfg.handoff_text, reason: 'asked for a person' }); continue; }\n  const text = ' ' + m.text.toLowerCase() + ' ';\n  const q = words(m.text);\n  if (!q.length) { out.push({ ...m, kind: 'welcome', reply: cfg.welcome_text, reason: 'no question words' }); continue; }\n  const ranked = faq.map(r => {\n    const k = r.phrases.filter(p => text.includes(p)).length;\n    const overlap = q.length ? q.filter(w => r.qwords.has(w)).length / q.length : 0;\n    return { r, score: Math.round((0.6 * Math.min(1, k / 2) + 0.4 * overlap) * 100) / 100 };\n  }).sort((a, b) => b.score - a.score);\n  const best = ranked[0], second = ranked[1] || { score: 0 };\n  if (best && best.score >= cfg.confidence_min && best.score - second.score >= cfg.margin) {\n    out.push({ ...m, kind: 'answer', faq: best.r.question, score: best.score, reply: best.r.answer + '\\n\\nNot what you asked? Type /human.' });\n  } else {\n    out.push({ ...m, kind: 'handoff', reply: cfg.handoff_text, score: best ? best.score : 0,\n      reason: best ? 'best match \"' + best.r.question + '\" at ' + best.score : 'no FAQ rows' });\n  }\n}\nfor (const [chat, list] of Object.entries(seen)) if (!list.some(t => now - t < win)) delete seen[chat];\nmemory.recent = seen;\nreturn [{ json: { results: out, handoffs: out.filter(o => o.kind === 'handoff') } }];\n"
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "2c29d478-0420-4ef8-ac8d-fc8d93eb2c29",
+      "name": "Write each reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Telegram message per result that has something to say.\nreturn $input.first().json.results.filter(r => r.reply).map(r => ({ json: { chat_id: r.chat_id, kind: r.kind, text: r.reply } }));\n"
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "0af37357-1d87-4e27-a9f2-c9f2fbae0af3",
+      "name": "Reply switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b2cac7e-ba7c-411e-a791-47910f7d1b2c",
+              "leftValue": "={{ $('config').first().json.live || ($json.chat_id === $('config').first().json.test_chat_id && $('config').first().json.test_chat_id !== '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "f0a893fe-a213-409e-a0a7-d0a756fdf0a8",
+      "name": "STOP: preview - no replies sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        384
+      ]
+    },
+    {
+      "id": "7a09a259-bd84-4089-a440-c44030d47a09",
+      "name": "Send the reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2976,
+        208
+      ]
+    },
+    {
+      "id": "41393728-ad39-4aa8-a180-8180809b4139",
+      "name": "Write the handoff alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One alert for the team with every question the bot could not answer.\nconst d = $input.first().json;\nconst text = ['Bot handoff: ' + d.handoffs.length + ' question' + (d.handoffs.length === 1 ? '' : 's'),\n  ...d.handoffs.map(h => '- ' + (h.username ? '@' + h.username : h.user) + ' (chat ' + h.chat_id + '): \"' + h.text + '\" [' + h.reason + ']')].join('\\n');\nreturn [{ json: { text, count: d.handoffs.length, chats: d.handoffs.map(h => h.chat_id) } }];\n"
+      },
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "4b144736-1f47-4256-ac41-9c411f054b14",
+      "name": "Any handoffs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e78a97df-db84-482f-af99-ef99cde6e78a",
+              "leftValue": "={{ $json.count > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "9f5e7920-9d71-4f20-a627-d627cce39f5e",
+      "name": "STOP: no handoffs",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        544
+      ]
+    },
+    {
+      "id": "620996fc-4922-403c-ac26-0c262d8f6209",
+      "name": "Admin chat set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0d08b871-807b-4f21-a93b-c93b4ffc0d08",
+              "leftValue": "={{ $('config').first().json.admin_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        720
+      ]
+    },
+    {
+      "id": "196c9f14-7096-40d4-a5d8-45d813b7196c",
+      "name": "STOP: no admin chat",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        896
+      ]
+    },
+    {
+      "id": "f73ca845-594b-44b5-a597-959783b0f73c",
+      "name": "Alert switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c60a158-b4fa-45d8-a205-c2052a0b8c60",
+              "leftValue": "={{ $('config').first().json.live || $json.chats.every(c => c === $('config').first().json.test_chat_id) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        720
+      ]
+    },
+    {
+      "id": "890d3df8-64ba-4078-a88c-988ce96b890d",
+      "name": "STOP: preview - no alert sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3424,
+        896
+      ]
+    },
+    {
+      "id": "b3c1157c-b14b-46bc-a7be-57be240fb3c1",
+      "name": "Alert the admin chat",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $('config').first().json.admin_chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3424,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram update received": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the Telegram update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Telegram update": {
+      "main": [
+        [
+          {
+            "node": "Update received?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update received?": {
+      "main": [
+        [
+          {
+            "node": "Combine message sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample messages": {
+      "main": [
+        [
+          {
+            "node": "Combine message sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine message sources": {
+      "main": [
+        [
+          {
+            "node": "Collect the messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect the messages": {
+      "main": [
+        [
+          {
+            "node": "FAQ sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAQ sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the FAQ rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample FAQ rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the FAQ rows": {
+      "main": [
+        [
+          {
+            "node": "Combine FAQ sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample FAQ rows": {
+      "main": [
+        [
+          {
+            "node": "Combine FAQ sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine FAQ sources": {
+      "main": [
+        [
+          {
+            "node": "Match each message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match each message": {
+      "main": [
+        [
+          {
+            "node": "Write each reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the handoff alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each reply": {
+      "main": [
+        [
+          {
+            "node": "Reply switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - no replies sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the handoff alert": {
+      "main": [
+        [
+          {
+            "node": "Any handoffs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any handoffs?": {
+      "main": [
+        [
+          {
+            "node": "Admin chat set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no handoffs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Admin chat set?": {
+      "main": [
+        [
+          {
+            "node": "Alert switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no admin chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert switched on?": {
+      "main": [
+        [
+          {
+            "node": "Alert the admin chat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - no alert sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

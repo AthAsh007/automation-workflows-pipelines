@@ -1,24 +1,25 @@
 # Route inbound leads from forms, email and calls into GoHighLevel
 
 **Who's it for**
-
-Agencies and small teams whose leads arrive three different ways — a website form, a forwarded email, a phone note somebody typed up — and who want each one read, routed and filed in GoHighLevel instead of sitting in an inbox.
+Agencies and small sales teams whose leads arrive three ways: a website form, a forwarded email and a phone note someone typed up. Each lead is read, routed and filed in GoHighLevel instead of waiting in an inbox.
 
 **How it works**
-
-A lead posts to the webhook, or the manual trigger loads three demo leads, one per source. `read the lead` works out which source it came from and digs the same facts out of every shape: name, email, phone, company, message, and what the person wants. A bot submission, or a lead with no way to reach anyone, is rejected with the reason attached rather than silently dropped. `route the lead` walks a first-match-wins rule table to set the owner, the pipeline stage and the tags — the last rule matches everything, so a lead always lands somewhere. `build the GoHighLevel payload` assembles the contact upsert plus the opportunity that follows it, and every path ends on a STOP node that says what happened.
+1. A lead posts to the webhook, or `Run with demo leads` loads three invented ones, one per source.
+2. `Read the lead from any source` works out where it came from and pulls the same facts from every shape: name, email, phone, company, message and intent.
+3. Bot submissions and leads with no email or phone stop at `STOP: not a usable lead` with the reason attached.
+4. `Route by the rule table` walks `ROUTING_RULES` top to bottom. The first match sets the owner, the pipeline stage and the tags.
+5. `Build the GoHighLevel request` assembles the contact upsert as one object, which is written only when the credential is in place and `DRY_RUN` is false.
 
 **How to set up**
-
-1. Open `config` and fill in `GHL_LOCATION_ID`, `GHL_PIPELINE_ID`, the stage ids, the owner user ids and the custom field ids.
-2. Paste a Private Integration token into `GHL_API_KEY`.
-3. Point your form, email forwarder or call log at the production webhook URL.
-4. It ships with `DRY_RUN = true`, so the first run shows the payload instead of writing it. Read that preview, then set `DRY_RUN = false`.
+1. Run it once as imported. The demo leads end at `STOP: preview - request shown, nothing written` with the exact request body.
+2. In `config`, fill in `GHL_LOCATION_ID`, `GHL_PIPELINE_ID`, the stage ids, the owner user ids and any custom field ids.
+3. Create a Header Auth credential (Name `Authorization`, Value `Bearer <Private Integration token>`), select it on `Upsert the contact in GoHighLevel`, and set `GHL_CREDENTIAL_ADDED = true`.
+4. Point your form, email forwarder or call log at the webhook URL, read the previews, then set `DRY_RUN = false`.
 
 **Requirements**
-
-A GoHighLevel sub-account with a pipeline, and a Private Integration token scoped `contacts.write` and `opportunities.write`. The demo run needs no credential at all. A blank id is skipped rather than fatal, so a half-mapped account still writes a clean contact.
+- A GoHighLevel sub-account with a pipeline
+- A Private Integration token with `contacts.write` and `opportunities.write`
 
 **How to customize**
-
-`ROUTING_RULES` in `config` decides who gets what: match on the intake source, on what the lead wants, or on both. `CUSTOM_FIELDS`, `BASE_TAGS`, `STAGES` and `OWNERS` map it onto your own account. The keyword lists in `read the lead` decide how intent is detected — swap them for a classifier if you want more than keywords.
+- Edit `ROUTING_RULES` in `config` to change who gets which lead.
+- The intent keyword lists live in `Read the lead from any source`.

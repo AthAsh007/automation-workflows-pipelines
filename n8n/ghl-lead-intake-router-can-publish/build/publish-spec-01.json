@@ -1,0 +1,31 @@
+{
+  "title": "Route inbound leads from forms, email and calls into GoHighLevel",
+  "rename": {
+    "A lead arrives": "When a lead is posted",
+    "Run the demo lead": "Run with demo leads",
+    "load a demo lead": "Load three demo leads",
+    "read the lead": "Read the lead from any source",
+    "a usable lead?": "Is it a usable lead?",
+    "route the lead": "Route by the rule table",
+    "build the GoHighLevel payload": "Build the GoHighLevel request",
+    "GoHighLevel connected?": "Ready to write to GoHighLevel?",
+    "STOP: GoHighLevel not configured - payload shown": "STOP: preview - request shown, nothing written",
+    "[cred] GoHighLevel - create the contact": "Upsert the contact in GoHighLevel"
+  },
+  "remove": ["End"],
+  "groups": [
+    { "title": "Take the lead in",
+      "why": "`When a lead is posted` is the production entry: point a form, an email forwarder or a call log at it. `Run with demo leads` sends three invented leads down the same path, so the run works before any account exists.",
+      "nodes": ["When a lead is posted", "Run with demo leads", "Load three demo leads", "config"] },
+    { "title": "Read and check the lead",
+      "why": "`Read the lead from any source` turns three payload shapes into one. A filled honeypot, or a lead with no email and no phone, stops at `STOP: not a usable lead` with the reason on it, so nothing is dropped silently.",
+      "nodes": ["Read the lead from any source", "Is it a usable lead?", "STOP: not a usable lead"] },
+    { "title": "Route and build the request",
+      "why": "`Route by the rule table` stamps the owner, stage and tags from the first rule that matches, and the last rule matches everything. `Build the GoHighLevel request` assembles the body and sends nothing itself.",
+      "nodes": ["Route by the rule table", "Build the GoHighLevel request"] },
+    { "title": "Write it and say what happened",
+      "why": "`Ready to write to GoHighLevel?` stays false until the credential is added and `DRY_RUN` is false. A refused write lands on `STOP: GoHighLevel rejected the write` with the response attached, never as a run that half-succeeded.",
+      "nodes": ["Ready to write to GoHighLevel?", "STOP: preview - request shown, nothing written", "Upsert the contact in GoHighLevel", "STOP: filed in GoHighLevel", "STOP: GoHighLevel rejected the write"] }
+  ],
+  "overview": "## Route inbound leads from forms, email and calls into GoHighLevel\n\n**Who's it for**\nAgencies and small sales teams whose leads arrive three ways: a website form, a forwarded email and a phone note someone typed up. Each lead is read, routed and filed in GoHighLevel instead of waiting in an inbox.\n\n**How it works**\n1. A lead posts to the webhook, or `Run with demo leads` loads three invented ones, one per source.\n2. `Read the lead from any source` works out where it came from and pulls the same facts from every shape: name, email, phone, company, message and intent.\n3. Bot submissions and leads with no email or phone stop at `STOP: not a usable lead` with the reason attached.\n4. `Route by the rule table` walks `ROUTING_RULES` top to bottom. The first match sets the owner, the pipeline stage and the tags.\n5. `Build the GoHighLevel request` assembles the contact upsert as one object, which is written only when the credential is in place and `DRY_RUN` is false.\n\n**How to set up**\n1. Run it once as imported. The demo leads end at `STOP: preview - request shown, nothing written` with the exact request body.\n2. In `config`, fill in `GHL_LOCATION_ID`, `GHL_PIPELINE_ID`, the stage ids, the owner user ids and any custom field ids.\n3. Create a Header Auth credential (Name `Authorization`, Value `Bearer <Private Integration token>`), select it on `Upsert the contact in GoHighLevel`, and set `GHL_CREDENTIAL_ADDED = true`.\n4. Point your form, email forwarder or call log at the webhook URL, read the previews, then set `DRY_RUN = false`.\n\n**Requirements**\n- A GoHighLevel sub-account with a pipeline\n- A Private Integration token with `contacts.write` and `opportunities.write`\n\n**How to customize**\n- Edit `ROUTING_RULES` in `config` to change who gets which lead.\n- The intent keyword lists live in `Read the lead from any source`."
+}

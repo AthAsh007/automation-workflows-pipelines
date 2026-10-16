@@ -1,0 +1,598 @@
+{
+  "name": "Detect anomalies in daily Google Sheets metrics and alert Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Detect anomalies in daily Google Sheets metrics and alert Slack\n\n**Who's it for**\nFounders, ops and growth people who log daily numbers (signups, orders, revenue, errors) in a Google Sheet and only notice a broken checkout or a tracking gap days later. One Slack message lands only when something is off.\n\n**How it works**\n1. Every day at 07:30 it reads the Metrics tab (Date, Metric, Value), or 40 days of sample data until a sheet is set.\n2. For each metric, the latest value is compared with the previous 28 days: mean, standard deviation and z-score. With `WEEKDAY_SEASONALITY` on, only the same weekday over the last 8 weeks is used, so a quiet Sunday is not an anomaly.\n3. A value is flagged only when |z| is at least `Z_THRESHOLD` and it is also `MIN_PCT_CHANGE` percent away from the mean. Small, noisy metrics stop paging you over 3 extra rows.\n4. Metrics with fewer than `MIN_SAMPLES` points, or whose newest row is older than `STALE_DAYS`, are reported as such instead of being scored.\n5. One Slack message lists every anomaly with its direction and size. Each metric is alerted once per day.\n\n**How to set up**\n1. Run it once as imported. It scores sample metrics and stops at `STOP: preview - nothing sent`.\n2. Point `METRICS_SHEET_ID` at a sheet with a Metrics tab in Date, Metric, Value format and connect Google Sheets.\n3. Connect Slack and set `SLACK_CHANNEL_ID`. Set `DIRECTIONS` for metrics where only a drop or only a rise matters.\n4. Set `TEST_EMAIL` to any address to post marked [TEST] alerts, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet with one row per metric per day\n- A Slack workspace\n\n**How to customize**\n- `Z_THRESHOLD` and `MIN_PCT_CHANGE` set how unusual a value must be.\n- Turn on `WEEKDAY_SEASONALITY` for metrics with a weekly rhythm.\n- `DIRECTIONS` limits a metric to drops (revenue) or rises (errors).",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "338e8b67-5717-4c4e-9a00-338e8b6713e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every day at 07:30, after overnight imports have filled yesterday. The window, thresholds, seasonality and per-metric directions all live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "316fe8ba-5717-4c4e-9a00-316fe8ba1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the metrics\n\nA long Date, Metric, Value tab takes a new metric without any change here. `Load sample metrics` uses seeded noise, so the same three outcomes appear in every preview.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "326fea4d-5717-4c4e-9a00-326fea4d1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score each metric\n\nTwo rules must agree before anything is flagged: a z-score and a percent change. Thin or stale series are reported as not scored instead of producing a confident number from 3 points.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "2f6fe594-5717-4c4e-9a00-2f6fe5941002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Alert once\n\nA quiet day ends at `STOP: no anomalies` and posts nothing. Only a live post stores the metric and date in static data, so a test post never silences the real alert.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "306fe727-5717-4c4e-9a00-306fe7271003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "bd48202c-0787-4a6c-a58a-758a84bfbd48",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// DETECT ANOMALIES IN DAILY GOOGLE SHEETS METRICS AND ALERT SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// METRICS_SHEET_ID blank -> SAMPLE metrics so the run works before any credential exists.\n// SLACK_CHANNEL_ID blank -> anomalies are computed and shown, nothing is posted.\n\n// Google Sheets id with a Metrics tab (Date, Metric, Value); blank uses sample data\nconst METRICS_SHEET_ID = '';\n// days of history before the latest value\nconst WINDOW_DAYS = 28;\n// true compares with the same weekday over SEASONAL_WEEKS weeks\nconst WEEKDAY_SEASONALITY = false;\n// weeks of same-weekday history when seasonality is on\nconst SEASONAL_WEEKS = 8;\n// fewer points than this (5 with seasonality) and the metric is not scored\nconst MIN_SAMPLES = 14;\n// flag when |z| is at least this\nconst Z_THRESHOLD = 3;\n// and the value is at least this percent away from the mean\nconst MIN_PCT_CHANGE = 20;\n// a newest row older than this many days is reported as stale\nconst STALE_DAYS = 2;\n// metric -> 'down', 'up' or 'both' (default both)\nconst DIRECTIONS = {\n  revenue: \"down\",\n  orders: \"down\",\n  errors: \"up\"\n};\n// channel for anomaly alerts\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    metrics_sheet_id: METRICS_SHEET_ID,\n    window_days: WINDOW_DAYS,\n    weekday_seasonality: WEEKDAY_SEASONALITY,\n    seasonal_weeks: SEASONAL_WEEKS,\n    min_samples: MIN_SAMPLES,\n    z_threshold: Z_THRESHOLD,\n    min_pct_change: MIN_PCT_CHANGE,\n    stale_days: STALE_DAYS,\n    directions: DIRECTIONS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: METRICS_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "e8b46788-57e2-4d08-a887-38876e3be8b4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "ca613c6e-c26c-460e-a10e-710ee2edca61",
+      "name": "Every day at 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "ccbdac1d-15b8-450d-ab2c-5b2ce038ccbd",
+      "name": "Metrics sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "53fd62c2-c98c-4a22-af91-3f91a1b153fd",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "2c45040f-5bdb-455f-aba4-9ba418162c45",
+      "name": "Read the Metrics tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.metrics_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Metrics"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "a8acd8d9-d69f-4f09-a452-94527f54a8ac",
+      "name": "Load sample metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until METRICS_SHEET_ID is set. 40 days of seeded noise (same every run) ending\n// yesterday: signups crash, revenue spikes (ignored: only drops count), orders stay\n// normal, errors is too new and churned is stale.\nlet seed = 42;\nconst rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5;\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst rows = [];\nfor (let n = 40; n >= 1; n--) {\n  const last = n === 1;\n  rows.push({ Date: day(n), Metric: 'signups', Value: last ? 41 : Math.round(120 + rnd() * 20) });\n  rows.push({ Date: day(n), Metric: 'orders', Value: last ? 64 : Math.round(60 + rnd() * 12) });\n  rows.push({ Date: day(n), Metric: 'revenue', Value: last ? 9800 : Math.round(5200 + rnd() * 900) });\n  if (n <= 9) rows.push({ Date: day(n), Metric: 'errors', Value: last ? 90 : Math.round(12 + rnd() * 6) });\n}\nrows.push({ Date: day(6), Metric: 'churned', Value: 3 });\nreturn rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "2832179f-acf5-4bef-acc5-9cc5c0262832",
+      "name": "Combine metric sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "ce871540-b530-4140-a5bb-c5bbc7c3ce87",
+      "name": "Score the latest value per metric",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Per metric: newest row vs history (WINDOW_DAYS, or same weekday with seasonality).\n// Anomaly = |z| >= Z_THRESHOLD AND |pct| >= MIN_PCT_CHANGE AND the direction counts.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global').anomalies_sent || {};\nconst today = Date.parse(new Date().toISOString().slice(0, 10));\nconst series = {};\nfor (const { json: r } of $input.all()) {\n  const d = String(r.Date || '').slice(0, 10), v = Number(String(r.Value ?? '').replace(/[^\\d.-]/g, ''));\n  if (!r.Metric || !Date.parse(d) || r.Value === '' || Number.isNaN(v)) continue;\n  (series[String(r.Metric).trim()] ||= new Map()).set(d, v);\n}\nconst anomalies = [], skipped = [], normal = [];\nfor (const [metric, map] of Object.entries(series)) {\n  const pts = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));\n  const [lastDate, value] = pts[pts.length - 1];\n  const lastMs = Date.parse(lastDate);\n  if ((today - lastMs) / 864e5 > cfg.stale_days) { skipped.push({ metric, reason: 'stale: newest row is ' + lastDate }); continue; }\n  const seasonal = cfg.weekday_seasonality;\n  const span = seasonal ? cfg.seasonal_weeks * 7 : cfg.window_days;\n  const hist = pts.slice(0, -1).filter(([d]) => { const ago = (lastMs - Date.parse(d)) / 864e5; return ago >= 1 && ago <= span && (!seasonal || ago % 7 === 0); }).map(p => p[1]);\n  const need = seasonal ? 5 : cfg.min_samples;\n  if (hist.length < need) { skipped.push({ metric, reason: 'only ' + hist.length + ' points, need ' + need }); continue; }\n  const mean = hist.reduce((a, b) => a + b, 0) / hist.length;\n  const sd = Math.sqrt(hist.reduce((a, b) => a + (b - mean) ** 2, 0) / (hist.length - 1));\n  const z = sd > 0 ? (value - mean) / sd : (value === mean ? 0 : Math.sign(value - mean) * Infinity);\n  const pct = mean !== 0 ? (value - mean) / Math.abs(mean) * 100 : (value === 0 ? 0 : 100);\n  const dir = cfg.directions[metric] || 'both';\n  const wrongWay = dir === 'both' || (dir === 'down' && z < 0) || (dir === 'up' && z > 0);\n  const row = { metric, date: lastDate, value, mean: Math.round(mean * 10) / 10, sd: Math.round(sd * 10) / 10,\n    z: Number.isFinite(z) ? Math.round(z * 10) / 10 : z, pct: Math.round(pct), samples: hist.length, seasonal };\n  const unusual = Math.abs(z) >= cfg.z_threshold && Math.abs(pct) >= cfg.min_pct_change;\n  if (unusual && !wrongWay) { normal.push({ ...row, note: (z > 0 ? 'rise' : 'drop') + ' ignored, DIRECTIONS says ' + dir }); continue; }\n  if (unusual) {\n    const key = metric + '|' + lastDate;\n    if (memory[key]) { skipped.push({ metric, reason: 'already alerted for ' + lastDate }); continue; }\n    anomalies.push({ ...row, key, severity: Math.abs(z) >= cfg.z_threshold + 1 ? 'high' : 'medium' });\n  } else normal.push(row);\n}\nanomalies.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));\nreturn [{ json: { anomalies, skipped, normal, metrics: Object.keys(series).length } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "d87fd288-461a-4808-a2ea-d2ea993bd87f",
+      "name": "Write the Slack alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message per run, biggest deviation first.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst fmt = n => Number(n).toLocaleString('en-US');\nconst text = [\n  (cfg.mode === 'test' ? '[TEST] ' : '') + '*Metric anomalies* (' + r.anomalies.length + ' of ' + r.metrics + ' metrics)',\n  ...r.anomalies.map(a => '- ' + a.metric + ' on ' + a.date + ': ' + fmt(a.value) + ' vs ' + (a.seasonal ? 'same-weekday' : a.samples + '-day') + ' mean ' + fmt(a.mean) +\n    ' (' + (a.pct > 0 ? '+' : '') + a.pct + '%, z ' + a.z + ')' + (a.severity === 'high' ? ' HIGH' : '')),\n  ...(r.skipped.length ? ['Not scored: ' + r.skipped.map(s => s.metric + ' (' + s.reason + ')').join(', ')] : []),\n].join('\\n');\nreturn [{ json: { text, count: r.anomalies.length } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "3931f010-996e-4b10-ade5-8de591933931",
+      "name": "Anything to alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b43b39d-966f-448d-a302-730247b85b43",
+              "leftValue": "={{ $json.count > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "832e5c4a-1c92-492a-a12f-712fb4e9832e",
+      "name": "STOP: no anomalies",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "6474bcdf-d7e4-4d2f-a728-b728fee66474",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "6f4c6c1b-f6bc-41ab-a645-864555826f4c",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "8d7021e8-4366-4968-a67f-f67f38db8d70",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "1796b611-26e8-4ac1-a048-7048fd5c1796",
+      "name": "Post the anomaly alert to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "b2d7b396-c43f-40b6-abeb-fbeb30a5b2d7",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        208
+      ]
+    },
+    {
+      "id": "532a88ee-ea43-4a8e-a42b-142bdb6d532a",
+      "name": "STOP: test post - not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2784,
+        384
+      ]
+    },
+    {
+      "id": "bfa6990b-ebe3-439b-ad2a-cd2ab5f2bfa6",
+      "name": "Remember alerted metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Metric + date keys, so a re-run the same day stays quiet. Older than 14 days pruned.\nconst memory = $getWorkflowStaticData('global');\nconst sent = memory.anomalies_sent || {};\nfor (const k of Object.keys(sent)) if (sent[k] < Date.now() - 14 * 864e5) delete sent[k];\nfor (const a of $('Score the latest value per metric').first().json.anomalies) sent[a.key] = Date.now();\nmemory.anomalies_sent = sent;\nreturn [{ json: { remembered: Object.keys(sent).length } }];\n"
+      },
+      "position": [
+        2784,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 07:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Metrics sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Metrics tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Metrics tab": {
+      "main": [
+        [
+          {
+            "node": "Combine metric sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample metrics": {
+      "main": [
+        [
+          {
+            "node": "Combine metric sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine metric sources": {
+      "main": [
+        [
+          {
+            "node": "Score the latest value per metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score the latest value per metric": {
+      "main": [
+        [
+          {
+            "node": "Write the Slack alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack alert": {
+      "main": [
+        [
+          {
+            "node": "Anything to alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to alert?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no anomalies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Post the anomaly alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the anomaly alert to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember alerted metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

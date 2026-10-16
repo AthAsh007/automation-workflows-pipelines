@@ -1,0 +1,582 @@
+{
+  "name": "Audit sitemap pages for missing titles and meta descriptions in Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Audit sitemap pages for missing titles and meta descriptions in Google Sheets\n\n**Who's it for**\nMarketers and site owners who want a page-by-page list of SEO basics to fix, without paying for a crawler subscription. The sheet becomes the to-do list, updated every week.\n\n**How it works**\n1. Every Sunday at 22:00 it reads your sitemap and fetches up to 150 pages, or 7 sample pages until live fetching is on.\n2. Each page is checked for a title of 30-60 characters, a meta description of 70-160, exactly one H1, a canonical that points to itself, and no noindex tag.\n3. Titles and descriptions used on more than one page are flagged on every page that shares them.\n4. Missing tags, noindex and failed loads are errors, the rest are warnings. One row per page is upserted on the url column of the Audit tab.\n\n**How to set up**\n1. Run it once as imported. It audits the sample pages and stops at `STOP: dry run - sheet untouched`.\n2. Set `SITEMAP_URLS` and `USE_LIVE_FETCH = true`, then run it and read the rows in `Audit each page`.\n3. Connect Google Sheets, create an Audit tab with a url column, and set `AUDIT_SHEET_ID`.\n4. Set `DRY_RUN = false` to write the rows.\n\n**Requirements**\n- A public XML sitemap\n- A Google Sheet with an Audit tab\n\n**How to customize**\n- `TITLE_LENGTH` and `DESCRIPTION_LENGTH` hold the min and max characters.\n- `MAX_PAGES` caps the pages fetched per run.\n- `ERROR_RULES` decides which issues count as errors rather than warnings.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7f3a2eb3-5717-4c4e-9a00-7f3a2eb313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Sunday at 22:00 or by hand, so Monday starts with a fresh list. Length ranges, the page cap and which issues are errors are constants in `config`.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1695ad46-5717-4c4e-9a00-1695ad461000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Fetch the pages\n\nThe sitemap decides which pages are audited, newest first. A page that fails to load continues as an error row instead of stopping the run. `Load sample pages` returns the same url and HTML pairs.",
+        "height": 560,
+        "width": 1520,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "1795aed9-5717-4c4e-9a00-1795aed91001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Audit the tags\n\n`Audit each page` reads meta tags with attributes in any order, because CMS themes write content before name as often as after. Duplicate titles are counted across the whole run, so both pages get the flag.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2032,
+        0
+      ],
+      "id": "1495aa20-5717-4c4e-9a00-1495aa201002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write the audit sheet\n\nRows are upserted on url, so next week updates the same row and the sheet stays one line per page. Nothing is written while `DRY_RUN` is true.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "1595abb3-5717-4c4e-9a00-1595abb31003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "d30b0af3-7704-4d03-af5f-7f5fceead30b",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// AUDIT SITEMAP PAGES FOR MISSING TITLES AND META DESCRIPTIONS IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FETCH false -> SAMPLE pages.\n// DRY_RUN true -> the audit is computed and shown, the sheet is not written.\n\n// set true to read the sitemap and fetch each page (public GETs)\nconst USE_LIVE_FETCH = false;\n// sitemaps to read (child sitemaps, not an index)\nconst SITEMAP_URLS = [\n  \"https://www.yourcompany.example/sitemap.xml\"\n];\n// pages fetched per run, newest lastmod first\nconst MAX_PAGES = 150;\n// title length range in characters\nconst TITLE_LENGTH = [\n  30,\n  60\n];\n// meta description length range in characters\nconst DESCRIPTION_LENGTH = [\n  70,\n  160\n];\n// issues that make a row an error; everything else warns\nconst ERROR_RULES = [\n  \"missing title\",\n  \"missing meta description\",\n  \"no H1\",\n  \"noindex\",\n  \"page failed to load\"\n];\n// Google Sheets id with an Audit tab; blank means nothing is written\nconst AUDIT_SHEET_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_fetch: USE_LIVE_FETCH,\n    sitemap_urls: SITEMAP_URLS,\n    max_pages: MAX_PAGES,\n    title_length: TITLE_LENGTH,\n    description_length: DESCRIPTION_LENGTH,\n    error_rules: ERROR_RULES,\n    audit_sheet_id: AUDIT_SHEET_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: AUDIT_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "id": "637d757b-3db2-4d0b-a5f0-b5f09b22637d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "id": "1e87f8d3-0ff3-44e3-a426-0426ea0a1e87",
+      "name": "Every Sunday at 22:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 22 * * 0"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        400
+      ]
+    },
+    {
+      "id": "9c0a30a7-39eb-4277-a048-a04885be9c0a",
+      "name": "Use sample pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a0b8d019-9d82-4249-a51f-f51fc514a0b8",
+              "leftValue": "={{ $('config').first().json.use_live_fetch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "id": "5c87f755-d72c-4ec5-aa7b-ba7b1b405c87",
+      "name": "Load sample pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_FETCH is true. Each item is a page URL and its HTML, the\n// same pair the live branch produces, with one problem per page.\nconst base = 'https://www.yourcompany.example';\nreturn [\n  { url: base + '/', html: '<html><head><title>Team expense tracking for small companies | Tallyroom</title><meta content=\"Track shared team expenses, approve them in one click and export to your accounting tool. Free for teams of up to 5.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/pricing', html: '<html><head><title>Pricing</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/pricing\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/features', html: '<html><head><title>Features: approvals, receipts &amp; exports | Tallyroom</title><link rel=\"canonical\" href=\"https://www.yourcompany.example/features\"></head><body><h1>Heading</h1><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/blog/expense-policy-template', html: '<html><head><title>Free expense policy template for small teams (2026 edition)</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/blog/expense-policies\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/thank-you', html: '<html><head><title>Thanks for signing up to the Tallyroom newsletter</title><meta content=\"You are on the list. Expect one email a month with expense tips, templates and product news.\" name=\"description\"><meta name=\"robots\" content=\"noindex, follow\"></head><body><p>Body</p></body></html>' },\n  { url: base + '/about', html: '<html><head><title></title><meta content=\"Who we are, why we started Tallyroom in 2021 and the six people who build and support it every day.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/about\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/old-page', html: '', error: 'Request failed with status code 404' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        224
+      ]
+    },
+    {
+      "id": "e16f9173-d397-4b83-ad89-ad89ed6ae16f",
+      "name": "List sitemaps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per sitemap file.\nreturn $('config').first().json.sitemap_urls.map(url => ({ json: { url } }));\n"
+      },
+      "position": [
+        736,
+        400
+      ]
+    },
+    {
+      "id": "cbe8b387-dcbf-4f57-a1e9-61e975decbe8",
+      "name": "Fetch the sitemap",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/xml,text/xml"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        400
+      ]
+    },
+    {
+      "id": "589ec57e-8331-4a1e-a3bb-93bbb07d589e",
+      "name": "Pick pages to audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// <loc> and <lastmod> from every sitemap, newest first, capped at MAX_PAGES.\nconst cfg = $('config').first().json;\nconst all = [];\nfor (const { json } of $input.all()) {\n  const xml = typeof json.data === 'string' ? json.data : '';\n  for (const m of xml.matchAll(/<url>([\\s\\S]*?)<\\/url>/g)) {\n    const loc = (m[1].match(/<loc>\\s*([^<\\s]+)\\s*<\\/loc>/) || [])[1];\n    if (loc) all.push({ url: loc.replace(/&amp;/g, '&'), lastmod: (m[1].match(/<lastmod>\\s*([^<\\s]+)/) || [])[1] || '' });\n  }\n}\nconst unique = [...new Map(all.map(x => [x.url, x])).values()].sort((a, b) => b.lastmod.localeCompare(a.lastmod));\nreturn unique.slice(0, cfg.max_pages).map(x => ({ json: { url: x.url } }));\n"
+      },
+      "position": [
+        1168,
+        400
+      ]
+    },
+    {
+      "id": "fda0a6fb-14ed-468b-a15d-b15df4a2fda0",
+      "name": "Fetch each page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; seo-audit/1.0)"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1392,
+        400
+      ]
+    },
+    {
+      "id": "02a31618-775b-4e98-a16d-316ded4b02a3",
+      "name": "Pair pages with their HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// HTML arrives as a string in \"data\"; an error item becomes a failed load.\nconst pages = $('Pick pages to audit').all();\nreturn $input.all().map((it, i) => ({ json: { url: pages[i].json.url,\n  html: typeof it.json.data === 'string' ? it.json.data : '', error: it.json.error ? String(it.json.error.message || it.json.error).slice(0, 100) : '' } }));\n"
+      },
+      "position": [
+        1616,
+        400
+      ]
+    },
+    {
+      "id": "a1cf4a5f-76e2-42af-a5ab-a5abdc66a1cf",
+      "name": "Combine page sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1840,
+        224
+      ]
+    },
+    {
+      "id": "8784336c-e2e9-49ac-a397-5397b97f8784",
+      "name": "Audit each page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Reads the head tags with attribute order ignored, then applies the length,\n// H1, canonical and noindex rules. Duplicates are found across the whole run.\nconst cfg = $('config').first().json;\nconst dec = s => String(s || '').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\\s+/g, ' ').trim();\nconst attrs = tag => Object.fromEntries([...tag.matchAll(/([a-z-]+)\\s*=\\s*(\"([^\"]*)\"|'([^']*)')/gi)].map(m => [m[1].toLowerCase(), m[3] ?? m[4]]));\nconst norm = u => String(u || '').replace(/\\/$/, '').toLowerCase();\nconst pages = $input.all().map(({ json: p }) => {\n  if (!p.html) return { url: p.url, failed: p.error || 'empty response' };\n  const head = (p.html.match(/<head[\\s\\S]*?<\\/head>/i) || [p.html])[0];\n  const title = dec((head.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) || [])[1]);\n  const metas = [...head.matchAll(/<meta\\b[^>]*>/gi)].map(m => attrs(m[0]));\n  const desc = dec(metas.find(a => (a.name || '').toLowerCase() === 'description')?.content);\n  const robots = (metas.find(a => (a.name || '').toLowerCase() === 'robots')?.content || '').toLowerCase();\n  const canonical = attrs((head.match(/<link\\b[^>]*rel=[\"']canonical[\"'][^>]*>/i) || [''])[0]).href || '';\n  const h1 = (p.html.match(/<h1[\\s>]/gi) || []).length;\n  return { url: p.url, title, desc, robots, canonical, h1 };\n});\nconst count = key => pages.reduce((m, p) => (p[key] && (m[p[key]] = (m[p[key]] || 0) + 1), m), {});\nconst titles = count('title'), descs = count('desc');\nconst [tMin, tMax] = cfg.title_length, [dMin, dMax] = cfg.description_length;\nconst errorRules = new Set(cfg.error_rules);\nconst stamp = new Date().toISOString().slice(0, 10);\nconst rows = pages.map(p => {\n  const issues = [];\n  if (p.failed) issues.push('page failed to load');\n  else {\n    if (!p.title) issues.push('missing title');\n    else if (p.title.length < tMin) issues.push('title too short (' + p.title.length + ')');\n    else if (p.title.length > tMax) issues.push('title too long (' + p.title.length + ')');\n    if (!p.desc) issues.push('missing meta description');\n    else if (p.desc.length < dMin) issues.push('description too short (' + p.desc.length + ')');\n    else if (p.desc.length > dMax) issues.push('description too long (' + p.desc.length + ')');\n    if (p.title && titles[p.title] > 1) issues.push('duplicate title');\n    if (p.desc && descs[p.desc] > 1) issues.push('duplicate description');\n    if (p.h1 === 0) issues.push('no H1'); else if (p.h1 > 1) issues.push(p.h1 + ' H1 tags');\n    if (!p.canonical) issues.push('no canonical');\n    else if (norm(p.canonical) !== norm(p.url)) issues.push('canonical points to ' + p.canonical);\n    if (p.robots.includes('noindex')) issues.push('noindex');\n  }\n  const level = issues.some(i => errorRules.has(i)) ? 'error' : issues.length ? 'warn' : 'pass';\n  return { url: p.url, status: level, title: p.title || '', title_length: (p.title || '').length, description_length: (p.desc || '').length,\n    h1_count: p.h1 ?? '', canonical: p.canonical || '', issues: p.failed ? 'page failed to load: ' + p.failed : issues.join('; '), audited_at: stamp };\n});\nconst summary = rows.reduce((a, r) => (a[r.status]++, a), { pass: 0, warn: 0, error: 0 });\nreturn [{ json: { rows, summary } }];\n"
+      },
+      "position": [
+        2080,
+        224
+      ]
+    },
+    {
+      "id": "91cf55ef-c851-413f-a4ed-64edca3691cf",
+      "name": "One row per page",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "rows",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        2304,
+        224
+      ]
+    },
+    {
+      "id": "a1ca961a-e99a-41fa-a4a2-b4a2a9b9a1ca",
+      "name": "Live and sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79aa084a-f060-452a-ae05-de0528e979aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7aaa09dd-b2b5-46cd-a609-a6099f787aaa",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        224
+      ]
+    },
+    {
+      "id": "e1722f2a-e643-460a-add9-2dd99509e172",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        400
+      ]
+    },
+    {
+      "id": "24b553d2-b41b-4632-a99b-899bd74124b5",
+      "name": "Upsert audit rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.audit_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Audit"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "url"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Sunday at 22:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample pages?": {
+      "main": [
+        [
+          {
+            "node": "Load sample pages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List sitemaps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List sitemaps": {
+      "main": [
+        [
+          {
+            "node": "Fetch the sitemap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch the sitemap": {
+      "main": [
+        [
+          {
+            "node": "Pick pages to audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick pages to audit": {
+      "main": [
+        [
+          {
+            "node": "Fetch each page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch each page": {
+      "main": [
+        [
+          {
+            "node": "Pair pages with their HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample pages": {
+      "main": [
+        [
+          {
+            "node": "Combine page sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pair pages with their HTML": {
+      "main": [
+        [
+          {
+            "node": "Combine page sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine page sources": {
+      "main": [
+        [
+          {
+            "node": "Audit each page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit each page": {
+      "main": [
+        [
+          {
+            "node": "One row per page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One row per page": {
+      "main": [
+        [
+          {
+            "node": "Live and sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Upsert audit rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

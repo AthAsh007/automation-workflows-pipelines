@@ -1,0 +1,821 @@
+{
+  "name": "Turn new YouTube uploads into newsletter blurbs in Google Sheets with OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Turn new YouTube uploads into newsletter blurbs in Google Sheets with OpenAI\n\n**Who's it for**\nCreators and small media teams who send a weekly newsletter and copy their latest YouTube videos into it by hand. The blurbs are ready in a sheet by the time you sit down to write.\n\n**How it works**\n1. Every morning it reads the YouTube feed for each channel in `CHANNEL_IDS` (no API key needed), or a sample feed until it is switched on.\n2. Shorts, videos older than 7 days and videos already used are skipped.\n3. Each video gets a blurb of up to 280 characters from OpenAI, or from the first two sentences of its description with timestamps, links and sponsor lines removed.\n4. One row per video is appended to the Newsletter tab with the week it belongs to (Monday date), so a week's blurbs are one filter away.\n\n**How to set up**\n1. Run it once as imported. It writes blurbs for the sample feed and stops at `STOP: dry run - sheet untouched`.\n2. Put your channel id (starts with UC, found on the channel page) in `CHANNEL_IDS` and set `USE_LIVE_FEED = true`.\n3. Connect Google Sheets and set `NEWSLETTER_SHEET_ID`. Optionally add an OpenAI credential and set `USE_OPENAI = true`.\n4. Read the blurbs in `Collect the week's blurbs`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A YouTube channel\n- A Google Sheet with a Newsletter tab\n- Optional: an OpenAI API key\n\n**How to customize**\n- `BLURB_MAX_CHARS` sets the blurb length; `MAX_AGE_DAYS` how far back a video can be.\n- `DROP_LINE_WORDS` lists words that remove a description line from the template blurb.\n- `SKIP_SHORTS` set to false keeps Shorts in.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "ad18cab3-5717-4c4e-9a00-ad18cab313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every morning at 06:30 or by hand. Channels, age limit, blurb length and the sponsor-line words are constants in `config`.",
+        "height": 656,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7493e946-5717-4c4e-9a00-7493e9461000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the channel feeds\n\nYouTube serves a public Atom feed per channel, so no API key or quota is involved. `Load sample feed` returns the same XML, including the media:description field the blurbs are built from.",
+        "height": 656,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "7593ead9-5717-4c4e-9a00-7593ead91001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick videos for the newsletter\n\n`Pick new videos` parses the XML itself because generic feed readers drop the description. Shorts, old uploads and used ids are removed before any model call, and an empty week ends at `STOP: no new videos`.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "7293e620-5717-4c4e-9a00-7293e6201002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write the blurbs\n\nThe template path is the default and removes timestamps, links and sponsor reads line by line. OpenAI is optional, and both paths are cut to `BLURB_MAX_CHARS` in code afterwards.",
+        "height": 656,
+        "width": 1232,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "7393e7b3-5717-4c4e-9a00-7393e7b31003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Add to the newsletter sheet\n\nRows are appended only with `DRY_RUN` off and a sheet id set. Videos are remembered after the append, so a failed write is picked up again the next morning.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3344,
+        0
+      ],
+      "id": "7893ef92-5717-4c4e-9a00-7893ef921004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "8ed96b41-b0fb-40f1-a592-0592f38c8ed9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TURN NEW YOUTUBE UPLOADS INTO NEWSLETTER BLURBS IN GOOGLE SHEETS WITH OPENAI - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FEED false -> SAMPLE feed. USE_OPENAI false -> blurbs come from the video description.\n// DRY_RUN true -> blurbs are shown, nothing is appended, no video is marked as used.\n\n// set true to read the public YouTube feeds for CHANNEL_IDS\nconst USE_LIVE_FEED = false;\n// YouTube channel ids (start with UC)\nconst CHANNEL_IDS = [\n  \"UCxxxxxxxxxxxxxxxxxxxxxx\"\n];\n// set true after adding an OpenAI credential to the model node\nconst USE_OPENAI = false;\n// Google Sheets id with a Newsletter tab; blank means nothing is written\nconst NEWSLETTER_SHEET_ID = '';\n// only videos published in this many days are used\nconst MAX_AGE_DAYS = 7;\n// drop videos tagged #shorts\nconst SKIP_SHORTS = true;\n// longest blurb, cut at a word boundary\nconst BLURB_MAX_CHARS = 280;\n// description lines containing these are left out of template blurbs\nconst DROP_LINE_WORDS = [\n  \"sponsor\",\n  \"use code\",\n  \"affiliate\",\n  \"subscribe\",\n  \"patreon\",\n  \"merch\",\n  \"http\"\n];\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_feed: USE_LIVE_FEED,\n    channel_ids: CHANNEL_IDS,\n    use_openai: USE_OPENAI,\n    newsletter_sheet_id: NEWSLETTER_SHEET_ID,\n    max_age_days: MAX_AGE_DAYS,\n    skip_shorts: SKIP_SHORTS,\n    blurb_max_chars: BLURB_MAX_CHARS,\n    drop_line_words: DROP_LINE_WORDS,\n    dry_run: DRY_RUN,\n    sheet_enabled: NEWSLETTER_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "62f455e1-38dd-4991-a16b-916b14ec62f4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "5663ee62-a9d2-43c2-a22a-d22a28115663",
+      "name": "Every day at 06:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 6 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "849503ec-9996-422c-a085-80850dff8495",
+      "name": "Use the sample feed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "91d97652-a7e5-40b2-aa77-ba7725c191d9",
+              "leftValue": "={{ $('config').first().json.use_live_feed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "5423dd99-2a68-47c9-a928-e92896945423",
+      "name": "Load sample feed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_FEED is true. The same Atom XML YouTube serves at\n// /feeds/videos.xml, with one Short and one old upload for the filters.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nconst entry = (id, title, days, desc, views) => '<entry><id>yt:video:' + id + '</id><yt:videoId>' + id + '</yt:videoId><yt:channelId>UCsample000000000000000</yt:channelId>' +\n  '<title>' + title + '</title><link rel=\"alternate\" href=\"https://www.youtube.com/watch?v=' + id + '\"/><author><name>Fieldnote Studio</name></author>' +\n  '<published>' + ago(days) + '</published><media:group><media:title>' + title + '</media:title><media:thumbnail url=\"https://i.ytimg.example/vi/' + id + '/hqdefault.jpg\" width=\"480\" height=\"360\"/>' +\n  '<media:description>' + desc + '</media:description><media:community><media:statistics views=\"' + views + '\"/></media:community></media:group></entry>';\nconst xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?><feed xmlns:yt=\"http://www.youtube.com/xml/schemas/2015\" xmlns:media=\"http://search.yahoo.com/mrss/\" xmlns=\"http://www.w3.org/2005/Atom\"><title>Fieldnote Studio</title>' +\n  entry('vSample0001', 'We rebuilt our onboarding in 30 days &amp; here is what changed', 1,\n    'Our trial-to-paid rate went from 9% to 14% after we cut the setup checklist from 12 steps to 5. In this video we walk through each step we removed and why.\\n\\n00:00 Intro\\n02:15 The old checklist\\nThis video is sponsored by Example Hosting, use code FIELD10\\nhttps://fieldnote.example/checklist', 1840) +\n  entry('vSample0002', 'Pricing page teardown: 3 SaaS examples', 3,\n    'Three pricing pages, three different jobs. We look at anchor plans, annual toggles and what the free tier is really for.\\nSubscribe for weekly teardowns!', 920) +\n  entry('vSample0003', 'One tip for faster support replies #shorts', 2, 'Save replies as snippets. #shorts', 15400) +\n  entry('vSample0004', 'How we plan a quarter on one page', 21, 'Our one page quarterly plan, line by line.', 3100) +\n  '</feed>';\nreturn [{ json: { data: xml, channel_id: 'UCsample000000000000000' } }];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "f7006515-a48f-4085-a5bc-75bc2f80f700",
+      "name": "List channel feeds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per channel so the HTTP node fetches each feed.\nreturn $('config').first().json.channel_ids.map(id => ({ json: { channel_id: id } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "85b29bcf-179b-411f-a7f1-27f11d5685b2",
+      "name": "Fetch the channel feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://www.youtube.com/feeds/videos.xml",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "channel_id",
+              "value": "={{ $json.channel_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "719fc13a-613f-431a-a3e6-53e6bf99719f",
+      "name": "Combine feed sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "6cdaf564-31db-4e24-af3f-af3ff5c76cda",
+      "name": "Pick new videos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Parses the Atom XML (YouTube puts the description in media:description, which\n// generic RSS readers drop), then filters Shorts, old videos and used ids.\nconst cfg = $('config').first().json;\nconst used = new Set($getWorkflowStaticData('global').used || []);\nconst dec = s => String(s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\nconst tag = (x, t) => { const m = x.match(new RegExp('<' + t + '[^>]*>([\\\\s\\\\S]*?)</' + t + '>')); return m ? dec(m[1]).trim() : ''; };\nconst attr = (x, t, a) => { const m = x.match(new RegExp('<' + t + '[^>]*' + a + '=\"([^\"]*)\"')); return m ? m[1] : ''; };\nconst videos = [], skipped = [], seenNow = new Set();\nfor (const { json } of $input.all()) {\n  const xml = typeof json.data === 'string' ? json.data : '';\n  const channel = tag(xml.split('<entry>')[0], 'title');\n  for (const e of xml.split('<entry>').slice(1)) {\n    const id = tag(e, 'yt:videoId'), title = tag(e, 'title'), description = tag(e, 'media:description');\n    const published = tag(e, 'published');\n    const age = (Date.now() - new Date(published).getTime()) / 864e5;\n    const reason = used.has(id) || seenNow.has(id) ? 'already used' :\n      cfg.skip_shorts && /#shorts?\\b/i.test(title + ' ' + description) ? 'Short' :\n      age > cfg.max_age_days ? 'older than MAX_AGE_DAYS' : '';\n    if (reason) { skipped.push({ title, reason }); continue; }\n    seenNow.add(id);\n    videos.push({ video_id: id, title, channel, url: 'https://www.youtube.com/watch?v=' + id, published: published.slice(0, 10),\n      thumbnail: attr(e, 'media:thumbnail', 'url'), views: Number(attr(e, 'media:statistics', 'views') || 0), description });\n  }\n}\nvideos.sort((a, b) => b.published.localeCompare(a.published));\nreturn [{ json: { videos, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "9d5d3684-0a93-4544-a9f0-99f06aa79d5d",
+      "name": "Any new videos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f3df9bc2-80e7-4322-a5ac-05ac42b1f3df",
+              "leftValue": "={{ $json.videos.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "e7de415c-3053-4c9c-a189-1189512fe7de",
+      "name": "STOP: no new videos",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "9e6bbc38-747b-4ab8-abe9-7be92e2b9e6b",
+      "name": "One item per video",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "videos",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "6e9e19ca-6be6-4eaa-aa87-ca8746696e9e",
+      "name": "Template blurbs only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e51387ac-eb95-49ec-abcc-fbccdc3fe513",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "7676d315-616f-4e85-a508-050891807676",
+      "name": "Write blurbs from the description",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Keeps the description lines a reader cares about: no timestamps, links, hashtags\n// or sponsor reads. Two sentences, then cut to BLURB_MAX_CHARS at a word boundary.\nconst cfg = $('config').first().json;\nconst drop = cfg.drop_line_words;\nreturn $input.all().map(({ json: v }) => {\n  const lines = v.description.split(/\\n+/).map(l => l.trim()).filter(l => l &&\n    !/^\\d{1,2}:\\d{2}/.test(l) && !l.startsWith('#') && !drop.some(w => l.toLowerCase().includes(w)));\n  const sentences = lines.join(' ').split(/(?<=[.!?])\\s+/).slice(0, 2).join(' ');\n  return { json: { ...v, blurb_raw: sentences || 'New video: ' + v.title + '.', source: 'template' } };\n});\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "86fee7fe-6d77-449e-a002-900222fd86fe",
+      "name": "Write blurbs with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Video title: ' + $json.title + '\\nDescription:\\n' + $json.description.slice(0, 2000) + '\\nMax characters: ' + $('config').first().json.blurb_max_chars }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You write one newsletter blurb for a YouTube video. Say what the viewer learns, using a number or concrete detail from the description when there is one. Ignore sponsor reads, timestamps and calls to subscribe. No emoji, no hashtags, no \"in this video\". Stay under the character limit."
+        }
+      },
+      "position": [
+        2336,
+        352
+      ]
+    },
+    {
+      "id": "a2580597-3ef1-4c67-ac4a-bc4af06ea258",
+      "name": "Write blurbs with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        2352,
+        512
+      ]
+    },
+    {
+      "id": "dde4760e-67c4-4dae-ae06-ee06f44ddde4",
+      "name": "Write blurbs with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"blurb\": \"Two sentences about what the viewer learns.\"\n}"
+      },
+      "position": [
+        2464,
+        512
+      ]
+    },
+    {
+      "id": "bc25a53b-cacd-40cb-accf-9ccfdd62bc25",
+      "name": "Read OpenAI blurbs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Agent output -> same shape as the template path. An empty answer falls back to the title.\nconst videos = $('One item per video').all();\nreturn $input.all().map((it, i) => ({ json: { ...videos[i].json, blurb_raw: String(it.json.output?.blurb || 'New video: ' + videos[i].json.title + '.').trim(), source: 'openai' } }));\n"
+      },
+      "position": [
+        2704,
+        352
+      ]
+    },
+    {
+      "id": "aafb4e82-19ca-49e2-a34a-234a17f1aafb",
+      "name": "Combine blurbs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2928,
+        176
+      ]
+    },
+    {
+      "id": "8a9b15a4-00b0-4a64-aec2-3ec26c878a9b",
+      "name": "Collect the week's blurbs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Cuts every blurb to BLURB_MAX_CHARS and tags it with the newsletter week (the\n// Monday of the publish week), so a week's rows group together in the sheet.\nconst cfg = $('config').first().json;\nconst monday = iso => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };\nconst cut = s => s.length <= cfg.blurb_max_chars ? s : s.slice(0, cfg.blurb_max_chars - 3).replace(/\\s+\\S*$/, '') + '...';\nreturn $input.all().map(({ json: v }) => ({ json: {\n  week: monday(v.published), video_id: v.video_id, title: v.title, url: v.url, thumbnail: v.thumbnail, published: v.published,\n  views: v.views, blurb: cut(v.blurb_raw), source: v.source, added_at: new Date().toISOString().slice(0, 10),\n} }));\n"
+      },
+      "position": [
+        3152,
+        176
+      ]
+    },
+    {
+      "id": "5c4ecaec-5117-492c-ab15-db154cff5c4e",
+      "name": "Live and sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79aa084a-f060-452a-ae05-de0528e979aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7aaa09dd-b2b5-46cd-a609-a6099f787aaa",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3392,
+        176
+      ]
+    },
+    {
+      "id": "b34787f8-0a01-4a78-a078-d078ff6bb347",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3616,
+        352
+      ]
+    },
+    {
+      "id": "a400fc0d-089b-49fd-a13f-013f73a8a400",
+      "name": "Append blurbs to the newsletter sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.newsletter_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Newsletter"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3616,
+        176
+      ]
+    },
+    {
+      "id": "93f1e877-04b2-4947-a009-c009e38e93f1",
+      "name": "Remember used videos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// After a successful append only, so a failed write is retried tomorrow. Newest 500 kept.\nconst store = $getWorkflowStaticData('global');\nconst ids = $('Collect the week\\'s blurbs').all().map(r => r.json.video_id);\nstore.used = [...ids, ...(store.used || []).filter(x => !ids.includes(x))].slice(0, 500);\nreturn [{ json: { remembered: ids.length } }];\n"
+      },
+      "position": [
+        3840,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 06:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use the sample feed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use the sample feed?": {
+      "main": [
+        [
+          {
+            "node": "Load sample feed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List channel feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List channel feeds": {
+      "main": [
+        [
+          {
+            "node": "Fetch the channel feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample feed": {
+      "main": [
+        [
+          {
+            "node": "Combine feed sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch the channel feed": {
+      "main": [
+        [
+          {
+            "node": "Combine feed sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine feed sources": {
+      "main": [
+        [
+          {
+            "node": "Pick new videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick new videos": {
+      "main": [
+        [
+          {
+            "node": "Any new videos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any new videos?": {
+      "main": [
+        [
+          {
+            "node": "One item per video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per video": {
+      "main": [
+        [
+          {
+            "node": "Template blurbs only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template blurbs only?": {
+      "main": [
+        [
+          {
+            "node": "Write blurbs from the description",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write blurbs with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write blurbs with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write blurbs with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write blurbs with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write blurbs with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write blurbs with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Read OpenAI blurbs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write blurbs from the description": {
+      "main": [
+        [
+          {
+            "node": "Combine blurbs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read OpenAI blurbs": {
+      "main": [
+        [
+          {
+            "node": "Combine blurbs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine blurbs": {
+      "main": [
+        [
+          {
+            "node": "Collect the week's blurbs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect the week's blurbs": {
+      "main": [
+        [
+          {
+            "node": "Live and sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Append blurbs to the newsletter sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append blurbs to the newsletter sheet": {
+      "main": [
+        [
+          {
+            "node": "Remember used videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,598 @@
+{
+  "name": "Archive old Done cards on Trello with a dry-run report",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Archive old Done cards on Trello with a dry-run report\n\n**Who's it for**\nTeams whose Trello boards have a Done column with hundreds of cards that nobody scrolls past. It archives the old ones on a schedule, so the board stays fast and the history stays searchable.\n\n**How it works**\n1. Every Sunday at 20:00 it reads the lists and open cards on one board, or a sample board until Trello is connected.\n2. Lists whose name matches `DONE_LIST_PATTERNS` (Done, Shipped, Released by default) are the only ones considered.\n3. A card qualifies when its last activity is older than `ARCHIVE_AFTER_DAYS`. Cards with a label in `KEEP_LABELS` and cards whose due date has not passed are kept with a reason.\n4. The oldest cards are archived first, up to `MAX_ARCHIVE_PER_RUN`. Archiving sets closed=true, so every card can be restored from the board menu.\n5. A report lists every archived and kept card per list, and is posted to Slack on a live run.\n\n**How to set up**\n1. Run it once as imported. It reports on a sample board and stops at `STOP: dry run - nothing archived`.\n2. Add a Trello credential to `Fetch lists and cards from Trello` and `Archive the card on Trello`, fill in `BOARD_ID` and set `USE_TRELLO = true`.\n3. Read the report in `Write the archive report` for your real board and adjust the patterns and labels.\n4. Set `DRY_RUN = false` to archive. Optionally set `SLACK_CHANNEL_ID` to get the report in Slack.\n\n**Requirements**\n- A Trello account and board\n- Optional: a Slack workspace\n\n**How to customize**\n- `ARCHIVE_AFTER_DAYS` decides how long a finished card stays visible.\n- `KEEP_LABELS` protects reference cards, such as release notes, from ever being archived.\n- `MAX_ARCHIVE_PER_RUN` keeps the first live run on a big board to a reviewable size.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "f94bc149-5717-4c4e-9a00-f94bc14913e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Sunday at 20:00, when nobody is moving cards, or by hand. Board id, list patterns, the age limit and protected labels all live in `config`.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "25f2690c-5717-4c4e-9a00-25f2690c1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the board\n\nOne call returns every open list with its open cards and their last activity date, so no per-list request is needed. `Load sample Trello board` returns the same shape until `USE_TRELLO` is true.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "26f26a9f-5717-4c4e-9a00-26f26a9f1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Choose cards and report\n\nOnly lists matching `DONE_LIST_PATTERNS` are touched, so an old Backlog card is never archived by accident. Every kept card carries a reason, and the report goes to Slack only after a live run.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "27f26c32-5717-4c4e-9a00-27f26c321002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Archive on Trello\n\n`Archive for real?` opens only when `DRY_RUN` is false. Archiving sets closed=true rather than deleting, so a mistake is undone from the board menu in two clicks.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "28f26dc5-5717-4c4e-9a00-28f26dc51003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "83c9d3f2-68b6-4c52-a140-61401e2183c9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ARCHIVE OLD DONE CARDS ON TRELLO WITH A DRY-RUN REPORT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_TRELLO false -> a SAMPLE board so the run works before any credential exists.\n// DRY_RUN true -> the report is built, no card is archived.\n\n// set true after adding the Trello credential to both Trello nodes\nconst USE_TRELLO = false;\n// board id or short link, the code after trello.com/b/ in the board URL\nconst BOARD_ID = '';\n// a list is a Done list when its name contains one of these (case ignored)\nconst DONE_LIST_PATTERNS = [\n  \"done\",\n  \"shipped\",\n  \"released\"\n];\n// days since the last activity on a card before it is archived\nconst ARCHIVE_AFTER_DAYS = 30;\n// cards with one of these label names are never archived\nconst KEEP_LABELS = [\n  \"keep\",\n  \"pinned\",\n  \"reference\"\n];\n// hard ceiling on cards archived per run, oldest first\nconst MAX_ARCHIVE_PER_RUN = 50;\n// channel for the report on live runs; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_trello: USE_TRELLO,\n    board_id: BOARD_ID,\n    done_list_patterns: DONE_LIST_PATTERNS,\n    archive_after_days: ARCHIVE_AFTER_DAYS,\n    keep_labels: KEEP_LABELS,\n    max_archive_per_run: MAX_ARCHIVE_PER_RUN,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "b6b4b636-36ab-4156-a1ce-91ce2605b6b4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "5d5c5ca6-9050-44c6-ae47-de4767f55d5c",
+      "name": "Every Sunday at 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * 0"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "cf26e15e-0999-4ffe-a880-78802d9dcf26",
+      "name": "Trello connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f34ce027-c87a-49f7-a5b8-25b8f13ef34c",
+              "leftValue": "={{ $('config').first().json.use_trello }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "3bf1d0b9-c397-40e9-aa35-8a3570743bf1",
+      "name": "Fetch lists and cards from Trello",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.trello.com/1/boards/' + $('config').first().json.board_id + '/lists' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "cards",
+              "value": "open"
+            },
+            {
+              "name": "card_fields",
+              "value": "name,dateLastActivity,labels,due,dueComplete,shortUrl"
+            },
+            {
+              "name": "filter",
+              "value": "open"
+            },
+            {
+              "name": "fields",
+              "value": "name"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "a9401624-4982-42e4-a92d-392d2d07a940",
+      "name": "Load sample Trello board",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_TRELLO is true. One item per list with its open cards, like the API.\nconst ago = n => new Date(Date.now() - n * 864e5).toISOString();\nconst card = (id, name, days, labels = [], due = null) => ({ id, name, dateLastActivity: ago(days), labels: labels.map(l => ({ name: l })), due, dueComplete: false, shortUrl: 'https://trello.com/c/' + id });\nreturn [\n  { id: 'l1', name: 'Backlog', cards: [card('b1', 'Research competitor pricing', 120)] },\n  { id: 'l2', name: 'Doing', cards: [card('d1', 'Spring newsletter', 3)] },\n  { id: 'l3', name: 'Done', cards: [\n    card('c1', 'Fix checkout button on mobile', 45),\n    card('c2', 'Update team handbook', 31),\n    card('c3', 'Release notes template', 60, ['Keep']),\n    card('c4', 'Q3 board report', 10),\n    card('c5', 'Migrate old blog posts', 90),\n    card('c6', 'Renew domain', 40, [], new Date(Date.now() + 20 * 864e5).toISOString()),\n  ] },\n  { id: 'l4', name: 'Shipped - September', cards: [card('s1', 'Dark mode', 35, ['frontend'])] },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "37b195d3-dbee-41e3-a56d-d56de70a37b1",
+      "name": "Combine board sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "34642025-4a5e-4695-a288-3288f4d03464",
+      "name": "Pick cards to archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only Done lists. Old = no activity for ARCHIVE_AFTER_DAYS. Protected cards and\n// future-dated cards are kept with a reason. Oldest first, then MAX_ARCHIVE_PER_RUN.\nconst cfg = $('config').first().json;\nconst now = Date.now();\nconst patterns = cfg.done_list_patterns.map(p => p.toLowerCase());\nconst keep = cfg.keep_labels.map(l => l.toLowerCase());\nconst candidates = [], kept = [];\nlet doneLists = 0, scanned = 0;\nfor (const { json: list } of $input.all()) {\n  if (!list.name || !patterns.some(p => list.name.toLowerCase().includes(p))) continue;\n  doneLists++;\n  for (const c of list.cards || []) {\n    scanned++;\n    const idle = Math.floor((now - new Date(c.dateLastActivity).getTime()) / 864e5);\n    const base = { id: c.id, name: c.name, list: list.name, idle_days: idle, url: c.shortUrl };\n    const label = (c.labels || []).map(l => String(l.name || '').toLowerCase()).find(l => keep.includes(l));\n    if (idle < cfg.archive_after_days) continue;\n    if (label) { kept.push({ ...base, reason: 'label ' + label }); continue; }\n    if (c.due && !c.dueComplete && new Date(c.due).getTime() > now) { kept.push({ ...base, reason: 'due date still ahead' }); continue; }\n    candidates.push(base);\n  }\n}\ncandidates.sort((a, b) => b.idle_days - a.idle_days);\nconst archive = candidates.slice(0, cfg.max_archive_per_run);\nfor (const c of candidates.slice(cfg.max_archive_per_run)) kept.push({ ...c, reason: 'over MAX_ARCHIVE_PER_RUN, next run' });\nreturn [{ json: { archive, kept, done_lists: doneLists, scanned } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "aa011970-a6d8-4670-a891-e8911733aa01",
+      "name": "Split into cards to archive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per card so each archive call stands alone and can retry on its own.\nreturn $input.first().json.archive.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "1adaf77c-c402-48bc-a677-d677720f1ada",
+      "name": "Archive for real?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d54584e9-acf2-4619-ad76-3d760da4d545",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "d7ed3a42-abbc-49a2-abd0-abd03531d7ed",
+      "name": "STOP: dry run - nothing archived",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "4b981e20-6349-4420-a6c5-26c5ede34b98",
+      "name": "Archive the card on Trello",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://api.trello.com/1/cards/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "trelloApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "closed",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "060d4ec8-d668-4048-a9b3-59b35afb060d",
+      "name": "Write the archive report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Grouped per list so a reviewer can scan it; kept cards say why.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst verb = cfg.live ? 'Archived' : 'Would archive';\nconst byList = {};\nfor (const c of r.archive) (byList[c.list] ||= []).push(c);\nconst text = [\n  '*Trello clean-up* (' + cfg.mode + '): ' + verb.toLowerCase() + ' ' + r.archive.length + ' of ' + r.scanned + ' cards in ' + r.done_lists + ' Done list(s).',\n  ...Object.entries(byList).flatMap(([list, cards]) => [list + ':', ...cards.map(c => '- ' + c.name + ' (' + c.idle_days + ' days idle)')]),\n  ...(r.kept.length ? ['Kept:', ...r.kept.map(k => '- ' + k.name + ': ' + k.reason)] : []),\n].join('\\n');\nreturn [{ json: { text, archived: r.archive.length, kept: r.kept.length } }];\n"
+      },
+      "position": [
+        1424,
+        384
+      ]
+    },
+    {
+      "id": "6f86289b-e840-462b-a801-68011e026f86",
+      "name": "Post the report to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4ad9abf8-a510-4e78-a1c5-c1c58b6b4ad9",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "4bd9ad8b-6764-401b-abd1-8bd126724bd9",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "4cd9af1e-29b9-41be-ae50-0e50f1dd4cd9",
+              "leftValue": "={{ $json.archived }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "a80c30a0-25c9-4ea0-a0b8-50b86063a80c",
+      "name": "STOP: report not posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        544
+      ]
+    },
+    {
+      "id": "fe77c1e6-27dc-4606-a3a9-23a9aab5fe77",
+      "name": "Post the report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        1872,
+        384
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Sunday at 20:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Trello connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trello connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch lists and cards from Trello",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample Trello board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch lists and cards from Trello": {
+      "main": [
+        [
+          {
+            "node": "Combine board sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample Trello board": {
+      "main": [
+        [
+          {
+            "node": "Combine board sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine board sources": {
+      "main": [
+        [
+          {
+            "node": "Pick cards to archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick cards to archive": {
+      "main": [
+        [
+          {
+            "node": "Split into cards to archive",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the archive report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the archive report": {
+      "main": [
+        [
+          {
+            "node": "Post the report to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the report to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post the report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: report not posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into cards to archive": {
+      "main": [
+        [
+          {
+            "node": "Archive for real?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive for real?": {
+      "main": [
+        [
+          {
+            "node": "Archive the card on Trello",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing archived",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

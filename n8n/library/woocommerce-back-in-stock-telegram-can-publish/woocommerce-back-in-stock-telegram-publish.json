@@ -1,0 +1,758 @@
+{
+  "name": "Notify Telegram subscribers when WooCommerce products are back in stock",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Notify Telegram subscribers when WooCommerce products are back in stock\n\n**Who's it for**\nWooCommerce shops that sell limited runs and collect \"tell me when it's back\" requests through a Telegram bot. It turns that list into messages the moment stock returns, without a waitlist plugin.\n\n**How it works**\n1. Every 30 minutes it reads the Waitlist tab (chat id, product id, joined date, status), or 10 sample rows until the sheet is set.\n2. It fetches only the waitlisted products from WooCommerce, or sample stock until WooCommerce is connected.\n3. For a product back in stock it notifies waiting subscribers in the order they joined, up to 2 people per unit in stock, so 3 units do not wake up 40 people. Products without stock tracking notify everyone.\n4. Each subscriber gets one message listing every product they waited for that is now available, with a link.\n5. After a live send each row is marked notified; the rest keep waiting for the next restock.\n\n**How to set up**\n1. Run it once as imported. It plans the messages and stops at `STOP: preview - nothing sent`.\n2. Create a sheet with a Waitlist tab (key, chat_id, product_id, joined_at, status, notified_at) and put its id in `WAITLIST_SHEET_ID`. key is chat_id:product_id.\n3. Add a WooCommerce credential to `Fetch waitlisted products`, set `STORE_URL` and `USE_WOOCOMMERCE = true`, and add your bot token to `Send the Telegram message`.\n4. Put your own chat id in `TEST_CHAT_ID` to receive every message yourself first, then set `DRY_RUN = false` to message subscribers.\n\n**Requirements**\n- A WooCommerce store with REST API keys\n- A Telegram bot that collects chat ids\n- A Google Sheet\n\n**How to customize**\n- `NOTIFY_PER_UNIT` sets how many subscribers are told per unit in stock.\n- `MIN_STOCK` holds notifications until at least that many units are in.\n- `MESSAGE_INTRO` changes the first line of the message.",
+        "height": 1120,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "349966b9-5717-4c4e-9a00-349966b913e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nChecks every 30 minutes, which is soon enough for a restock and well inside WooCommerce rate limits. The per-unit cap and message text live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "edb58efc-5717-4c4e-9a00-edb58efc1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the waitlist\n\nThe sheet is the waitlist your bot appends to. Rows already marked notified are dropped here, so `Collect waiting product ids` only asks WooCommerce about products someone still waits for.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "eeb5908f-5717-4c4e-9a00-eeb5908f1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check stock\n\nOne request for up to 100 products by id, read-only. `Load sample stock` covers in stock, out of stock, untracked and backorder until `USE_WOOCOMMERCE` is true.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "efb59222-5717-4c4e-9a00-efb592221002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Match, send and mark\n\nJoin order decides who hears first when stock is short. With `DRY_RUN` on, messages only go to `TEST_CHAT_ID`; rows are marked notified only after a live send, so a test never uses up someone's place.",
+        "height": 512,
+        "width": 1520,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "f0b593b5-5717-4c4e-9a00-f0b593b51003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "b06ec9e8-eae0-4168-ac1d-9c1d20dbb06e",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// NOTIFY TELEGRAM SUBSCRIBERS WHEN WOOCOMMERCE PRODUCTS ARE BACK IN STOCK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// WAITLIST_SHEET_ID blank -> SAMPLE waitlist. USE_WOOCOMMERCE false -> SAMPLE stock.\n// DRY_RUN true -> nothing reaches subscribers. TEST_CHAT_ID set -> messages go to that chat instead and the sheet is left alone.\n\n// set true after adding the WooCommerce credential to the fetch node\nconst USE_WOOCOMMERCE = false;\n// your store address, no trailing slash\nconst STORE_URL = 'https://shop.yourstore.example';\n// Google Sheets id with a Waitlist tab; blank uses sample rows\nconst WAITLIST_SHEET_ID = '';\n// subscribers told per unit in stock, in join order\nconst NOTIFY_PER_UNIT = 2;\n// tracked products need at least this many units before anyone is told\nconst MIN_STOCK = 1;\n// first line of every message\nconst MESSAGE_INTRO = 'Good news: something you asked about is back in stock.';\n// your own Telegram chat id; while DRY_RUN is true, set this to receive the messages yourself\nconst TEST_CHAT_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_woocommerce: USE_WOOCOMMERCE,\n    store_url: STORE_URL,\n    waitlist_sheet_id: WAITLIST_SHEET_ID,\n    notify_per_unit: NOTIFY_PER_UNIT,\n    min_stock: MIN_STOCK,\n    message_intro: MESSAGE_INTRO,\n    test_chat_id: TEST_CHAT_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: WAITLIST_SHEET_ID.trim() !== '',\n    test_chat_enabled: TEST_CHAT_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "64857c1c-89f8-4b5c-af76-cf76ae6f6485",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "1233ea9d-6d84-4b8d-ad6d-5d6d96b81233",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "5e305061-183c-4c11-a443-94438b6c5e30",
+      "name": "Waitlist sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e204c868-c65f-47e8-a7c4-77c4735be204",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "0ea28566-8c55-4186-a90a-990a62350ea2",
+      "name": "Read the waitlist",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.waitlist_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Waitlist"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "11b97d1d-b49d-460d-a823-8823d93811b9",
+      "name": "Load sample waitlist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until WAITLIST_SHEET_ID is set. Five people wait for 2 pour-overs; one row is\n// already notified; one chat id is not a number.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [\n  ['5550101', 101, 10, 'waiting'], ['5550102', 101, 5, 'waiting'], ['5550103', 101, 3, 'waiting'], ['5550104', 101, 1, 'waiting'],\n  ['5550105', 101, 0.5, 'waiting'], ['5550107', 101, 20, 'notified'], ['5550101', 102, 8, 'waiting'], ['5550106', 103, 2, 'waiting'],\n  ['abc', 103, 2, 'waiting'], ['5550102', 104, 4, 'waiting'],\n].map(([chat_id, product_id, days, status]) => ({ json: { key: chat_id + ':' + product_id, chat_id, product_id, joined_at: ago(days), status, notified_at: '' } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "591938ce-de8b-446e-aa5b-8a5b248d5919",
+      "name": "Combine waitlist sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "c6956936-daa2-4456-a11c-111c3d05c695",
+      "name": "Collect waiting product ids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only rows still waiting matter; their product ids decide what to ask WooCommerce for.\nconst rows = $input.all().map(i => i.json).filter(r => String(r.status || 'waiting').toLowerCase() === 'waiting' && r.product_id);\nreturn [{ json: { rows, ids: [...new Set(rows.map(r => String(r.product_id)))] } }];\n"
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "fd05aa22-27a2-4382-a965-d9657e51fd05",
+      "name": "WooCommerce connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "42708a4f-9a27-479f-ad4c-1d4cffd64270",
+              "leftValue": "={{ $('config').first().json.use_woocommerce }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "705a67aa-9b07-468a-acc6-7cc67189705a",
+      "name": "Fetch waitlisted products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $('config').first().json.store_url + '/wp-json/wc/v3/products' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wooCommerceApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "include",
+              "value": "={{ $json.ids.slice(0, 100).join(\",\") }}"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "ec27112f-713b-487f-a392-f3923bf6ec27",
+      "name": "Read product stock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WooCommerce returns one item per product. stock_quantity is null when the\n// product does not track stock.\nreturn [{ json: { products: $input.all().map(i => i.json).filter(p => p && p.id).map(p => ({\n  id: String(p.id), name: p.name, url: p.permalink, price: p.price, status: p.stock_status,\n  qty: p.manage_stock ? Number(p.stock_quantity || 0) : null,\n})) } }];\n"
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "121bed6e-9f2a-470e-a979-8979fbed121b",
+      "name": "Load sample stock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_WOOCOMMERCE is true.\nreturn [{ json: { products: [\n  { id: '101', name: 'Ceramic pour-over', url: 'https://shop.yourstore.example/p/ceramic-pour-over', price: '34.00', status: 'instock', qty: 2 },\n  { id: '102', name: 'Gooseneck kettle', url: 'https://shop.yourstore.example/p/gooseneck-kettle', price: '79.00', status: 'outofstock', qty: 0 },\n  { id: '103', name: 'Burr grinder', url: 'https://shop.yourstore.example/p/burr-grinder', price: '129.00', status: 'instock', qty: null },\n  { id: '104', name: 'Travel tumbler', url: 'https://shop.yourstore.example/p/travel-tumbler', price: '25.00', status: 'onbackorder', qty: 0 },\n] } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "6f8d1d27-28b9-46f7-aefe-9efe6e3e6f8d",
+      "name": "Combine stock sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "ae6a848c-d25f-40cc-a899-7899de5fae6a",
+      "name": "Match the waitlist to stock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// For each product in stock: tell waiting people in join order, NOTIFY_PER_UNIT per\n// unit. Everyone else keeps waiting. Status changes since the last run are noted.\nconst cfg = $('config').first().json;\nconst { rows } = $('Collect waiting product ids').first().json;\nconst products = Object.fromEntries($input.first().json.products.map(p => [p.id, p]));\nconst memory = $getWorkflowStaticData('global');\nconst last = memory.stock_status || {};\nconst transitions = Object.values(products).filter(p => last[p.id] && last[p.id] !== p.status).map(p => p.name + ': ' + last[p.id] + ' -> ' + p.status);\nfor (const p of Object.values(products)) last[p.id] = p.status;\nmemory.stock_status = last;\nconst notify = [], waiting = [], skipped = [];\nconst byProduct = {};\nfor (const r of rows) (byProduct[String(r.product_id)] ||= []).push(r);\nfor (const [pid, list] of Object.entries(byProduct)) {\n  const p = products[pid];\n  list.sort((a, b) => String(a.joined_at).localeCompare(String(b.joined_at)));\n  const valid = list.filter(r => /^-?\\d+$/.test(String(r.chat_id)));\n  for (const r of list.filter(r => !valid.includes(r))) skipped.push({ key: r.key, reason: 'chat id is not numeric' });\n  if (!p) { valid.forEach(r => waiting.push({ key: r.key, reason: 'product not found' })); continue; }\n  if (p.status !== 'instock') { valid.forEach(r => waiting.push({ key: r.key, reason: p.status })); continue; }\n  if (p.qty !== null && p.qty < cfg.min_stock) { valid.forEach(r => waiting.push({ key: r.key, reason: 'only ' + p.qty + ' in stock' })); continue; }\n  const slots = p.qty === null ? valid.length : p.qty * cfg.notify_per_unit;\n  valid.forEach((r, i) => i < slots ? notify.push({ ...r, product: p }) : waiting.push({ key: r.key, reason: 'queued behind ' + slots + ' for ' + p.qty + ' units' }));\n}\nconst byChat = {};\nfor (const n of notify) (byChat[String(n.chat_id)] ||= []).push(n);\nconst messages = Object.entries(byChat).map(([chat_id, list]) => ({ chat_id, keys: list.map(n => n.key), products: list.map(n => n.product) }));\nreturn [{ json: { messages, waiting, skipped, transitions, notified_rows: notify.length } }];\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "3bdd522a-92e1-490a-ae9c-7e9c38093bdd",
+      "name": "Write each Telegram message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message per subscriber, listing every product they waited for that is back.\nconst cfg = $('config').first().json;\nreturn $input.first().json.messages.map(m => ({ json: {\n  chat_id: m.chat_id, keys: m.keys,\n  send_to: cfg.live ? m.chat_id : cfg.test_chat_id,\n  text: [(cfg.live ? '' : '[TEST for chat ' + m.chat_id + '] ') + cfg.message_intro, '',\n    ...m.products.map(p => p.name + ' (' + p.price + ')' + (p.qty !== null ? ', ' + p.qty + ' left' : '') + '\\n' + p.url),\n    '', 'You will not get another message about ' + (m.products.length === 1 ? 'this item' : 'these items') + '.'].join('\\n'),\n} }));\n"
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "f891fdbb-cb0a-414b-af38-9f38b9e2f891",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.live || $('config').first().json.test_chat_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "6e690f2c-6943-496c-a91f-a91fbfbf6e69",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "39717cc1-46e5-4a71-aca9-4ca9ed0c3971",
+      "name": "Send the Telegram message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $json.send_to }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "968ca3ba-8996-4d9a-a2d3-b2d3f219968c",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "7f67a1f1-9af8-40a1-a3d7-63d7457c7f67",
+      "name": "STOP: test send - waitlist untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "0478eeb0-283e-47b0-afb9-dfb95ef30478",
+      "name": "Mark rows as notified",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One sheet update per waitlist row, matched on key, for the chats just messaged.\nconst now = new Date().toISOString();\nreturn $('Write each Telegram message').all().flatMap(m => m.json.keys.map(key => ({ json: { key, status: 'notified', notified_at: now } })));\n"
+      },
+      "position": [
+        3440,
+        176
+      ]
+    },
+    {
+      "id": "78621bfe-62a2-489e-ab47-bb471efd7862",
+      "name": "Update the waitlist rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.waitlist_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Waitlist"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3664,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Waitlist sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Waitlist sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the waitlist",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample waitlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the waitlist": {
+      "main": [
+        [
+          {
+            "node": "Combine waitlist sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample waitlist": {
+      "main": [
+        [
+          {
+            "node": "Combine waitlist sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine waitlist sources": {
+      "main": [
+        [
+          {
+            "node": "Collect waiting product ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect waiting product ids": {
+      "main": [
+        [
+          {
+            "node": "WooCommerce connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WooCommerce connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch waitlisted products",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch waitlisted products": {
+      "main": [
+        [
+          {
+            "node": "Read product stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read product stock": {
+      "main": [
+        [
+          {
+            "node": "Combine stock sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample stock": {
+      "main": [
+        [
+          {
+            "node": "Combine stock sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine stock sources": {
+      "main": [
+        [
+          {
+            "node": "Match the waitlist to stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match the waitlist to stock": {
+      "main": [
+        [
+          {
+            "node": "Write each Telegram message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each Telegram message": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the Telegram message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the Telegram message": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Mark rows as notified",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - waitlist untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark rows as notified": {
+      "main": [
+        [
+          {
+            "node": "Update the waitlist rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

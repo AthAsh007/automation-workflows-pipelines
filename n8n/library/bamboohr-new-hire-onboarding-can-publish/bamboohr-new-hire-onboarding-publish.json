@@ -1,0 +1,697 @@
+{
+  "name": "Create Notion onboarding checklists and Slack welcomes for new BambooHR hires",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Create Notion onboarding checklists and Slack welcomes for new BambooHR hires\n\n**Who's it for**\nPeople teams of 20 to 300 staff who run onboarding from a copied checklist and a reminder in someone's calendar. Every hire gets the same dated list a week before they start, with nothing to copy by hand.\n\n**How it works**\n1. Every weekday at 08:00 it reads hires from a BambooHR custom report, or sample hires until BambooHR is connected.\n2. Hires starting in the next 7 days get a checklist: the common tasks plus their department's tasks, each dated relative to the start day and given an owner.\n3. Inactive records, hires outside the window and hires that already have a page are held back with a reason.\n4. Each checklist becomes a Notion page with to-do blocks. On the start day (or the Monday after a weekend start) a welcome is posted to Slack.\n\n**How to set up**\n1. Run it once as imported. It plans checklists for sample hires and stops at `STOP: dry run - no Notion pages`.\n2. Add a Header Auth credential to `Fetch hires from BambooHR` (name `Authorization`, value `Basic` plus base64 of `your_api_key:x`), set `BAMBOOHR_SUBDOMAIN` and `USE_BAMBOOHR = true`.\n3. Create a Notion database with Name, Start date and Department properties, share it with your integration and put its id in `NOTION_DATABASE_ID`.\n4. Set `SLACK_CHANNEL_ID` for welcomes, check the preview in `Plan onboarding per hire`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A BambooHR account with API access\n- A Notion workspace and integration\n- Optional: a Slack workspace\n\n**How to customize**\n- `COMMON_TASKS` and `DEPARTMENT_TASKS` hold every checklist line with its day offset and owner.\n- `LOOKAHEAD_DAYS` sets how early a page is created before the start date.\n- `WELCOME_TEMPLATE` is the Slack message; `{name}`, `{title}`, `{team}` and `{manager}` are filled in.",
+        "height": 1088,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "b541a233-5717-4c4e-9a00-b541a23313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 08:00 or by hand. Both task lists, the look-ahead window and the welcome wording live in `config`, so changing the checklist never means touching a Code node.",
+        "height": 960,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0a9014c6-5717-4c4e-9a00-0a9014c61000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read upcoming hires\n\nA BambooHR custom report returns hire date, department and supervisor in one call. Until `USE_BAMBOOHR` is true, `Load sample hires` feeds the same shape, including an inactive record and an existing employee.",
+        "height": 960,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0b901659-5717-4c4e-9a00-0b9016591001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Plan each checklist\n\n`Plan onboarding per hire` dates every task from the start day and pulls late ones to today, so a hire added two days before starting still gets a usable list. Hires that already have a page are held back by id.",
+        "height": 960,
+        "width": 320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "089011a0-5717-4c4e-9a00-089011a01002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Create pages and post welcomes\n\nPages and welcomes need both a live run and a target. `Remember paged hires` stores only ids whose page came back from Notion, so a failed create is retried on the next run instead of being lost.",
+        "height": 960,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        0
+      ],
+      "id": "09901333-5717-4c4e-9a00-099013331003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "069ab5af-bb70-44ff-ae1c-8e1c9c76069a",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CREATE NOTION ONBOARDING CHECKLISTS AND SLACK WELCOMES FOR NEW BAMBOOHR HIRES - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_BAMBOOHR false -> SAMPLE hires. NOTION_DATABASE_ID blank -> no pages. SLACK_CHANNEL_ID blank -> no welcome.\n// DRY_RUN true -> checklists are planned and shown, nothing is created or posted.\n\n// set true after adding the Header Auth credential to the BambooHR node\nconst USE_BAMBOOHR = false;\n// the part before .bamboohr.com in your BambooHR address\nconst BAMBOOHR_SUBDOMAIN = 'yourcompany';\n// hires starting within this many days get their checklist page\nconst LOOKAHEAD_DAYS = 7;\n// tasks every hire gets; offset = days relative to the start date\nconst COMMON_TASKS = [\n  {\n    task: \"Order and ship laptop\",\n    offset: -5,\n    owner: \"IT\"\n  },\n  {\n    task: \"Send first-day email with time, address and contact\",\n    offset: -3,\n    owner: \"People team\"\n  },\n  {\n    task: \"Create email, Slack and HR system accounts\",\n    offset: -2,\n    owner: \"IT\"\n  },\n  {\n    task: \"Book first-week 1:1s\",\n    offset: -1,\n    owner: \"Manager\"\n  },\n  {\n    task: \"Benefits enrolment walkthrough\",\n    offset: 3,\n    owner: \"People team\"\n  },\n  {\n    task: \"30-day check-in\",\n    offset: 30,\n    owner: \"Manager\"\n  }\n];\n// extra tasks by BambooHR department name\nconst DEPARTMENT_TASKS = {\n  Engineering: [\n    {\n      task: \"Grant GitHub and staging access\",\n      offset: -1,\n      owner: \"IT\"\n    },\n    {\n      task: \"Pair on a first pull request\",\n      offset: 2,\n      owner: \"Buddy\"\n    }\n  ],\n  Sales: [\n    {\n      task: \"CRM seat and territory assignment\",\n      offset: -1,\n      owner: \"Sales ops\"\n    },\n    {\n      task: \"Shadow 3 discovery calls\",\n      offset: 5,\n      owner: \"Manager\"\n    }\n  ],\n  \"Customer Success\": [\n    {\n      task: \"Helpdesk seat and macros\",\n      offset: -1,\n      owner: \"Support ops\"\n    },\n    {\n      task: \"Take 10 supervised tickets\",\n      offset: 4,\n      owner: \"Buddy\"\n    }\n  ]\n};\n// Notion database for onboarding pages; blank skips page creation\nconst NOTION_DATABASE_ID = '';\n// channel for start-day welcomes; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// start-day Slack message\nconst WELCOME_TEMPLATE = 'Please welcome {name}, who joins {team} today as {title}. {manager} is their manager. Say hi!';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_bamboohr: USE_BAMBOOHR,\n    bamboohr_subdomain: BAMBOOHR_SUBDOMAIN,\n    lookahead_days: LOOKAHEAD_DAYS,\n    common_tasks: COMMON_TASKS,\n    department_tasks: DEPARTMENT_TASKS,\n    notion_database_id: NOTION_DATABASE_ID,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    welcome_template: WELCOME_TEMPLATE,\n    dry_run: DRY_RUN,\n    notion_enabled: NOTION_DATABASE_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        288
+      ]
+    },
+    {
+      "id": "b9e91d4f-c700-4a9f-a15b-c15b26d6b9e9",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        288
+      ]
+    },
+    {
+      "id": "01a289b1-c77c-4c61-a41f-a41fdfbc01a2",
+      "name": "Every weekday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        464
+      ]
+    },
+    {
+      "id": "e3d9b791-5f72-4441-a3d2-b3d2aadce3d9",
+      "name": "BambooHR connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0ad15f3b-5072-4acb-a7e6-d7e6a3620ad1",
+              "leftValue": "={{ $('config').first().json.use_bamboohr }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        288
+      ]
+    },
+    {
+      "id": "aa8ef97a-65fb-475a-a7e0-87e02559aa8e",
+      "name": "Fetch hires from BambooHR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.bamboohr.com/api/gateway.php/' + $('config').first().json.bamboohr_subdomain + '/v1/reports/custom' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "JSON"
+            },
+            {
+              "name": "onlyCurrent",
+              "value": "false"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: 'Upcoming hires', fields: ['id', 'displayName', 'firstName', 'workEmail', 'jobTitle', 'department', 'location', 'hireDate', 'supervisor', 'status'] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        288
+      ]
+    },
+    {
+      "id": "43f970a8-c9ce-4c28-af4c-3f4c921b43f9",
+      "name": "Read BambooHR employees",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Custom report response -> one item per employee in the shape the planner reads.\nconst out = [];\nfor (const page of $input.all()) {\n  for (const e of page.json.employees || []) {\n    out.push({ json: {\n      id: String(e.id), name: e.displayName || e.firstName || '', first_name: e.firstName || '',\n      email: e.workEmail || '', title: e.jobTitle || '', department: e.department || '',\n      location: e.location || '', hire_date: e.hireDate && e.hireDate !== '0000-00-00' ? e.hireDate : '',\n      manager: e.supervisor || '', status: e.status || 'Active',\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        288
+      ]
+    },
+    {
+      "id": "59cb5b7e-9fea-401e-ae29-ee297a7d59cb",
+      "name": "Load sample hires",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_BAMBOOHR is true. Start dates are relative to today so the window always has work.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\nreturn [\n  { id: '4101', name: 'Priya Natarajan', first_name: 'Priya', email: 'priya.n@northwind.example', title: 'Backend Engineer', department: 'Engineering', location: 'Remote', hire_date: day(3), manager: 'Tomas Reyes', status: 'Active' },\n  { id: '4102', name: 'Leon Fischer', first_name: 'Leon', email: 'leon.f@northwind.example', title: 'Account Executive', department: 'Sales', location: 'Berlin', hire_date: day(0), manager: 'Ana Duarte', status: 'Active' },\n  { id: '4103', name: 'Grace Okafor', first_name: 'Grace', email: 'grace.o@northwind.example', title: 'Office Coordinator', department: 'Operations', location: 'London', hire_date: day(6), manager: 'Sam Whitlow', status: 'Active' },\n  { id: '4104', name: 'Mateo Silva', first_name: 'Mateo', email: 'mateo.s@northwind.example', title: 'Support Specialist', department: 'Customer Success', location: 'Lisbon', hire_date: day(12), manager: 'Ana Duarte', status: 'Active' },\n  { id: '4105', name: 'Hana Ito', first_name: 'Hana', email: '', title: 'Designer', department: 'Product', location: 'Remote', hire_date: day(2), manager: 'Tomas Reyes', status: 'Inactive' },\n  { id: '3020', name: 'Owen Price', first_name: 'Owen', email: 'owen.p@northwind.example', title: 'Analyst', department: 'Finance', location: 'London', hire_date: day(-200), manager: 'Sam Whitlow', status: 'Active' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        464
+      ]
+    },
+    {
+      "id": "2350cb56-5e72-4c76-a732-9732d1e52350",
+      "name": "Combine hire sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        288
+      ]
+    },
+    {
+      "id": "00d1f6c2-8e7b-4e22-a05e-a05e6db100d1",
+      "name": "Plan onboarding per hire",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A hire gets a page once, when they first fall inside LOOKAHEAD_DAYS. Task dates are\n// start date + offset; a task already in the past is pulled to today and marked late.\n// Welcomes go out on the start day, or on Monday for a Saturday/Sunday start.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst paged = new Set(store.paged || []), welcomed = new Set(store.welcomed || []);\nconst today = new Date().toISOString().slice(0, 10);\nconst addDays = (d, n) => new Date(new Date(d + 'T00:00:00Z').getTime() + n * 864e5).toISOString().slice(0, 10);\nconst diff = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);\nconst isMonday = new Date(today + 'T00:00:00Z').getUTCDay() === 1;\nconst pages = [], welcomes = [], held = [];\nlet checked = 0;\nfor (const { json: h } of $input.all()) {\n  if (!h.id) continue;\n  checked++;\n  const days = h.hire_date ? diff(today, h.hire_date) : null;\n  const welcomeDue = days === 0 || (isMonday && (days === -1 || days === -2));\n  if (h.status !== 'Active') { held.push({ name: h.name, reason: 'record is ' + h.status }); continue; }\n  if (days === null) { held.push({ name: h.name, reason: 'no hire date' }); continue; }\n  if (days > cfg.lookahead_days) { held.push({ name: h.name, reason: 'starts in ' + days + ' days, outside LOOKAHEAD_DAYS' }); continue; }\n  if (days < -2) continue; // existing staff, not a new hire\n  if (welcomeDue && !welcomed.has(h.id)) {\n    const text = cfg.welcome_template.replace('{name}', h.name).replace('{team}', h.department || 'the team')\n      .replace('{title}', h.title || 'a new teammate').replace('{manager}', h.manager || 'Their manager');\n    welcomes.push({ id: h.id, name: h.name, text });\n  }\n  if (paged.has(h.id)) { held.push({ name: h.name, reason: 'page already created' }); continue; }\n  const extra = cfg.department_tasks[h.department] || [];\n  const tasks = [...cfg.common_tasks, ...extra].map(t => {\n    const due = addDays(h.hire_date, t.offset);\n    const late = due < today;\n    return { task: t.task, owner: t.owner, due: late ? today : due, late };\n  }).sort((a, b) => a.due.localeCompare(b.due));\n  pages.push({ ...h, days_to_start: days, tasks, late_tasks: tasks.filter(t => t.late).length,\n    department_tasks: extra.length, note: extra.length ? '' : 'no DEPARTMENT_TASKS for ' + (h.department || 'blank department') });\n}\nreturn [{ json: { pages, welcomes, held, checked } }];\n"
+      },
+      "position": [
+        1488,
+        288
+      ]
+    },
+    {
+      "id": "270ba4b1-1feb-4761-ae82-8e82cabc270b",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One readable line per decision for the execution log.\nconst cfg = $('config').first().json;\nconst p = $input.first().json;\nconst text = [\n  'New hire onboarding (' + cfg.mode + '): ' + p.checked + ' records, ' + p.pages.length + ' checklists, ' + p.welcomes.length + ' welcomes.',\n  ...p.pages.map(x => '- ' + x.name + ' (' + x.department + ') starts in ' + x.days_to_start + ' days: ' + x.tasks.length + ' tasks' + (x.late_tasks ? ', ' + x.late_tasks + ' late' : '')),\n  ...p.held.map(h => '- held: ' + h.name + ': ' + h.reason),\n].join('\\n');\nreturn [{ json: { text } }];\n"
+      },
+      "position": [
+        1792,
+        624
+      ]
+    },
+    {
+      "id": "fd20a28b-2641-451b-aa33-ca33a772fd20",
+      "name": "Shape Notion pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Notion page per hire: database properties plus one to-do block per task.\nconst cfg = $('config').first().json;\nconst rt = s => [{ type: 'text', text: { content: String(s).slice(0, 1900) } }];\nreturn $input.first().json.pages.map(h => ({ json: {\n  hire_id: h.id, name: h.name,\n  notion_body: {\n    parent: { database_id: cfg.notion_database_id },\n    properties: {\n      Name: { title: rt('Onboarding: ' + h.name) },\n      'Start date': { date: { start: h.hire_date } },\n      Department: { select: { name: h.department || 'Unassigned' } },\n    },\n    children: [\n      { object: 'block', type: 'paragraph', paragraph: { rich_text: rt(h.title + ', ' + h.location + '. Manager: ' + (h.manager || 'not set') + '. Starts ' + h.hire_date + '.') } },\n      ...h.tasks.map(t => ({ object: 'block', type: 'to_do', to_do: { checked: false,\n        rich_text: rt(t.due + ' | ' + t.owner + ' | ' + t.task + (t.late ? ' (late)' : '')) } })),\n    ],\n  },\n} }));\n"
+      },
+      "position": [
+        1792,
+        288
+      ]
+    },
+    {
+      "id": "bf5c95b3-b53a-4bc3-ad05-6d05202abf5c",
+      "name": "Create Notion pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9bc6ff1-36f9-4ea1-ae79-ae79977ca9bc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a8bc6e5e-74a4-4cfe-a657-e657769da8bc",
+              "leftValue": "={{ $('config').first().json.notion_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2016,
+        288
+      ]
+    },
+    {
+      "id": "0c19570a-36ce-47ea-a1c7-c1c716290c19",
+      "name": "STOP: dry run - no Notion pages",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2240,
+        464
+      ]
+    },
+    {
+      "id": "effd1e69-e7f0-4799-a6b6-76b6cf24effd",
+      "name": "Create onboarding page in Notion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.notion_body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2240,
+        288
+      ]
+    },
+    {
+      "id": "e004e4c0-d8c0-48c0-a900-d9005343e004",
+      "name": "Remember paged hires",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only hires whose page came back with an id are remembered, so a failed create retries tomorrow.\nconst store = $getWorkflowStaticData('global');\nconst shaped = $('Shape Notion pages').all();\nconst ids = new Set(store.paged || []);\nconst done = $input.all().map((it, i) => ({ hire: shaped[i]?.json.name, hire_id: shaped[i]?.json.hire_id, page_id: it.json.id, url: it.json.url }))\n  .filter(x => x.page_id);\ndone.forEach(x => ids.add(x.hire_id));\nstore.paged = [...ids].slice(-500);\nreturn done.map(json => ({ json }));\n"
+      },
+      "position": [
+        2464,
+        288
+      ]
+    },
+    {
+      "id": "d9c5f474-3f54-4834-acc3-5cc34957d9c5",
+      "name": "Write start-day welcomes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per welcome so each Slack post can be retried on its own.\nreturn $input.first().json.welcomes.map(w => ({ json: w }));\n"
+      },
+      "position": [
+        1792,
+        464
+      ]
+    },
+    {
+      "id": "8c073db5-350f-4725-a613-f61352e08c07",
+      "name": "Post welcomes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "85028827-7b7b-41f7-a5b5-55b5d93e8502",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "84028694-b927-4054-a4ef-94ef77378402",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2016,
+        464
+      ]
+    },
+    {
+      "id": "c6613b9c-34ea-42dc-a29e-029eadefc661",
+      "name": "STOP: dry run - no welcome posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2240,
+        624
+      ]
+    },
+    {
+      "id": "ce477580-a471-4d80-a7b0-17b07e83ce47",
+      "name": "Post welcome to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $('Write start-day welcomes').item.json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2240,
+        800
+      ]
+    },
+    {
+      "id": "cf175f95-ba59-4305-ab05-9b051a00cf17",
+      "name": "Remember welcomed hires",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stops a manual re-run on the same day from welcoming someone twice.\nconst store = $getWorkflowStaticData('global');\nconst ids = new Set(store.welcomed || []);\n$('Write start-day welcomes').all().forEach(w => ids.add(w.json.id));\nstore.welcomed = [...ids].slice(-500);\nreturn [{ json: { welcomed: ids.size } }];\n"
+      },
+      "position": [
+        2464,
+        800
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "BambooHR connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BambooHR connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch hires from BambooHR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample hires",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch hires from BambooHR": {
+      "main": [
+        [
+          {
+            "node": "Read BambooHR employees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read BambooHR employees": {
+      "main": [
+        [
+          {
+            "node": "Combine hire sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample hires": {
+      "main": [
+        [
+          {
+            "node": "Combine hire sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine hire sources": {
+      "main": [
+        [
+          {
+            "node": "Plan onboarding per hire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan onboarding per hire": {
+      "main": [
+        [
+          {
+            "node": "Shape Notion pages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write start-day welcomes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Notion pages": {
+      "main": [
+        [
+          {
+            "node": "Create Notion pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Notion pages?": {
+      "main": [
+        [
+          {
+            "node": "Create onboarding page in Notion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - no Notion pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create onboarding page in Notion": {
+      "main": [
+        [
+          {
+            "node": "Remember paged hires",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write start-day welcomes": {
+      "main": [
+        [
+          {
+            "node": "Post welcomes?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post welcomes?": {
+      "main": [
+        [
+          {
+            "node": "Post welcome to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - no welcome posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post welcome to Slack": {
+      "main": [
+        [
+          {
+            "node": "Remember welcomed hires",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,595 @@
+{
+  "name": "Chase unsigned contracts listed in Google Sheets with reminder emails",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Chase unsigned contracts listed in Google Sheets with reminder emails\n\n**Who's it for**\nAgencies, consultancies and small legal or sales teams that send contracts through any e-signature tool and track them in a Google Sheet. It does the polite chasing so the account owner only steps in when three reminders have not worked.\n\n**How it works**\n1. Every weekday at 10:00 it reads the Contracts tab, or sample contracts until a sheet is connected.\n2. Rows marked signed, declined or voided are skipped. For the rest, days since the contract was sent pick the next step: reminder 1 at 3 days, 2 at 7, 3 at 12.\n3. Three days after the third reminder the account owner gets one escalation email with the history. A contract is never chased twice within `MIN_GAP_DAYS`, even after a missed run.\n4. Emails go out through Gmail, then Reminders sent and Last reminder are written back to the row, keyed by Contract ID.\n\n**How to set up**\n1. Run it once as imported. It previews against sample contracts and stops at `STOP: preview - nothing sent`.\n2. Connect Google Sheets and put the spreadsheet id in `CONTRACTS_SHEET_ID`. The column names are listed in `COLUMNS`.\n3. Connect Gmail on `Email the reminder`.\n4. Put your address in `TEST_EMAIL` to receive every reminder yourself, then set `TEST_RUN = false` to email signers and update the sheet.\n\n**Requirements**\n- A Google Sheet listing contracts out for signature\n- A Gmail account\n\n**How to customize**\n- `LADDER` sets the day and wording of each reminder.\n- `ESCALATE_AFTER_DAYS` sets the wait between the last reminder and the owner email.\n- `DONE_STATUSES` lists the Status values that stop chasing.",
+        "height": 944,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "18fbe5f2-5717-4c4e-9a00-18fbe5f213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nWeekdays at 10:00, so reminders land during working hours. The ladder, escalation wait and column names live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a1d958c7-5717-4c4e-9a00-a1d958c71000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the contract list\n\n`Read contract rows` maps your headers through `COLUMNS` and drops rows without an id. `Load sample contracts` covers every rule until `CONTRACTS_SHEET_ID` is set.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "a0d95734-5717-4c4e-9a00-a0d957341001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick the step and write\n\nDone statuses are checked first, then `MIN_GAP_DAYS`, so a signed or recently chased contract never gets another email. The step after the last reminder goes to the owner, once.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "a3d95bed-5717-4c4e-9a00-a3d95bed1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and write back\n\nA test send goes to `TEST_EMAIL` and leaves the sheet alone, so the real reminder still goes later. Only a live run updates Reminders sent and Last reminder.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "a2d95a5a-5717-4c4e-9a00-a2d95a5a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "dcf6cac1-19ee-4871-a136-31366f0cdcf6",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CHASE UNSIGNED CONTRACTS LISTED IN GOOGLE SHEETS WITH REMINDER EMAILS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// CONTRACTS_SHEET_ID blank -> SAMPLE contracts so the run works before any credential exists.\n// Reminder counts are written back only on a live run.\n\n// Google Sheets id with a Contracts tab; blank uses sample rows\nconst CONTRACTS_SHEET_ID = '';\n// column headers on the Contracts tab\nconst COLUMNS = {\n  id: \"Contract ID\",\n  company: \"Company\",\n  title: \"Contract\",\n  signer: \"Signer name\",\n  signer_email: \"Signer email\",\n  owner: \"Owner name\",\n  owner_email: \"Owner email\",\n  sent: \"Sent date\",\n  status: \"Status\",\n  count: \"Reminders sent\",\n  last: \"Last reminder\",\n  link: \"Signing link\"\n};\n// days after sending that unlock each reminder\nconst LADDER = [\n  {\n    step: 1,\n    days: 3,\n    subject: \"Quick reminder: {title} is ready to sign\",\n    opening: \"Just a nudge in case this got buried: {title} is waiting for your signature.\"\n  },\n  {\n    step: 2,\n    days: 7,\n    subject: \"Following up on {title}\",\n    opening: \"Following up on {title}, which we sent a week ago. If anything in it needs changing, reply and we will sort it out.\"\n  },\n  {\n    step: 3,\n    days: 12,\n    subject: \"Last reminder: {title}\",\n    opening: \"This is our last automatic reminder about {title}. After this, {owner} will get in touch directly.\"\n  }\n];\n// days after the last reminder before the owner is emailed\nconst ESCALATE_AFTER_DAYS = 3;\n// never two emails to one contract within this many days\nconst MIN_GAP_DAYS = 2;\n// Status values that stop all chasing\nconst DONE_STATUSES = [\n  \"signed\",\n  \"declined\",\n  \"voided\",\n  \"cancelled\"\n];\n// hard ceiling on emails per run\nconst DAILY_CAP = 30;\n// sign-off on reminders\nconst SENDER_NAME = 'Contracts team';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    contracts_sheet_id: CONTRACTS_SHEET_ID,\n    columns: COLUMNS,\n    ladder: LADDER,\n    escalate_after_days: ESCALATE_AFTER_DAYS,\n    min_gap_days: MIN_GAP_DAYS,\n    done_statuses: DONE_STATUSES,\n    daily_cap: DAILY_CAP,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: CONTRACTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "6a2ab961-4b00-4511-a8f4-d8f4fc6c6a2a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "47616628-0638-49a8-a2a5-22a5879b4761",
+      "name": "Every weekday at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "058b1678-7691-40f8-af81-6f8141eb058b",
+      "name": "Use sample contracts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "72d36036-4c39-4b56-a07e-607e2c0572d3",
+              "leftValue": "={{ !$('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "fc8e0f4c-f4c7-4f8c-a614-2614869ffc8e",
+      "name": "Load sample contracts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until CONTRACTS_SHEET_ID is set. Dates are relative to today so every rule fires.\nconst day = n => n === null ? '' : new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst k = (id, company, title, signer, sentAgo, count, lastAgo, status = 'sent', extra = {}) => ({ id, company, title, signer, signer_email: signer.split(' ')[0].toLowerCase() + '@' + company.toLowerCase().replace(/[^a-z]/g, '') + '.example',\n  owner: 'Maya Ortiz', owner_email: 'maya@yourcompany.example', sent: day(sentAgo), status, count, last: day(lastAgo), link: 'https://sign.example/c/' + id, ...extra });\nreturn [\n  k('C-101', 'Harbour Dental', 'Website services agreement', 'Priya Nair', 4, 0, null),\n  k('C-102', 'Northfield Studio', 'Retainer renewal 2026', 'Lee Moran', 8, 1, 4),\n  k('C-103', 'Lumen Physio', 'Data processing addendum', 'Sam Okoro', 13, 2, 1),\n  k('C-104', 'Orchard Lane Cafe', 'Menu site build', 'Jo Banks', 16, 3, 4),\n  k('C-105', 'Pine and Co', 'Logo licence', 'Ari Cole', 6, 1, 3, 'Signed'),\n  k('C-106', 'Quarry Labs', 'Pilot agreement', 'Kim Ross', 9, 1, 2, 'declined'),\n  k('C-107', 'Tallow Goods', 'Master services agreement', 'Dee Hart', 1, 0, null),\n  k('C-108', 'Beacon Health', 'NDA', 'Tom Wynn', 30, 4, 12),\n  k('C-109', 'Driftwood Inn', 'Booking engine setup', 'Lou Grey', 5, 0, null, 'sent', { signer_email: '' }),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "40c51464-0862-4d24-a63d-c63d4cc740c5",
+      "name": "Read the Contracts tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.contracts_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Contracts"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "9482fa7c-ef97-4bbc-a123-d123150f9482",
+      "name": "Read contract rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet rows -> the sample shape, through COLUMNS.\nconst col = $('config').first().json.columns;\nconst d = v => String(v || '').slice(0, 10);\nreturn $input.all().map(({ json: r }) => ({ json: { id: String(r[col.id] || ''), company: r[col.company] || '', title: r[col.title] || 'the contract', signer: r[col.signer] || '',\n  signer_email: String(r[col.signer_email] || '').trim(), owner: r[col.owner] || '', owner_email: String(r[col.owner_email] || '').trim(), sent: d(r[col.sent]),\n  status: String(r[col.status] || 'sent'), count: Number(r[col.count] || 0), last: d(r[col.last]), link: r[col.link] || '' } })).filter(i => i.json.id);\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "ec04022c-b340-4c6c-a671-8671d2bfec04",
+      "name": "Combine contract sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "4e1e604c-f6d8-408c-a6aa-c6aa8b9f4e1e",
+      "name": "Pick the next step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Steps 1..N go to the signer; step N+1 is the one escalation to the owner. The step\n// count comes from the sheet, so a row edited by hand is respected.\nconst cfg = $('config').first().json;\nconst ladder = [...cfg.ladder].sort((a, b) => a.days - b.days);\nconst days = s => s ? Math.floor((Date.now() - new Date(s).getTime()) / 864e5) : null;\nconst due = [], held = [];\nfor (const { json: c } of $input.all()) {\n  const status = c.status.trim().toLowerCase();\n  const age = days(c.sent), gap = days(c.last);\n  let reason = '', next = null;\n  if (cfg.done_statuses.includes(status)) reason = status;\n  else if (age === null) reason = 'no sent date';\n  else if (c.count > ladder.length) reason = 'already escalated, chase by hand';\n  else if (gap !== null && gap < cfg.min_gap_days) reason = 'last email ' + gap + ' day(s) ago';\n  else if (c.count === ladder.length) {\n    if (gap !== null && gap >= cfg.escalate_after_days) next = { step: ladder.length + 1, escalate: true };\n    else reason = 'escalation due in ' + (cfg.escalate_after_days - (gap ?? 0)) + ' day(s)';\n  } else {\n    const s = ladder.find(x => x.step > c.count && age >= x.days);\n    if (s) next = { step: s.step, escalate: false, subject: s.subject, opening: s.opening };\n    else reason = 'next reminder not due yet';\n  }\n  if (!reason && !next.escalate && !c.signer_email) reason = 'no signer email';\n  if (!reason && next.escalate && !c.owner_email) reason = 'no owner email for escalation';\n  if (reason) held.push({ id: c.id, company: c.company, reason });\n  else due.push({ ...c, ...next, age });\n}\ndue.sort((a, b) => b.age - a.age);\nfor (const x of due.splice(cfg.daily_cap)) held.push({ id: x.id, company: x.company, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { due, held } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "84ea2a3f-8967-4c8f-a899-d899f58684ea",
+      "name": "Write each email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Signer reminders use the ladder wording; the escalation goes to the owner with the history.\nconst cfg = $('config').first().json;\nreturn $input.first().json.due.map(c => {\n  const fill = s => s.replace(/{title}/g, c.title).replace(/{owner}/g, c.owner || 'your contact');\n  let to, subject, body;\n  if (c.escalate) {\n    to = c.owner_email;\n    subject = 'Unsigned after ' + cfg.ladder.length + ' reminders: ' + c.title + ' (' + c.company + ')';\n    body = ['Hi ' + (c.owner.split(' ')[0] || 'there') + ',', '', c.title + ' for ' + c.company + ' was sent ' + c.age + ' days ago to ' + c.signer + ' (' + c.signer_email + ').',\n      cfg.ladder.length + ' reminders have gone out, the last on ' + c.last + ', with no signature.', '', 'Time for a personal call. Signing link: ' + c.link].join('\\n');\n  } else {\n    to = c.signer_email;\n    subject = fill(c.subject);\n    body = ['Hi ' + (c.signer.split(' ')[0] || 'there') + ',', '', fill(c.opening), '', 'Sign here: ' + c.link, '', 'Thank you,', cfg.sender_name].join('\\n');\n  }\n  return { json: { ...c, to, subject, body, send_to: cfg.mode === 'test' ? cfg.test_email : to } };\n});\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "ac7530be-5de2-415e-a273-f273323dac75",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "58a34545-ec73-41b5-a44b-844b80b058a3",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "7de01bcc-d5ea-440c-a84d-084dff1f7de0",
+      "name": "Email the reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.to + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "48031815-6308-4385-a35e-735ee2804803",
+      "name": "Live run with a sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "26a91fb5-30ce-4925-ace4-9ce4a0e026a9",
+              "leftValue": "={{ $('config').first().json.live && $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "a87f32a3-19e6-4db3-a5dc-45dc6c9aa87f",
+      "name": "STOP: not live - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "fab43e49-f7be-4179-a81b-881b2844fab4",
+      "name": "Shape the sheet update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Only the two tracking columns change; the key column finds the row.\nconst col = $('config').first().json.columns;\nconst c = $('Write each email').item.json;\nreturn { json: { [col.id]: c.id, [col.count]: c.step, [col.last]: new Date().toISOString().slice(0, 10) } };\n"
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "63c8c131-a0a4-4be1-a47c-947cf33c63c8",
+      "name": "Update the Contracts tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.contracts_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Contracts"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Contract ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample contracts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample contracts?": {
+      "main": [
+        [
+          {
+            "node": "Load sample contracts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the Contracts tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Contracts tab": {
+      "main": [
+        [
+          {
+            "node": "Read contract rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample contracts": {
+      "main": [
+        [
+          {
+            "node": "Combine contract sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read contract rows": {
+      "main": [
+        [
+          {
+            "node": "Combine contract sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine contract sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the next step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the next step": {
+      "main": [
+        [
+          {
+            "node": "Write each email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the reminder": {
+      "main": [
+        [
+          {
+            "node": "Live run with a sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run with a sheet?": {
+      "main": [
+        [
+          {
+            "node": "Shape the sheet update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the sheet update": {
+      "main": [
+        [
+          {
+            "node": "Update the Contracts tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

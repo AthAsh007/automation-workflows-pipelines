@@ -1,0 +1,1030 @@
+{
+  "name": "Check in event attendees by webhook and post live counts to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Check in event attendees by webhook and post live counts to Slack\n\n**Who's it for**\nOrganisers of meetups, workshops and small conferences who sell tickets anywhere and check people in with a phone. The door team gets an instant answer and the rest of the team sees the room fill up in Slack.\n\n**How it works**\n1. Your scanner app posts each scanned code to a webhook. Codes are compared without case, spaces or dashes, so \"tix-0007\" matches \"TIX 0007\".\n2. The code is looked up in the Attendees tab. Unknown codes get a 404, codes already used get a 409 with the time of the first scan, and valid ones a 200 with the name and ticket type.\n3. A valid check-in is stamped in the checked_in_at column.\n4. Every 25th check-in, and the moment everyone has arrived, Slack gets the count, the share of the list and the count per ticket type.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. A sample scan becomes check-in 25 and the run stops at `STOP: preview - nothing posted` and `STOP: not live - sheet untouched`.\n2. Connect Google Sheets and set `ATTENDEES_SHEET_ID`. The tab needs ticket_code, name, ticket_type and checked_in_at columns.\n3. Point your scanner app at the production webhook URL with a JSON body like {\"code\": \"TIX-0007\", \"gate\": \"Main\"}. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post milestones with a [TEST] prefix. Set `TEST_RUN = false` on the day so check-ins are written to the sheet.\n\n**Requirements**\n- A Google Sheet with the attendee list\n- A scanner app that can POST JSON\n- A Slack workspace\n\n**How to customize**\n- `MILESTONE_EVERY` sets how often Slack hears about the count.\n- `CODE_PREFIX` is added to bare numbers, so a scan of \"7\" can match \"TIX0007\".\n- `ALLOW_REENTRY` lets the same ticket in again and answers 200 with a warning.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "37fd1fe0-5717-4c4e-9a00-37fd1fe013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive the scan\n\nThe scanner posts to `Ticket scan webhook`, which waits for a respond node so the door gets its answer in the same request. A manual run feeds `Load sample scan` through the same path.",
+        "height": 848,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "85937995-5717-4c4e-9a00-859379951000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the attendee list\n\nThe list is read on every scan so late registrations and manual fixes in the sheet count straight away. `Load sample attendee list` has 24 people already in, so the sample scan lands on a milestone.",
+        "height": 848,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "84937802-5717-4c4e-9a00-849378021001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Validate and answer the door\n\nA ticket is used if the sheet says so or static data saw it, which catches two scans a second apart. Each outcome gets its own HTTP status so the scanner app can show red or green.",
+        "height": 848,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2032,
+        0
+      ],
+      "id": "8393766f-5717-4c4e-9a00-8393766f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Stamp the sheet and post milestones\n\nOnly a live first entry writes checked_in_at. `Write the milestone post` branches off the answer, so a slow Slack call never holds up the queue at the door.",
+        "height": 848,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        0
+      ],
+      "id": "829374dc-5717-4c4e-9a00-829374dc1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "bf494fa0-c3b2-4da0-a360-53606b63bf49",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CHECK IN EVENT ATTENDEES BY WEBHOOK AND POST LIVE COUNTS TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// ATTENDEES_SHEET_ID blank -> a SAMPLE attendee list with 24 people already in.\n// The scanner always gets an answer; only a live run writes to the sheet.\n\n// Google Sheets id with an Attendees tab; blank uses the sample list\nconst ATTENDEES_SHEET_ID = '';\n// shown in the Slack posts\nconst EVENT_NAME = 'Ops Meetup, November';\n// post the count to Slack every this many check-ins\nconst MILESTONE_EVERY = 25;\n// prefix added to bare numeric codes; blank to turn off\nconst CODE_PREFIX = 'TIX';\n// digits after the prefix, for padding bare numbers\nconst CODE_DIGITS = 4;\n// true -> a second scan of the same ticket is let in with a warning\nconst ALLOW_REENTRY = false;\n// channel for milestone posts; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    attendees_sheet_id: ATTENDEES_SHEET_ID,\n    event_name: EVENT_NAME,\n    milestone_every: MILESTONE_EVERY,\n    code_prefix: CODE_PREFIX,\n    code_digits: CODE_DIGITS,\n    allow_reentry: ALLOW_REENTRY,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheet_enabled: ATTENDEES_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "f35f7064-3e97-4924-a9a5-39a5d0c7f35f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "d0ba7cf2-a9fc-4552-aa52-5a52ab21d0ba",
+      "name": "Ticket scan webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "53a05ff2-9839-4852-af01-ff01c22153a0",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "event-checkin",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "8c3ce9ca-a704-4eaa-aa25-aa25b6698c3c",
+      "name": "Read the scan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The webhook body when a scanner called; nothing when the run was started by hand.\nlet body = null;\ntry { body = $('Ticket scan webhook').first().json.body || null; } catch (e) { body = null; }\nreturn [{ json: { from_webhook: Boolean(body), scan: body || {} } }];\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "6e8f8ff8-4a96-4278-aa7f-ba7f476b6e8f",
+      "name": "Real scan?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "64933079-33ac-44a9-a9dc-d9dc79b46493",
+              "leftValue": "={{ $json.from_webhook }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        704,
+        176
+      ]
+    },
+    {
+      "id": "63c3d4c1-5d6c-4271-adc5-4dc5050c63c3",
+      "name": "Load sample scan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used for manual runs: a scanner reading a lower-case code with a dash.\nreturn [{ json: { from_webhook: false, scan: { code: 'tix-0031', gate: 'Main door', scanned_at: new Date().toISOString() } } }];\n"
+      },
+      "position": [
+        928,
+        352
+      ]
+    },
+    {
+      "id": "86c041be-6dd2-425e-a495-6495ab3d86c0",
+      "name": "Combine scan sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1152,
+        176
+      ]
+    },
+    {
+      "id": "a053b9f8-7111-4c78-a6a2-76a28d6ba053",
+      "name": "Attendee sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3374067b-b8b5-4e0b-a5bb-e5bb70223374",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "1dbb608f-1fea-49df-a181-e18180961dbb",
+      "name": "Read the attendee list",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.attendees_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Attendees"
+        },
+        "options": {}
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "b6c5b20e-b4da-49ae-afe9-7fe9584db6c5",
+      "name": "Load sample attendee list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until ATTENDEES_SHEET_ID is set: 40 tickets, 24 already checked in.\nconst types = ['General', 'General', 'General', 'Speaker', 'Sponsor'];\nconst names = ['Alma Price', 'Ben Cho', 'Cora Diaz', 'Dev Patel', 'Eli Grant', 'Fay Moss', 'Gus Lind', 'Hana Ito'];\nreturn Array.from({ length: 40 }, (_, i) => ({ json: {\n  ticket_code: 'TIX-' + String(i + 1).padStart(4, '0'), name: names[i % names.length] + ' ' + (i + 1), ticket_type: types[i % types.length],\n  checked_in_at: i < 24 ? new Date(Date.now() - (60 - i) * 60e3).toISOString() : '' } }));\n"
+      },
+      "position": [
+        1616,
+        352
+      ]
+    },
+    {
+      "id": "d468eee9-9788-4019-a35f-135f23a4d468",
+      "name": "Combine attendee sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1840,
+        176
+      ]
+    },
+    {
+      "id": "666aa021-fa7f-4fd1-aab9-dab9edac666a",
+      "name": "Validate the ticket",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Codes compare uppercase with spaces and dashes removed. A ticket counts as used\n// if the sheet has a checked_in_at or this workflow saw it earlier today (static\n// data catches two scans seconds apart, before the sheet write lands).\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nstore.checked = store.checked || {};\nconst norm = c => { let s = String(c || '').toUpperCase().replace(/[\\s-]/g, ''); if (/^\\d+$/.test(s) && cfg.code_prefix) s = cfg.code_prefix + s.padStart(cfg.code_digits, '0'); return s; };\nconst scan = $('Combine scan sources').first().json.scan;\nconst code = norm(scan.code);\nconst list = $input.all().map(i => i.json).filter(r => r.ticket_code);\nconst used = new Set([...list.filter(r => String(r.checked_in_at || '').trim()).map(r => norm(r.ticket_code)), ...Object.keys(store.checked)]);\nconst byType = t => list.filter(r => r.ticket_type === t).length;\nif (!code) return [{ json: { result: 'invalid', message: 'No ticket code in the scan.' } }];\nconst att = list.find(r => norm(r.ticket_code) === code);\nif (!att) return [{ json: { result: 'unknown', code, message: 'Ticket ' + code + ' is not on the list.' } }];\nconst firstAt = String(att.checked_in_at || '').trim() || store.checked[code];\nif (used.has(code) && !cfg.allow_reentry) return [{ json: { result: 'duplicate', code, name: att.name, first_scan: firstAt, message: att.name + ' already checked in at ' + String(firstAt).slice(11, 16) + ' UTC.' } }];\nconst now = new Date().toISOString();\nconst reentry = used.has(code);\nif (!reentry) { store.checked[code] = now; used.add(code); }\nconst count = used.size, total = list.length;\nconst inByType = {};\nfor (const r of list) if (used.has(norm(r.ticket_code))) inByType[r.ticket_type] = (inByType[r.ticket_type] || 0) + 1;\nconst milestone = !reentry && (count % cfg.milestone_every === 0 || count === total);\nreturn [{ json: { result: 'ok', code, ticket_code: att.ticket_code, name: att.name, ticket_type: att.ticket_type, gate: scan.gate || '', checked_in_at: now,\n  reentry, count, total, by_type: inByType, totals_by_type: Object.fromEntries([...new Set(list.map(r => r.ticket_type))].map(t => [t, byType(t)])), milestone,\n  message: (reentry ? 'Re-entry: ' : 'Welcome, ') + att.name + ' (' + att.ticket_type + ')' } }];\n"
+      },
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "4bde4cae-6453-424e-ab56-1b56e9ad4bde",
+      "name": "Route the scan result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "61f4f5b9-7b41-45e9-a55c-655c357461f4",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "ok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ok"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "ea3d09e8-1eba-4168-ac71-6c7160dbea3d",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "duplicate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "duplicate"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a780c17f-9fc3-4fcf-acb0-4cb03646a780",
+                    "leftValue": "={{ $json.result }}",
+                    "rightValue": "unknown",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unknown"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "24332892-08ea-4ef2-acd9-6cd9ca812433",
+      "name": "Answer: checked in",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: \"ok\", name: $json.name, ticket_type: $json.ticket_type, count: $json.count, message: $json.message }) }}",
+        "options": {}
+      },
+      "position": [
+        2528,
+        176
+      ]
+    },
+    {
+      "id": "1cfb020a-49a9-42ea-a7a4-c7a4c1291cfb",
+      "name": "Answer: already checked in",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: \"duplicate\", name: $json.name, first_scan: $json.first_scan, message: $json.message }) }}",
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "position": [
+        2528,
+        352
+      ]
+    },
+    {
+      "id": "bd27c75f-0d25-4faf-afc4-8fc4b966bd27",
+      "name": "Answer: ticket not found",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: \"unknown\", code: $json.code, message: $json.message }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "position": [
+        2528,
+        512
+      ]
+    },
+    {
+      "id": "93fce88e-7649-482e-a859-c859e6cd93fc",
+      "name": "Answer: bad scan",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ status: \"invalid\", message: $json.message }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "position": [
+        2528,
+        688
+      ]
+    },
+    {
+      "id": "b3f4e0d5-ee57-4045-abaa-bbaa7cc0b3f4",
+      "name": "Live with a sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "06152262-10eb-47c2-ab2a-9b2a44110615",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "071523f5-d33f-4965-a32e-632ebaa00715",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "04151f3c-8c41-447c-a38d-238d4c4f0415",
+              "leftValue": "={{ $json.reentry }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "6956f0be-e9b8-415e-ac8e-3c8ef23d6956",
+      "name": "STOP: not live - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "7eb89b70-642b-4870-ae91-1e9105337eb8",
+      "name": "Keep only the sheet columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The update writes exactly two columns: the key and the time of entry.\nreturn [{ json: { ticket_code: $json.ticket_code, checked_in_at: $json.checked_in_at } }];\n"
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "6e7205f7-fbb8-4ec7-a21c-b21c450e6e72",
+      "name": "Stamp the check-in on the sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.attendees_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Attendees"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "ticket_code"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        176
+      ]
+    },
+    {
+      "id": "c0aaf506-5c4d-4f26-a315-6315dd95c0aa",
+      "name": "Write the milestone post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Count, share of the list and per ticket type. Only built on a milestone.\nconst cfg = $('config').first().json;\nconst v = $('Validate the ticket').first().json;\nconst pct = Math.round(v.count / v.total * 100);\nconst types = Object.entries(v.totals_by_type).map(([t, n]) => t + ' ' + (v.by_type[t] || 0) + '/' + n).join(', ');\nconst head = v.count === v.total ? 'Everyone is in' : v.count + ' checked in';\nconst text = (cfg.mode === 'test' ? '[TEST] ' : '') + '*' + cfg.event_name + ': ' + head + '* (' + v.count + '/' + v.total + ', ' + pct + '%)\\n' + types + '\\nLatest: ' + v.name + (v.gate ? ' at ' + v.gate : '');\nreturn [{ json: { text, milestone: v.milestone } }];\n"
+      },
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "27af8f27-3e6c-48f7-a289-c289ec3e27af",
+      "name": "Milestone reached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "68a3be68-d68d-4de8-afdf-9fdf0d5b68a3",
+              "leftValue": "={{ $json.milestone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        512
+      ]
+    },
+    {
+      "id": "1a06e890-19a2-4b90-a7d2-d7d24e131a06",
+      "name": "STOP: not a milestone",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        688
+      ]
+    },
+    {
+      "id": "bd924ec7-f825-4697-a9cd-39cd8e9ebd92",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        512
+      ]
+    },
+    {
+      "id": "7a1a2c71-1561-4321-a6ea-06ea3bfc7a1a",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3424,
+        688
+      ]
+    },
+    {
+      "id": "d3b6d666-d0aa-4286-a7a6-07a6b735d3b6",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3424,
+        512
+      ]
+    },
+    {
+      "id": "14f2c988-7956-4f08-ae5d-ae5dcc3b14f2",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3648,
+        688
+      ]
+    },
+    {
+      "id": "8172e005-0362-4075-a8ed-98ededf08172",
+      "name": "Post the count to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3648,
+        512
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket scan webhook": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the scan": {
+      "main": [
+        [
+          {
+            "node": "Real scan?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real scan?": {
+      "main": [
+        [
+          {
+            "node": "Combine scan sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample scan": {
+      "main": [
+        [
+          {
+            "node": "Combine scan sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine scan sources": {
+      "main": [
+        [
+          {
+            "node": "Attendee sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attendee sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the attendee list",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample attendee list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the attendee list": {
+      "main": [
+        [
+          {
+            "node": "Combine attendee sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample attendee list": {
+      "main": [
+        [
+          {
+            "node": "Combine attendee sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine attendee sources": {
+      "main": [
+        [
+          {
+            "node": "Validate the ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate the ticket": {
+      "main": [
+        [
+          {
+            "node": "Route the scan result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route the scan result": {
+      "main": [
+        [
+          {
+            "node": "Answer: checked in",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer: already checked in",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer: ticket not found",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer: bad scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer: checked in": {
+      "main": [
+        [
+          {
+            "node": "Live with a sheet?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the milestone post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with a sheet?": {
+      "main": [
+        [
+          {
+            "node": "Keep only the sheet columns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep only the sheet columns": {
+      "main": [
+        [
+          {
+            "node": "Stamp the check-in on the sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the milestone post": {
+      "main": [
+        [
+          {
+            "node": "Milestone reached?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Milestone reached?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not a milestone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the count to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

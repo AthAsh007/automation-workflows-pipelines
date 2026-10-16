@@ -1,0 +1,933 @@
+{
+  "name": "Thank Stripe donors by Gmail and log gifts to Airtable with receipt numbers",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Thank Stripe donors by Gmail and log gifts to Airtable with receipt numbers\n\n**Who's it for**\nSmall charities and community groups that take donations through Stripe payment links or Checkout and send thank-you notes by hand. Every donor gets a numbered receipt within the hour.\n\n**How it works**\n1. Every hour it reads successful Stripe charges created since the last processed charge, or sample donations until Stripe is connected. Refunded charges and charges with no email are skipped.\n2. The donors' emails are looked up in your Airtable Gifts table, so the email can say \"welcome\" to a first-time donor and \"thank you again\" to a returning one. Monthly gifts get their own line.\n3. Receipt numbers run in sequence (R-2026-01001, R-2026-01002) in the order the gifts were made. Gifts of 250 or more get the written acknowledgement line for tax purposes.\n4. The email goes out through Gmail, then the gift is added to Airtable with its receipt number. The charge cursor and counter only move on a live run.\n\n**How to set up**\n1. Run it once as imported. It writes sample thank-yous and stops at `STOP: preview - nothing sent`.\n2. Add a Stripe credential to `Fetch new Stripe charges` and set `USE_STRIPE = true`.\n3. Add an Airtable token credential to both Airtable nodes, fill `AIRTABLE_BASE_ID`, and create a Gifts table with Email, Name, Amount, Currency, Date, Receipt number, Donor type and Stripe charge fields.\n4. Connect Gmail. Put your address in `TEST_EMAIL` to receive every thank-you yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Stripe account receiving donations\n- An Airtable base with a Gifts table\n- A Gmail account\n\n**How to customize**\n- `TAX_RECEIPT_THRESHOLD` and `TAX_LINE` control the acknowledgement wording.\n- `RECEIPT_PREFIX` and `RECEIPT_START` set the numbering.\n- `ORG_NAME` and `SIGNATORY` sign every email.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "d8127b6c-5717-4c4e-9a00-d8127b6c13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns five minutes past every hour. Receipt numbering, the tax threshold and the email sign-off are all set in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b3e028a1-5717-4c4e-9a00-b3e028a11000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read new donations\n\n`Work out the start time` reads the stored cursor, so only charges after the last processed one are fetched. Failed, refunded and email-less charges stop at `Collect new gifts`, and an empty hour ends at `STOP: no new gifts`.",
+        "height": 512,
+        "width": 1744,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "b2e0270e-5717-4c4e-9a00-b2e0270e1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check history and number receipts\n\nAirtable is queried only for the donors in this batch. `Number receipts and pick wording` assigns numbers in gift order, so receipts never skip or repeat within a run.",
+        "height": 512,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        0
+      ],
+      "id": "b1e0257b-5717-4c4e-9a00-b1e0257b1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send, log and advance\n\nA test send goes to `TEST_EMAIL` and logs nothing. Only a live run writes to Airtable and moves the cursor and receipt counter, so test runs never use up receipt numbers.",
+        "height": 512,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        0
+      ],
+      "id": "b0e023e8-5717-4c4e-9a00-b0e023e81003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "a4baf5f0-3a12-4af0-ab89-fb896fb3a4ba",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// THANK STRIPE DONORS BY GMAIL AND LOG GIFTS TO AIRTABLE WITH RECEIPT NUMBERS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_STRIPE false -> SAMPLE donations. AIRTABLE_BASE_ID blank -> SAMPLE gift history and no logging.\n// The charge cursor and receipt counter are kept in workflow static data and only move on a live run.\n\n// set true after adding the Stripe credential\nconst USE_STRIPE = false;\n// Airtable base id (starts with app); blank uses sample history\nconst AIRTABLE_BASE_ID = '';\n// Airtable table name for gifts\nconst GIFTS_TABLE = 'Gifts';\n// how far back the very first run looks\nconst FIRST_LOOKBACK_HOURS = 24;\n// receipt numbers look like R-2026-01001\nconst RECEIPT_PREFIX = 'R';\n// first receipt number when no counter is stored yet\nconst RECEIPT_START = 1001;\n// gifts at or above this get the tax acknowledgement line (major units)\nconst TAX_RECEIPT_THRESHOLD = 250;\n// acknowledgement text for gifts over the threshold\nconst TAX_LINE = 'No goods or services were provided in exchange for this contribution. Riverbend Food Share is a registered charity, EIN 00-0000000.';\n// organisation name in the email\nconst ORG_NAME = 'Riverbend Food Share';\n// sign-off line\nconst SIGNATORY = 'Jo Marsh, Director';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_stripe: USE_STRIPE,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    gifts_table: GIFTS_TABLE,\n    first_lookback_hours: FIRST_LOOKBACK_HOURS,\n    receipt_prefix: RECEIPT_PREFIX,\n    receipt_start: RECEIPT_START,\n    tax_receipt_threshold: TAX_RECEIPT_THRESHOLD,\n    tax_line: TAX_LINE,\n    org_name: ORG_NAME,\n    signatory: SIGNATORY,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "994438b4-7da4-4874-a542-45424c179944",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "c060bd49-7509-4079-a579-e5790344c060",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "6c9c33d5-8542-4345-ae6d-ee6d63c06c9c",
+      "name": "Work out the start time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Charges after the last processed one. The cursor lives in static data so an hour\n// with no gifts, or a failed run, does not lose or repeat any donation.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst since = store.last_created || Math.floor(Date.now() / 1000) - cfg.first_lookback_hours * 3600;\nreturn [{ json: { since, next_receipt: Math.max(store.next_receipt || 0, cfg.receipt_start) } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "e4a62db7-66d2-4a87-adc8-0dc81f4ee4a6",
+      "name": "Use sample donations?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e7d96c6-09a2-44e6-aea4-6ea494d51e7d",
+              "leftValue": "={{ !$('config').first().json.use_stripe }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "12896d10-1400-4810-a3ce-63ce8e931289",
+      "name": "Fetch new Stripe charges",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.stripe.com/v1/charges",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "created[gt]",
+              "value": "={{ $json.since }}"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "34d43642-388c-45a2-aa69-7a69c93134d4",
+      "name": "Read Stripe charges",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stripe list response -> one item per charge.\nconst out = [];\nfor (const page of $input.all()) for (const c of page.json.data || []) out.push({ json: {\n  id: c.id, created: c.created, status: c.status, refunded: Boolean(c.refunded), amount: (c.amount || 0) / 100, currency: (c.currency || 'usd').toUpperCase(),\n  name: c.billing_details?.name || '', email: (c.billing_details?.email || c.receipt_email || '').toLowerCase(), recurring: Boolean(c.invoice),\n  fund: c.metadata?.fund || '',\n} });\nreturn out;\n"
+      },
+      "position": [
+        1184,
+        352
+      ]
+    },
+    {
+      "id": "147cfabf-fdf6-450f-a003-f0030a06147c",
+      "name": "Load sample donations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_STRIPE is true. One returning donor, one monthly gift at the threshold, and three to skip.\nconst t = m => Math.floor(Date.now() / 1000) - m * 60;\nconst g = (id, mins, name, email, amount, extra = {}) => ({ id, created: t(mins), status: 'succeeded', refunded: false, amount, currency: 'USD', name, email, recurring: false, fund: '', ...extra });\nreturn [\n  g('ch_s1', 50, 'Ana Lima', 'ana@lima-family.example', 50),\n  g('ch_s2', 40, 'Ben Okafor', 'ben@okafor.example', 300, { fund: 'Winter appeal' }),\n  g('ch_s3', 30, 'Cara Nguyen', 'cara@nguyen.example', 250, { recurring: true }),\n  g('ch_s4', 20, 'Dev Patel', 'dev@patel.example', 100, { refunded: true }),\n  g('ch_s5', 15, 'Eli Brook', 'eli@brook.example', 75, { status: 'failed' }),\n  g('ch_s6', 10, 'Anonymous', '', 20),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "5d8018a5-52aa-4715-ae76-ee7671505d80",
+      "name": "Combine donation sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "2c92b0e1-055d-4491-a0ad-30adcfec2c92",
+      "name": "Collect new gifts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Keep successful, unrefunded charges with an email, oldest first so receipt numbers follow gift order.\nconst gifts = [], skipped = [];\nfor (const { json: c } of $input.all()) {\n  const reason = c.status !== 'succeeded' ? 'charge ' + c.status : c.refunded ? 'refunded' : !c.email ? 'no donor email' : '';\n  if (reason) skipped.push({ id: c.id, reason }); else gifts.push(c);\n}\ngifts.sort((a, b) => a.created - b.created);\nreturn [{ json: { gifts, skipped, emails: [...new Set(gifts.map(g => g.email))] } }];\n"
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "ecd2ba5a-ed1d-423a-af70-5f70c379ecd2",
+      "name": "Any new gifts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "417eccc3-8f58-4dd3-a4ac-d4ac197a417e",
+              "leftValue": "={{ $json.gifts.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1840,
+        176
+      ]
+    },
+    {
+      "id": "c56235b6-c264-48d6-aa81-1a81e585c562",
+      "name": "STOP: no new gifts",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2064,
+        352
+      ]
+    },
+    {
+      "id": "cc70d87e-f76b-4d1e-a070-1070c37dcc70",
+      "name": "Use sample history?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8f242b25-2b59-4195-aef5-6ef573d08f24",
+              "leftValue": "={{ !$('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "d55b2400-5407-4400-aab4-4ab42103d55b",
+      "name": "Look up past gifts in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.gifts_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ 'OR(' + $json.emails.map(e => \"LOWER({Email})='\" + e.replace(/'/g, \"\\\\'\") + \"'\").join(',') + ')' }}"
+            },
+            {
+              "name": "fields[]",
+              "value": "Email"
+            },
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2528,
+        352
+      ]
+    },
+    {
+      "id": "4f32c98b-da3d-4c1b-aa9e-aa9e6a724f32",
+      "name": "Count past gifts per donor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Airtable records -> { email: number of earlier gifts }.\nconst history = {};\nfor (const page of $input.all()) for (const r of page.json.records || []) {\n  const e = String(r.fields?.Email || '').toLowerCase();\n  if (e) history[e] = (history[e] || 0) + 1;\n}\nreturn [{ json: { history } }];\n"
+      },
+      "position": [
+        2752,
+        352
+      ]
+    },
+    {
+      "id": "4de984fa-1c05-4ada-a9aa-99aa04d94de9",
+      "name": "Load sample gift history",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until AIRTABLE_BASE_ID is set: Ben has given twice before.\nreturn [{ json: { history: { 'ben@okafor.example': 2 } } }];\n"
+      },
+      "position": [
+        2528,
+        176
+      ]
+    },
+    {
+      "id": "c2fe5ecd-f0b9-40bd-ac68-5c68b3e8c2fe",
+      "name": "Combine history sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2960,
+        176
+      ]
+    },
+    {
+      "id": "c3fe416e-a25a-4b0e-ac88-1c8837edc3fe",
+      "name": "Number receipts and pick wording",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Receipt numbers follow gift order. A donor giving twice in one run is first-time\n// only for the first gift. The tax line is added at or above the threshold.\nconst cfg = $('config').first().json;\nconst { gifts } = $('Collect new gifts').first().json;\nconst history = { ...$input.first().json.history };\nlet n = $('Work out the start time').first().json.next_receipt;\nconst year = new Date().getFullYear();\nreturn gifts.map(g => {\n  const before = history[g.email] || 0;\n  history[g.email] = before + 1;\n  const donor_type = before === 0 ? 'first-time' : 'returning';\n  return { json: { ...g, donor_type, past_gifts: before, receipt_number: cfg.receipt_prefix + '-' + year + '-' + String(n++).padStart(5, '0'),\n    tax_line: g.amount >= cfg.tax_receipt_threshold, next_receipt: n } };\n});\n"
+      },
+      "position": [
+        3184,
+        176
+      ]
+    },
+    {
+      "id": "5b9b7388-924e-4908-ab25-1b25023b5b9b",
+      "name": "Write the thank-you email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Wording changes with donor type and monthly giving; the facts are the same for everyone.\nconst cfg = $('config').first().json;\nreturn $input.all().map(({ json: g }) => {\n  const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: g.currency }).format(g.amount);\n  const first = g.name.split(' ')[0] || 'friend';\n  const open = g.donor_type === 'first-time'\n    ? 'Thank you for your first gift to ' + cfg.org_name + ', and welcome.'\n    : 'Thank you again. This is your gift number ' + (g.past_gifts + 1) + ' to ' + cfg.org_name + ', and it means a lot that you keep coming back.';\n  const body = [\n    'Dear ' + first + ',', '', open,\n    g.recurring ? 'Your monthly gift of ' + money + ' has been received. You can change or stop it at any time by replying to this email.' : 'We have received your gift of ' + money + (g.fund ? ' for the ' + g.fund : '') + '.', '',\n    'Receipt number: ' + g.receipt_number,\n    'Date: ' + new Date(g.created * 1000).toISOString().slice(0, 10),\n    'Amount: ' + money,\n    g.tax_line ? '' : null, g.tax_line ? cfg.tax_line : null, '',\n    'With thanks,', cfg.signatory, cfg.org_name,\n  ].filter(l => l !== null).join('\\n');\n  return { json: { ...g, subject: 'Thank you for your gift - receipt ' + g.receipt_number, body, send_to: cfg.mode === 'test' ? cfg.test_email : g.email } };\n});\n"
+      },
+      "position": [
+        3408,
+        176
+      ]
+    },
+    {
+      "id": "0eaf7fb3-0427-45c3-aedd-7eddb62a0eaf",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3648,
+        176
+      ]
+    },
+    {
+      "id": "2a9b4b04-71af-41c4-a75e-675e6b272a9b",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3872,
+        352
+      ]
+    },
+    {
+      "id": "d2743d0f-d373-4e5f-abd7-ebd7b916d274",
+      "name": "Email the thank-you",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3872,
+        176
+      ]
+    },
+    {
+      "id": "8c688b82-b326-46e2-a35e-c35e44f18c68",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4096,
+        176
+      ]
+    },
+    {
+      "id": "8abb3175-3bf0-4ee5-afce-efced8208abb",
+      "name": "Airtable set for logging?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0b966a64-aec4-4324-a2cc-62cc16c70b96",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4304,
+        176
+      ]
+    },
+    {
+      "id": "99449e7e-386d-431e-ae1f-0e1fcd7d9944",
+      "name": "STOP: test send - nothing logged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        4304,
+        352
+      ]
+    },
+    {
+      "id": "82c36bda-7eed-4bba-af66-0f66c0f982c3",
+      "name": "Log the gift in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.gifts_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, records: [{ fields: (g => ({ Email: g.email, Name: g.name, Amount: g.amount, Currency: g.currency, Date: new Date(g.created * 1000).toISOString().slice(0, 10), 'Receipt number': g.receipt_number, 'Donor type': g.donor_type, 'Stripe charge': g.id }))($('Write the thank-you email').item.json) }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        4528,
+        176
+      ]
+    },
+    {
+      "id": "07bd35f3-5987-4803-ab6a-0b6a4dea07bd",
+      "name": "Move the cursor and counter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only, after logging: the next run starts after the newest gift and the next free receipt number.\nconst store = $getWorkflowStaticData('global');\nconst gifts = $('Write the thank-you email').all().map(i => i.json);\nstore.last_created = Math.max(store.last_created || 0, ...gifts.map(g => g.created));\nstore.next_receipt = Math.max(store.next_receipt || 0, ...gifts.map(g => g.next_receipt));\nreturn [{ json: { last_created: store.last_created, next_receipt: store.next_receipt } }];\n"
+      },
+      "position": [
+        4752,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Work out the start time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out the start time": {
+      "main": [
+        [
+          {
+            "node": "Use sample donations?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample donations?": {
+      "main": [
+        [
+          {
+            "node": "Load sample donations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch new Stripe charges",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch new Stripe charges": {
+      "main": [
+        [
+          {
+            "node": "Read Stripe charges",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample donations": {
+      "main": [
+        [
+          {
+            "node": "Combine donation sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Stripe charges": {
+      "main": [
+        [
+          {
+            "node": "Combine donation sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine donation sources": {
+      "main": [
+        [
+          {
+            "node": "Collect new gifts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect new gifts": {
+      "main": [
+        [
+          {
+            "node": "Any new gifts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any new gifts?": {
+      "main": [
+        [
+          {
+            "node": "Use sample history?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new gifts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample history?": {
+      "main": [
+        [
+          {
+            "node": "Load sample gift history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Look up past gifts in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up past gifts in Airtable": {
+      "main": [
+        [
+          {
+            "node": "Count past gifts per donor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample gift history": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count past gifts per donor": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine history sources": {
+      "main": [
+        [
+          {
+            "node": "Number receipts and pick wording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Number receipts and pick wording": {
+      "main": [
+        [
+          {
+            "node": "Write the thank-you email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the thank-you email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the thank-you",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the thank-you": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Airtable set for logging?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - nothing logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable set for logging?": {
+      "main": [
+        [
+          {
+            "node": "Log the gift in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Move the cursor and counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log the gift in Airtable": {
+      "main": [
+        [
+          {
+            "node": "Move the cursor and counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

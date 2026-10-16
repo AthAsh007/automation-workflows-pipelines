@@ -1,0 +1,706 @@
+{
+  "name": "Detect likely duplicate bills in Xero and post a review list to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Detect likely duplicate bills in Xero and post a review list to Slack\n\n**Who's it for**\nAccounts payable staff and bookkeepers on Xero who enter bills from email, scans and supplier portals, where the same invoice often gets keyed twice. The check runs before each payment run so a duplicate is caught before it is paid.\n\n**How it works**\n1. Every Tuesday and Thursday at 08:00 it reads bills with status Draft or Awaiting Payment from the last 90 days, or a sample set until Xero is connected.\n2. Each pair of bills from the same supplier, or from two suppliers whose names differ by a typo, is scored: 30 for the supplier, 30 for the same amount, 25 for the same date and 40 for the same supplier reference.\n3. Two different references take 30 points off, so weekly bills of the same amount are not flagged. Pairs scoring 70 or more go on the list.\n4. Slack gets each pair with the reasons and a link to both bills. Pairs already posted are not posted again.\n\n**How to set up**\n1. Run it once as imported. It scores sample bills and stops at `STOP: preview - nothing posted`.\n2. Add a Xero OAuth2 credential to `Fetch bills from Xero`, put your organisation id in `XERO_TENANT_ID`, then set `USE_XERO = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel, where the test list lands. Set `TEST_RUN = false` to post to `SLACK_CHANNEL_ID` and remember posted pairs.\n\n**Requirements**\n- A Xero organisation with bills\n- A Slack workspace\n\n**How to customize**\n- `REVIEW_SCORE` raises or lowers how sure a pair must be before it is posted.\n- `AMOUNT_TOLERANCE`, `AMOUNT_NEAR_PCT` and `DATE_WINDOW_DAYS` set what counts as the same amount and date.\n- `LOOKBACK_DAYS` limits how far back bills are compared.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "104df340-5717-4c4e-9a00-104df34013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns Tuesday and Thursday mornings, ahead of a typical payment run. Every score weight and window is a constant in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "685aacf5-5717-4c4e-9a00-685aacf51000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read open bills\n\nOnly Draft and Awaiting Payment bills are fetched, because a paid duplicate is a refund problem, not a review. `Load sample bills` feeds the same shape until `USE_XERO` is true.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "675aab62-5717-4c4e-9a00-675aab621001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score every pair\n\n`Score duplicate pairs` compares only bills whose suppliers match, which keeps the pair count small. Different references subtract points, so a weekly courier bill for the same amount stays off the list.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "665aa9cf-5717-4c4e-9a00-665aa9cf1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nThere is no write to Xero anywhere in this workflow. Only a live post records the pair keys, so the same pair is not posted twice and a test post hides nothing. A test post goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "655aa83c-5717-4c4e-9a00-655aa83c1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "eaf6baa0-eb2c-48a0-a4cd-54cd9663eaf6",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// DETECT LIKELY DUPLICATE BILLS IN XERO AND POST A REVIEW LIST TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_XERO false -> SAMPLE bills so the run works before any credential exists.\n// This workflow only reads Xero. It never voids, deletes or edits a bill.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n\n// set true after adding the Xero credential and XERO_TENANT_ID\nconst USE_XERO = false;\n// Xero organisation (tenant) id, sent as the xero-tenant-id header\nconst XERO_TENANT_ID = '';\n// bills dated within this many days are compared\nconst LOOKBACK_DAYS = 90;\n// totals this close count as the same amount\nconst AMOUNT_TOLERANCE = 0.5;\n// totals within this percent score half the amount points\nconst AMOUNT_NEAR_PCT = 2;\n// bill dates this close score the date points\nconst DATE_WINDOW_DAYS = 14;\n// pairs at or above this score are posted\nconst REVIEW_SCORE = 70;\n// channel for the review list; blank means nothing is posted\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_xero: USE_XERO,\n    xero_tenant_id: XERO_TENANT_ID,\n    lookback_days: LOOKBACK_DAYS,\n    amount_tolerance: AMOUNT_TOLERANCE,\n    amount_near_pct: AMOUNT_NEAR_PCT,\n    date_window_days: DATE_WINDOW_DAYS,\n    review_score: REVIEW_SCORE,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "48498364-ac6a-4c24-a7bf-47bfb7c74849",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "857a8741-609c-4cf1-a53b-a53ba78c857a",
+      "name": "Tuesday and Thursday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 2,4"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "1c1ad78a-9915-406a-ad01-dd017aa91c1a",
+      "name": "Xero connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fac2a7d9-5f8a-4e09-a578-8578ba54fac2",
+              "leftValue": "={{ $('config').first().json.use_xero }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "14e3d644-2269-4904-a72e-072eb3e714e3",
+      "name": "Fetch bills from Xero",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.xero.com/api.xro/2.0/Invoices",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "xeroOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "where",
+              "value": "={{ 'Type==\"ACCPAY\" AND Date>=DateTime(' + new Date(Date.now() - $('config').first().json.lookback_days * 864e5).toISOString().slice(0, 10).replace(/-/g, ',') + ')' }}"
+            },
+            {
+              "name": "Statuses",
+              "value": "DRAFT,AUTHORISED"
+            },
+            {
+              "name": "order",
+              "value": "Date DESC"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xero-tenant-id",
+              "value": "={{ $('config').first().json.xero_tenant_id }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "acf42d0c-13b1-414c-a873-6873aadfacf4",
+      "name": "Read Xero bills",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Xero Invoices response -> one item per bill. Dates come as DateString, or as\n// the older /Date(ms+0000)/ form, so both are handled.\nconst toDate = (s, legacy) => {\n  if (s) return String(s).slice(0, 10);\n  const m = String(legacy || '').match(/\\/Date\\((\\d+)/);\n  return m ? new Date(Number(m[1])).toISOString().slice(0, 10) : '';\n};\nconst out = [];\nfor (const page of $input.all()) {\n  for (const b of page.json.Invoices || []) {\n    if (b.Type !== 'ACCPAY') continue;\n    out.push({ json: { id: b.InvoiceID, number: b.InvoiceNumber || '', reference: b.Reference || '', contact_id: b.Contact?.ContactID || '',\n      contact: b.Contact?.Name || '', date: toDate(b.DateString, b.Date), total: Number(b.Total || 0), currency: b.CurrencyCode || '', status: b.Status } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "101be862-bd2f-4dc2-a59c-f59cde11101b",
+      "name": "Load sample bills",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_XERO is true. Three real duplicates hidden among recurring look-alikes.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst b = (id, contact_id, contact, number, total, d, status = 'AUTHORISED') => ({ id, number, reference: '', contact_id, contact, date: day(d), total, currency: 'USD', status });\nreturn [\n  b('bill-01', 'c-green', 'Greenleaf Supplies', 'INV-2041', 1250.00, 10),\n  b('bill-02', 'c-green', 'Greenleaf Supplies', 'INV2041', 1250.00, 8, 'DRAFT'),\n  b('bill-03', 'c-metro', 'Metro Couriers', 'MC-5531', 89.50, 20),\n  b('bill-04', 'c-metro', 'Metro Couriers', 'MC-5562', 89.50, 13),\n  b('bill-05', 'c-bright', 'Brightline Energy', 'BE-7781', 412.30, 5),\n  b('bill-06', 'c-bright', 'Brightline Energy', 'BE-07781', 413.30, 30),\n  b('bill-07', 'c-harb1', 'Harbor Print', 'HP-100', 640.00, 3),\n  b('bill-08', 'c-harb2', 'Harbour Print Ltd', 'HP-100', 640.00, 3, 'DRAFT'),\n  b('bill-09', 'c-oak', 'Oakridge Cleaning', 'OC-88', 300.00, 6),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "bb8038e2-f318-4642-a0db-b0db7291bb80",
+      "name": "Combine bill sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "80cc4e8c-e676-4acc-a080-6080545f80cc",
+      "name": "Score duplicate pairs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pairwise scoring. A pair is only compared when the suppliers match by id or by a\n// near-identical name. Different supplier references count against a match, which\n// keeps recurring same-amount bills off the list.\nconst cfg = $('config').first().json;\nconst reported = new Set($getWorkflowStaticData('global').reported_pairs || []);\nconst bills = $input.all().map(i => i.json);\nconst norm = s => String(s || '').toLowerCase().replace(/\\b(ltd|limited|inc|llc|co|corp|plc|gmbh)\\b/g, '').replace(/[^a-z0-9]/g, '').replace(/^0+|(?<=[a-z])0+/g, '');\nconst lev = (a, b) => {\n  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);\n  for (let j = 1; j <= b.length; j++) d[0][j] = j;\n  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)\n    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));\n  return d[a.length][b.length];\n};\nconst days = (a, b) => Math.abs(Math.round((new Date(a) - new Date(b)) / 864e5));\nconst pairs = [];\nlet compared = 0;\nfor (let i = 0; i < bills.length; i++) for (let j = i + 1; j < bills.length; j++) {\n  const a = bills[i], b = bills[j];\n  const reasons = [];\n  let score = 0;\n  if (a.contact_id && a.contact_id === b.contact_id) { score += 30; reasons.push('same supplier'); }\n  else if (lev(norm(a.contact), norm(b.contact)) <= 2) { score += 20; reasons.push('supplier names nearly identical (' + a.contact + ' / ' + b.contact + ')'); }\n  else continue;\n  compared++;\n  if (a.currency !== b.currency) continue;\n  const diff = Math.abs(a.total - b.total);\n  if (diff <= cfg.amount_tolerance) { score += 30; reasons.push('same amount'); }\n  else if (diff / Math.max(a.total, b.total) * 100 <= cfg.amount_near_pct) { score += 15; reasons.push('amounts ' + diff.toFixed(2) + ' apart'); }\n  const dd = days(a.date, b.date);\n  if (dd <= 1) { score += 25; reasons.push(dd ? 'dates 1 day apart' : 'same date'); }\n  else if (dd <= cfg.date_window_days) { score += 20; reasons.push('dates ' + dd + ' days apart'); }\n  const ra = norm(a.number || a.reference), rb = norm(b.number || b.reference);\n  if (ra && rb) {\n    if (ra === rb) { score += 40; reasons.push('same supplier reference'); }\n    else if (lev(ra, rb) === 1) { score += 15; reasons.push('references differ by one character'); }\n    else { score -= 30; reasons.push('different references'); }\n  }\n  if (score < cfg.review_score) continue;\n  const key = [a.id, b.id].sort().join('|');\n  pairs.push({ key, score, reasons, already_posted: reported.has(key), a, b });\n}\npairs.sort((x, y) => y.score - x.score);\nconst fresh = pairs.filter(p => !p.already_posted);\nreturn [{ json: { bills: bills.length, compared, pairs: fresh, repeats: pairs.length - fresh.length } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "da988f1a-09b4-4afa-a411-14114ab9da98",
+      "name": "Write the review list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Links open each bill in Xero. The message says plainly that nothing was changed.\nconst cfg = $('config').first().json;\nconst { pairs, bills, repeats } = $input.first().json;\nconst link = b => '<https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=' + b.id + '|' + (b.number || b.reference || b.id) + '>';\nconst money = b => b.currency + ' ' + b.total.toFixed(2);\nconst lines = pairs.map((p, i) => [\n  (i + 1) + '. *' + p.a.contact + '* score ' + p.score,\n  '   ' + link(p.a) + ' ' + money(p.a) + ' on ' + p.a.date + ' (' + p.a.status + ')  vs  ' + link(p.b) + ' ' + money(p.b) + ' on ' + p.b.date + ' (' + p.b.status + ')',\n  '   ' + p.reasons.join(', '),\n].join('\\n'));\nconst text = [\n  (cfg.mode === 'test' ? '[TEST] ' : '') + '*Possible duplicate bills in Xero*: ' + pairs.length + ' pair' + (pairs.length === 1 ? '' : 's') + ' from ' + bills + ' open bills',\n  '', ...lines, '',\n  (repeats ? repeats + ' pair(s) already posted earlier are not repeated. ' : '') + 'Nothing has been voided or edited; check each pair in Xero.',\n].join('\\n');\nconst send_to = cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id;\nreturn [{ json: { text, send_to, found: pairs.length, keys: pairs.map(p => p.key) } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "c6035754-17a2-4514-aa02-fa021977c603",
+      "name": "Any new pairs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "37159a41-8dcf-4ff1-adb1-9db1ba8c3715",
+              "leftValue": "={{ $json.found > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "15a793b5-9f90-4d25-aad3-fad3fce015a7",
+      "name": "STOP: no likely duplicates",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "bfcbc1c7-5e39-4997-a681-2681459ebfcb",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "f332b771-460c-4e21-ad6a-9d6a1afcf332",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "1c9aa4a6-b268-4cc6-aad3-cad30ff51c9a",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "0e6bb1b4-251f-4174-ad6d-6d6d4d170e6b",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "b7e1f41c-a99f-435c-a090-7090e66fb7e1",
+      "name": "Post the review list to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $('Write the review list').first().json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "74e28892-568b-4ef2-a9ec-d9ec2a8174e2",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "535ed895-f6f5-4c05-a701-37018700535e",
+      "name": "STOP: test post - pairs not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "58013479-5ea1-48a9-aad7-bad755b45801",
+      "name": "Remember posted pairs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: a posted pair is not posted again on the next run (last 1000 kept).\nconst store = $getWorkflowStaticData('global');\nstore.reported_pairs = [...new Set([...(store.reported_pairs || []), ...$('Write the review list').first().json.keys])].slice(-1000);\nreturn [{ json: { remembered: store.reported_pairs.length } }];\n"
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tuesday and Thursday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Xero connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Xero connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch bills from Xero",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample bills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch bills from Xero": {
+      "main": [
+        [
+          {
+            "node": "Read Xero bills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Xero bills": {
+      "main": [
+        [
+          {
+            "node": "Combine bill sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample bills": {
+      "main": [
+        [
+          {
+            "node": "Combine bill sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine bill sources": {
+      "main": [
+        [
+          {
+            "node": "Score duplicate pairs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score duplicate pairs": {
+      "main": [
+        [
+          {
+            "node": "Write the review list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the review list": {
+      "main": [
+        [
+          {
+            "node": "Any new pairs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any new pairs?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no likely duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the review list to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the review list to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember posted pairs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - pairs not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

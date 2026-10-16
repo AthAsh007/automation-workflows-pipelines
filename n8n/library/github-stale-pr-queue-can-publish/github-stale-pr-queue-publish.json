@@ -1,0 +1,536 @@
+{
+  "name": "Post a weekly stale pull request queue from GitHub to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Post a weekly stale pull request queue from GitHub to Slack\n\n**Who's it for**\nEngineering leads of teams with 4 to 30 developers where pull requests sit for days because nobody knows whose turn it is. Monday morning starts with a list that says who has to act on what.\n\n**How it works**\n1. Every Monday at 09:30 it queries open pull requests in each repository in `REPOS` through the GitHub GraphQL API, or uses sample data until GitHub is connected.\n2. Drafts are skipped. A pull request waits on the author when changes were requested and no commit came after, or when it is approved but not merged. Otherwise it waits on the requested reviewers.\n3. Anything not updated for `STALE_DAYS` is stale. Size comes from lines added plus deleted, XS to XL.\n4. One Slack message lists reviewer waits first, oldest first, then author waits, with GitHub logins turned into Slack mentions through `SLACK_USERS`.\n\n**How to set up**\n1. Run it once as imported. It builds the queue from sample pull requests and stops at `STOP: dry run - nothing posted`.\n2. Add a GitHub credential to `Query open pull requests`, list your repositories in `REPOS` and set `USE_GITHUB = true`.\n3. Connect Slack, set `SLACK_CHANNEL_ID` and map GitHub logins to Slack member ids in `SLACK_USERS`.\n4. Set `DRY_RUN = false` once the queue looks right.\n\n**Requirements**\n- A GitHub token with read access to the repositories\n- A Slack workspace\n\n**How to customize**\n- `STALE_DAYS` sets how long without an update counts as stale.\n- `SIZE_STEPS` sets the line counts for XS, S, M and L; anything above is XL.\n- `MAX_LINES` caps the message length; the rest is summarised as a count.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "dea3dc3a-5717-4c4e-9a00-dea3dc3a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 09:30. `List repositories` builds one GraphQL request per repository, which returns reviews, review requests and the last commit in a single call instead of one REST call per pull request.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "29dd0d9f-5717-4c4e-9a00-29dd0d9f1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read open pull requests\n\nThe GraphQL call is a POST that only reads, so it is not treated as a write. `Load sample pull requests` returns the same response shape, including a draft and a re-review case.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "28dd0c0c-5717-4c4e-9a00-28dd0c0c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Decide whose turn it is\n\nComparing the last commit with the latest change request is what separates \"author has not fixed it\" from \"author fixed it, reviewer has not looked\". Drafts and recently updated pull requests are counted, not listed.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "2bdd10c5-5717-4c4e-9a00-2bdd10c51002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post the queue\n\nReviewer waits come first because they block someone else. `MAX_LINES` keeps the message readable, and `Post to Slack?` needs a live run and a channel.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "2add0f32-5717-4c4e-9a00-2add0f321003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "61fe6697-3bd3-4d67-aa7a-da7af56e61fe",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// POST A WEEKLY STALE PULL REQUEST QUEUE FROM GITHUB TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GITHUB false -> SAMPLE pull requests. SLACK_CHANNEL_ID blank -> nothing is posted.\n// DRY_RUN true -> the queue is built and shown, not posted.\n\n// set true after adding the GitHub credential\nconst USE_GITHUB = false;\n// owner/name of each repository\nconst REPOS = [\n  \"northwind/api\",\n  \"northwind/web\"\n];\n// days without an update before a pull request is listed\nconst STALE_DAYS = 3;\n// upper bound of lines changed for each size; above L is XL\nconst SIZE_STEPS = {\n  XS: 10,\n  S: 100,\n  M: 400,\n  L: 1000\n};\n// GitHub login -> Slack member id for mentions\nconst SLACK_USERS = {\n  lucyg: \"U01LUCY\",\n  ravis: \"U01RAVI\",\n  mayat: \"U01MAYA\",\n  tomr: \"U01TOM\"\n};\n// most pull requests listed in one message\nconst MAX_LINES = 20;\n// channel for the weekly queue; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_github: USE_GITHUB,\n    repos: REPOS,\n    stale_days: STALE_DAYS,\n    size_steps: SIZE_STEPS,\n    slack_users: SLACK_USERS,\n    max_lines: MAX_LINES,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "39898087-b4d2-4c57-a1d7-b1d7aede3989",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "f1804925-2938-4f95-a8b6-f8b625d0f180",
+      "name": "Every Monday at 09:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 9 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "1022cc5f-2511-44af-a28f-628fca661022",
+      "name": "List repositories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One GraphQL request per repository: everything needed to decide whose turn it is.\nconst query = [\n  'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { nameWithOwner',\n  '  pullRequests(states: OPEN, first: 50, orderBy: { field: UPDATED_AT, direction: ASC }) { nodes {',\n  '    number title url isDraft createdAt updatedAt additions deletions author { login } reviewDecision',\n  '    reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }',\n  '    latestReviews(first: 10) { nodes { author { login } state submittedAt } }',\n  '    commits(last: 1) { nodes { commit { committedDate } } } } } } }',\n].join('\\n');\nreturn $('config').first().json.repos.map(repo => {\n  const [owner, name] = repo.split('/');\n  return { json: { repo, body: { query, variables: { owner, name } } } };\n});\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "541d52ce-f2ab-4e6e-a09e-c09e6a8d541d",
+      "name": "GitHub connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "888a516a-b1e3-444a-a4e2-04e220c9888a",
+              "leftValue": "={{ $('config').first().json.use_github }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "06605956-3851-4a76-ac45-cc4553e50660",
+      "name": "Query open pull requests",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "6621374a-dcff-442a-a84d-f84d83e96621",
+      "name": "Load sample pull requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GITHUB is true. GraphQL responses for two repositories, dates relative to now.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nconst pr = (number, title, o) => ({ number, title, url: 'https://github.com/' + o.repo + '/pull/' + number, isDraft: !!o.draft, createdAt: ago(o.age + 2),\n  updatedAt: ago(o.age), additions: o.add, deletions: o.del, author: { login: o.author }, reviewDecision: o.decision || null,\n  reviewRequests: { nodes: (o.requested || []).map(login => ({ requestedReviewer: { login } })) },\n  latestReviews: { nodes: (o.reviews || []).map(([login, state, d]) => ({ author: { login }, state, submittedAt: ago(d) })) },\n  commits: { nodes: [{ commit: { committedDate: ago(o.commit ?? o.age) } }] } });\nconst repo = (name, nodes) => ({ data: { repository: { nameWithOwner: name, pullRequests: { nodes } } } });\nreturn [\n  repo('northwind/api', [\n    pr(311, 'Add retries to the webhook sender', { repo: 'northwind/api', age: 6, add: 120, del: 30, author: 'mayat', requested: ['lucyg'] }),\n    pr(305, 'Move invoice PDFs to background jobs', { repo: 'northwind/api', age: 5, add: 340, del: 210, author: 'tomr', decision: 'CHANGES_REQUESTED', reviews: [['ravis', 'CHANGES_REQUESTED', 5]], commit: 7 }),\n    pr(309, 'Paginate the orders endpoint', { repo: 'northwind/api', age: 2, add: 60, del: 12, author: 'mayat', decision: 'CHANGES_REQUESTED', reviews: [['ravis', 'CHANGES_REQUESTED', 4]], commit: 2 }),\n  ]),\n  repo('northwind/web', [\n    pr(77, 'Fix date format on the billing page', { repo: 'northwind/web', age: 4, add: 4, del: 3, author: 'lucyg', decision: 'APPROVED', reviews: [['mayat', 'APPROVED', 4]] }),\n    pr(80, 'WIP: new onboarding flow', { repo: 'northwind/web', age: 12, add: 900, del: 40, author: 'tomr', draft: true }),\n    pr(81, 'Upgrade the design system to v3', { repo: 'northwind/web', age: 10, add: 1300, del: 420, author: 'ravis' }),\n  ]),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "4272332a-d52a-4a0a-a335-a335e1094272",
+      "name": "Combine pull request sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "f174e180-a2e5-4980-a471-8471b283f174",
+      "name": "Sort the stale queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Whose turn: changes requested with no newer commit, or approved and unmerged -> author.\n// A commit after the change request, pending review requests, or no review -> reviewer.\nconst cfg = $('config').first().json;\nconst days = iso => Math.floor((Date.now() - new Date(iso)) / 864e5);\nconst size = n => Object.entries(cfg.size_steps).find(([, max]) => n < max)?.[0] || 'XL';\nconst queue = [], skipped = { drafts: 0, fresh: 0 };\nfor (const { json: page } of $input.all()) {\n  const repo = page.data?.repository;\n  if (!repo) continue;\n  for (const p of repo.pullRequests.nodes || []) {\n    if (p.isDraft) { skipped.drafts++; continue; }\n    const idle = days(p.updatedAt);\n    if (idle < cfg.stale_days) { skipped.fresh++; continue; }\n    const lastCommit = p.commits?.nodes?.[0]?.commit?.committedDate || p.createdAt;\n    const changeReq = (p.latestReviews?.nodes || []).filter(r => r.state === 'CHANGES_REQUESTED').sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];\n    const requested = (p.reviewRequests?.nodes || []).map(r => r.requestedReviewer?.login || r.requestedReviewer?.name).filter(Boolean);\n    let waiting, who, why;\n    if (p.reviewDecision === 'APPROVED') { waiting = 'author'; who = [p.author.login]; why = 'approved, not merged'; }\n    else if (changeReq && lastCommit <= changeReq.submittedAt) { waiting = 'author'; who = [p.author.login]; why = 'changes requested by ' + changeReq.author.login; }\n    else if (changeReq) { waiting = 'reviewer'; who = [changeReq.author.login]; why = 'new commits since changes were requested'; }\n    else if (requested.length) { waiting = 'reviewer'; who = requested; why = 'review requested'; }\n    else { waiting = 'reviewer'; who = []; why = 'no reviewer assigned'; }\n    queue.push({ repo: repo.nameWithOwner, number: p.number, title: p.title, url: p.url, author: p.author.login, idle_days: idle,\n      size: size((p.additions || 0) + (p.deletions || 0)), lines: (p.additions || 0) + (p.deletions || 0), waiting, who, why });\n  }\n}\nqueue.sort((a, b) => (a.waiting === b.waiting ? b.idle_days - a.idle_days : a.waiting === 'reviewer' ? -1 : 1));\nreturn [{ json: { queue, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "132894d3-a0bb-40e3-a8eb-a8eb1e0a1328",
+      "name": "Anything stale?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "54e90b49-5625-4e79-a13c-613c854454e9",
+              "leftValue": "={{ $json.queue.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "49bb918a-131f-4a6a-ab02-ab02f0a949bb",
+      "name": "STOP: no stale pull requests",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "a4c4836f-8cd7-46bf-a5a0-05a047b6a4c4",
+      "name": "Write the queue message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Two blocks, reviewer waits first. Logins become Slack mentions where known.\nconst cfg = $('config').first().json;\nconst { queue, skipped } = $input.first().json;\nconst tag = l => cfg.slack_users[l] ? '<@' + cfg.slack_users[l] + '>' : '@' + l;\nconst line = p => '- <' + p.url + '|' + p.repo.split('/')[1] + '#' + p.number + '> ' + p.title + ' [' + p.size + '] ' + p.idle_days + 'd idle: ' +\n  (p.who.length ? p.who.map(tag).join(', ') : '*needs a reviewer*') + ' (' + p.why + ')';\nconst shown = queue.slice(0, cfg.max_lines);\nconst rev = shown.filter(p => p.waiting === 'reviewer'), auth = shown.filter(p => p.waiting === 'author');\nconst text = [\n  '*Stale pull requests* (' + queue.length + ' idle ' + cfg.stale_days + '+ days; ' + skipped.drafts + ' drafts skipped)',\n  ...(rev.length ? ['', '*Waiting on review*', ...rev.map(line)] : []),\n  ...(auth.length ? ['', '*Waiting on the author*', ...auth.map(line)] : []),\n  ...(queue.length > shown.length ? ['', '...and ' + (queue.length - shown.length) + ' more.'] : []),\n].join('\\n');\nreturn [{ json: { text, listed: shown.length } }];\n"
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "f05550d9-cad2-4709-a3e0-c3e0b754f055",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1fd7b828-3ac9-4ba8-a3ce-83ce359b1fd7",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "7a631e1a-fb58-49fa-a23d-b23d71b97a63",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "81d6fec0-9f4e-42c0-a7ec-37ec794381d6",
+      "name": "Post the queue to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 09:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List repositories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List repositories": {
+      "main": [
+        [
+          {
+            "node": "GitHub connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub connected?": {
+      "main": [
+        [
+          {
+            "node": "Query open pull requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample pull requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query open pull requests": {
+      "main": [
+        [
+          {
+            "node": "Combine pull request sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample pull requests": {
+      "main": [
+        [
+          {
+            "node": "Combine pull request sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine pull request sources": {
+      "main": [
+        [
+          {
+            "node": "Sort the stale queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort the stale queue": {
+      "main": [
+        [
+          {
+            "node": "Anything stale?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything stale?": {
+      "main": [
+        [
+          {
+            "node": "Write the queue message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no stale pull requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the queue message": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post the queue to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

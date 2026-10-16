@@ -1,0 +1,12 @@
+{
+  "event_type": "EMAIL_REPLY",
+  "campaign_id": "demo-campaign-a",
+  "campaign_name": "Tier A (demo)",
+  "sl_email_lead_id": "demo-1",
+  "sl_lead_email": "dana.reyes@ledgerly.example",
+  "to_name": "Dana Reyes",
+  "subject": "Re: Ledgerly and your Q4 pipeline",
+  "reply_message": {
+    "text": "Thanks, the timing is actually good. Can you send a couple of slots for Thursday?\n\nOn Tue, 22 Sep, Sam wrote:\n> Hi Dana..."
+  }
+}

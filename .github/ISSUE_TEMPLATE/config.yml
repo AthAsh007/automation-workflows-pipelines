@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Something that could reach a real person
     url: https://github.com/AthAsh007/automation-workflows-pipelines/security/advisories/new
     about: A fixture with real contact details, or a template whose guards can be bypassed. Report this privately, not as an issue.
+  - name: Code of conduct
+    url: https://github.com/AthAsh007/automation-workflows-pipelines/blob/main/CODE_OF_CONDUCT.md
+    about: How to report behaviour in issues or reviews.

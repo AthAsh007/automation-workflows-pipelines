@@ -1,0 +1,267 @@
+{
+  "name": "Tool: Check availability",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "devices",
+              "type": "number"
+            },
+            {
+              "name": "hours",
+              "type": "number"
+            },
+            {
+              "name": "date"
+            },
+            {
+              "name": "start"
+            },
+            {
+              "name": "end"
+            }
+          ]
+        }
+      },
+      "id": "769fdd15-9542-4ed5-88e2-32e2398a1493",
+      "name": "When the chatbot checks avail",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        224
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e01371f3-22df-40e7-bd9a-732815b3c240",
+      "name": "Run a demo avail",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        40,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { devices: 2, hours: 1, date: 'tomorrow', start: '', end: '' } };"
+      },
+      "id": "f337c6ee-d223-4b2e-8b9e-041a5f6f239b",
+      "name": "Demo request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// School iPad booking - CONFIG (availability). Fill in the PUT ... HERE values.\nconst cfg = {\n  SPREADSHEET_ID: 'PUT YOUR GOOGLE SHEET ID HERE',\n  DEVICES_TAB: 'Devices',\n  BOOKINGS_TAB: 'Bookings',\n  TIMEZONE: 'Asia/Kolkata', // school time zone (IANA name)\n  SCHOOL_OPEN: '07:00',\n  SCHOOL_CLOSE: '12:00',\n  CLOSED_WEEKDAYS: [7], // 1 = Mon ... 7 = Sun; no bookings or availability on these days\n  SCAN_DAYS: 7, // how many days (today included) availability scans when no date is given\n  DEFAULT_MINUTES: 60, // duration availability assumes when no hours are given\n  DEFAULT_DEVICES: 1,\n};\nreturn $input.all().map((i) => ({ json: Object.assign({}, i.json, { _cfg: cfg }) }));"
+      },
+      "id": "b8a161a8-81c8-4333-9385-6d460e77a1f4",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.DEVICES_TAB }}"
+        },
+        "options": {}
+      },
+      "id": "334f642a-5610-4367-a487-f7addb9d65fc",
+      "name": "Sheets - Devices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        760,
+        224
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.BOOKINGS_TAB }}"
+        },
+        "options": {}
+      },
+      "id": "fc4203d8-64bb-48b8-ad7f-715276748eae",
+      "name": "Sheets - Bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1000,
+        224
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// AVAILABILITY. With a date, start and end it reports how many iPads are free for that exact\n// window. Otherwise it lists the stretches of the school morning where `devices` iPads are free\n// for `hours`, on the given date or (no date) over the next SCAN_DAYS days (today included).\n// Today counts from now. Closed days and past times are never reported as free.\nconst cfg = $('config').first().json._cfg;\nconst req = $('config').first().json;\nconst fleet = $('Sheets - Devices').all().map((i) => i.json || {});\nconst bookings = $('Sheets - Bookings').all().map((i) => i.json || {});\n\nconst STEP = 15; // minutes between candidate start times\nconst now = $now.setZone(cfg.TIMEZONE);\nconst today = now.toFormat('yyyy-MM-dd');\nconst nowMin = now.hour * 60 + now.minute;\nconst pad = (n) => String(n).padStart(2, '0');\nconst fmt = (m) => pad(Math.floor(m / 60)) + ':' + pad(m % 60);\n\n// '9', '09:00', '9.30', '9am', '9:30 PM', ISO strings and Sheets time fractions -> 'HH:MM'\nfunction toHHMM(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim();\n  if (/^0?\\.\\d+$/.test(s)) return fmt(Math.round(Number(s) * 1440));\n  const iso = s.match(/T(\\d{2}):(\\d{2})/);\n  if (iso) return iso[1] + ':' + iso[2];\n  const m = s.match(/^(\\d{1,2})(?:[:.](\\d{2}))?\\s*([ap])?\\.?\\s*m?\\.?$/i);\n  if (!m) return null;\n  let h = Number(m[1]);\n  const mi = m[2] ? Number(m[2]) : 0;\n  const ap = (m[3] || '').toLowerCase();\n  if (ap === 'p' && h < 12) h += 12;\n  if (ap === 'a' && h === 12) h = 0;\n  return h > 23 || mi > 59 ? null : pad(h) + ':' + pad(mi);\n}\nconst toMin = (v) => {\n  const t = toHHMM(v);\n  return t == null ? null : Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));\n};\n// 'YYYY-MM-DD', 'today', 'tomorrow' and Sheets date serials -> 'YYYY-MM-DD'. Impossible dates (2026-02-31) -> null.\nfunction toYMD(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim().toLowerCase();\n  if (s === 'today') return today;\n  if (s === 'tomorrow') return now.plus({ days: 1 }).toFormat('yyyy-MM-dd');\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return DateTime.fromISO(s.slice(0, 10)).isValid ? s.slice(0, 10) : null;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return DateTime.fromISO('1899-12-30').plus({ days: Math.floor(Number(s)) }).toFormat('yyyy-MM-dd');\n  return null;\n}\nconst prettyDate = (ymd) => DateTime.fromISO(ymd).toFormat('ccc d LLL');\nconst isClosed = (ymd) => cfg.CLOSED_WEEKDAYS.includes(DateTime.fromISO(ymd).weekday);\nconst fleetIds = fleet\n  .filter((d) => d.device_id && String(d.status || '').trim().toLowerCase() === 'available')\n  .map((d) => String(d.device_id).trim());\nfunction freeCount(date, s, e) {\n  const busy = new Set();\n  for (const b of bookings) {\n    if (String(b.status || '').trim().toLowerCase() === 'cancelled' || toYMD(b.date) !== date) continue;\n    const bs = toMin(b.start_time), be = toMin(b.end_time);\n    if (bs == null || be == null || bs >= e || be <= s) continue;\n    for (const id of String(b.device_ids || '').split('|')) if (id.trim()) busy.add(id.trim());\n  }\n  return fleetIds.filter((id) => !busy.has(id)).length;\n}\nconst out = (o) => [{ json: Object.assign({ total: fleetIds.length }, o) }];\n\nconst openMin = toMin(cfg.SCHOOL_OPEN), closeMin = toMin(cfg.SCHOOL_CLOSE);\nconst want = Number(req.devices) >= 1 ? Math.floor(Number(req.devices)) : cfg.DEFAULT_DEVICES;\nconst needMin = Number(req.hours) > 0 ? Math.round(Number(req.hours) * 60) : cfg.DEFAULT_MINUTES;\nconst date = toYMD(req.date);\nconst s = toMin(req.start), e = toMin(req.end);\n\nif (req.date && !date) return out({ success: false, reply: 'I couldn\\'t read that date. Please send it like 2026-10-14.' });\nif (date && date < today) return out({ success: false, reply: 'That date has already passed.' });\nif (date && isClosed(date)) return out({ success: false, reply: `School is closed on ${prettyDate(date)}.` });\n\n// Exact window\nif (date && s != null && e != null) {\n  if (e <= s || s < openMin || e > closeMin) {\n    return out({ success: false, reply: `Times must be between ${cfg.SCHOOL_OPEN} and ${cfg.SCHOOL_CLOSE}, and the end must be after the start.` });\n  }\n  if (date === today && s < nowMin) return out({ success: false, reply: 'That time has already passed. Please pick a later time.' });\n  const free = freeCount(date, s, e);\n  const label = `${prettyDate(date)} ${fmt(s)}-${fmt(e)}`;\n  return out({\n    success: true, mode: 'window', date, start: fmt(s), end: fmt(e), free, enough: free >= want,\n    reply: free === 0 ? `No iPads are free on ${label}.` : `${free} of ${fleetIds.length} iPads are free on ${label}.`,\n  });\n}\n\n// Scan for stretches. A stretch is the union of every window of `needMin` that has `want` iPads free,\n// so two stretches can touch without a window across the join being free. The reply therefore\n// gives start times (from .. last_start), which is never ambiguous.\nconst days = [];\nif (date) days.push(date);\nelse for (let i = 0; i < cfg.SCAN_DAYS; i++) days.push(now.plus({ days: i }).toFormat('yyyy-MM-dd'));\n\nconst stretches = [];\nfor (const d of days) {\n  if (isClosed(d)) continue;\n  const from = d === today ? Math.max(openMin, Math.ceil(nowMin / STEP) * STEP) : openMin;\n  let cur = null;\n  for (let t = from; t + needMin <= closeMin; t += STEP) {\n    if (freeCount(d, t, t + needMin) >= want) {\n      if (cur && t <= cur.to) cur.to = t + needMin;\n      else stretches.push((cur = { date: d, from: t, to: t + needMin }));\n    } else cur = null;\n  }\n  if (!date && stretches.length >= 6) break;\n}\n\nconst hoursLabel = needMin % 60 === 0 ? `${needMin / 60}h` : `${Math.floor(needMin / 60) ? Math.floor(needMin / 60) + 'h ' : ''}${needMin % 60}min`;\nconst fits = `${want} iPad${want === 1 ? '' : 's'} for ${hoursLabel}`;\nif (stretches.length === 0) {\n  return out({ success: true, mode: 'scan', stretches: [], reply: `No free time for ${fits} ${date ? 'on ' + prettyDate(date) : 'in the next ' + cfg.SCAN_DAYS + ' days'}.` });\n}\nconst list = stretches.slice(0, 6).map((x) => ({ date: x.date, from: fmt(x.from), to: fmt(x.to), last_start: fmt(x.to - needMin) }));\nconst byDay = [];\nfor (const x of list) {\n  const starts = x.from === x.last_start ? x.from : `any time ${x.from}-${x.last_start}`;\n  const row = byDay.find((r) => r.date === x.date);\n  if (row) row.starts.push(starts);\n  else byDay.push({ date: x.date, starts: [starts] });\n}\nreturn out({\n  success: true, mode: 'scan', devices: want, hours: needMin / 60, stretches: list,\n  reply: `Start times that work for ${fits}:\\n${byDay.map((r) => `${prettyDate(r.date)}: ${r.starts.join(' or ')}`).join('\\n')}`,\n});"
+      },
+      "id": "47bddf07-ace3-466d-9f65-477053ad3cc0",
+      "name": "Scan for windows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Scan for windows').first().json;\nreturn [{ json: { toolResult: { action: 'availability', success: p.success !== false, data: p } } }];"
+      },
+      "id": "1983b9a5-06c4-45c7-b6ef-5581922aba58",
+      "name": "Return result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Check iPad availability\nDate + start + end: how many iPads are free for that window.\nOtherwise: the start times on the school morning when `devices` iPads are free for `hours`, on the date given or over the next SCAN_DAYS days.\nClosed days and past times are never reported as free. Returns `toolResult` with a `reply`.",
+        "height": 164,
+        "width": 560,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "name": "Sticky Note",
+      "id": "d177e2e7-c025-4152-b431-e3a9070782f5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When the chatbot checks avail": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run a demo avail": {
+      "main": [
+        [
+          {
+            "node": "Demo request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo request": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sheets - Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - Devices": {
+      "main": [
+        [
+          {
+            "node": "Sheets - Bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - Bookings": {
+      "main": [
+        [
+          {
+            "node": "Scan for windows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan for windows": {
+      "main": [
+        [
+          {
+            "node": "Return result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,836 @@
+{
+  "name": "Label new GitHub issues by keywords with an optional OpenAI pass",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Label new GitHub issues by keywords with an optional OpenAI pass\n\n**Who's it for**\nMaintainers of open source projects and small product teams who get 10 to 100 issues a week and triage them by hand. New issues arrive labelled, and the ones missing repro steps already have a comment asking for them.\n\n**How it works**\n1. Every 30 minutes it lists open issues in each repository in `REPOS` updated since the last run, or sample issues until GitHub is connected. Pull requests and issues that already have labels are skipped.\n2. Keywords in `TYPE_RULES` score each type, title words counting double. Paths and words in `AREA_RULES` add area labels. A bug with no steps or no version gets `needs-repro`.\n3. When the top two types tie or nothing matched, and `USE_OPENAI` is true, the model picks the type. Otherwise the issue gets `needs-triage`.\n4. Labels are added through the GitHub API, and needs-repro issues get one comment asking for steps and versions.\n\n**How to set up**\n1. Run it once as imported. It labels the sample issues and stops at `STOP: dry run - GitHub untouched`.\n2. Add a GitHub credential to the three GitHub nodes, list your repositories in `REPOS` and set `USE_GITHUB = true`. Create the labels in each repository first.\n3. Optional: add an OpenAI credential to `Classify unclear issues model` and set `USE_OPENAI = true`.\n4. Read the labels on `Pick the final labels`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A GitHub token with issues write access\n- Optional: an OpenAI API key\n\n**How to customize**\n- `TYPE_RULES` and `AREA_RULES` hold every keyword and the label it maps to.\n- `REPRO_COMMENT` is the text posted on bugs without steps; blank turns comments off.\n- `MAX_PER_RUN` caps how many issues one run labels.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "d42b288a-5717-4c4e-9a00-d42b288a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 30 minutes. `List repositories` attaches the time of the last labelled run to each repository, so a run only reads issues it has not seen.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c529e0ef-5717-4c4e-9a00-c529e0ef1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read new issues\n\nThe issues endpoint also returns pull requests, and `Load sample issues` includes one plus an already-labelled issue, so the filters that skip them are exercised offline.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "c429df5c-5717-4c4e-9a00-c429df5c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Rules first, model only when unsure\n\nKeyword rules decide most issues for free. `Rules decided it?` sends only ties and no-match issues to OpenAI, and `Use the model answer` ignores answers under 0.6 confidence, so a vague issue gets needs-triage rather than a guess.",
+        "height": 656,
+        "width": 1456,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "c729e415-5717-4c4e-9a00-c729e4151002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Label, comment and record\n\nNothing is written in a dry run. A live run adds the labels, comments once on bugs without steps or a version, and records the run time only after GitHub accepted the labels.",
+        "height": 656,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        0
+      ],
+      "id": "c629e282-5717-4c4e-9a00-c629e2821003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "214cc4a3-2809-4fb3-a9ac-59ac0a9a214c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// LABEL NEW GITHUB ISSUES BY KEYWORDS WITH AN OPTIONAL OPENAI PASS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GITHUB false -> SAMPLE issues. USE_OPENAI false -> unclear issues get needs-triage.\n// DRY_RUN true -> labels are computed and shown, GitHub is not changed.\n\n// set true after adding the GitHub credential\nconst USE_GITHUB = false;\n// owner/name of each repository to triage\nconst REPOS = [\n  \"northwind/api\",\n  \"northwind/web\"\n];\n// type label -> keywords; title matches count double\nconst TYPE_RULES = {\n  bug: [\n    \"error\",\n    \"crash\",\n    \"exception\",\n    \"broken\",\n    \"regression\",\n    \"fails\",\n    \"stack trace\",\n    \"500\"\n  ],\n  feature: [\n    \"feature request\",\n    \"add support\",\n    \"would be nice\",\n    \"proposal\",\n    \"allow\",\n    \"option to\"\n  ],\n  question: [\n    \"how do i\",\n    \"how to\",\n    \"is it possible\",\n    \"question\",\n    \"help\"\n  ],\n  docs: [\n    \"docs\",\n    \"documentation\",\n    \"readme\",\n    \"typo\",\n    \"example in\"\n  ]\n};\n// area label -> paths or words that suggest it\nconst AREA_RULES = {\n  \"area: api\": [\n    \"src/api/\",\n    \"endpoint\",\n    \"/v1/\",\n    \"rest api\"\n  ],\n  \"area: ui\": [\n    \"src/components/\",\n    \".tsx\",\n    \"button\",\n    \"css\",\n    \"dark mode\"\n  ],\n  \"area: cli\": [\n    \"bin/\",\n    \"cli\",\n    \"command line\",\n    \"--\"\n  ],\n  \"area: auth\": [\n    \"login\",\n    \"oauth\",\n    \"token\",\n    \"sso\"\n  ]\n};\n// posted on bugs with no steps or version; blank posts nothing\nconst REPRO_COMMENT = 'Thanks for the report. Could you add the exact steps to reproduce it and the version you are on? We will pick it up as soon as we can reproduce it.';\n// true asks the model about issues the keyword rules could not decide\nconst USE_OPENAI = false;\n// first run: how far back to look\nconst LOOKBACK_HOURS = 24;\n// hard ceiling on issues labelled per run\nconst MAX_PER_RUN = 30;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_github: USE_GITHUB,\n    repos: REPOS,\n    type_rules: TYPE_RULES,\n    area_rules: AREA_RULES,\n    repro_comment: REPRO_COMMENT,\n    use_openai: USE_OPENAI,\n    lookback_hours: LOOKBACK_HOURS,\n    max_per_run: MAX_PER_RUN,\n    dry_run: DRY_RUN,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "396fef6b-188b-4bfb-af24-7f244492396f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "583d61ba-d097-4b9a-a3de-d3de4419583d",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "185667bb-5df2-4b4b-abdf-2bdfefe21856",
+      "name": "List repositories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per repository, with the \"since\" cut-off from the last labelled run.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst since = store.last_run || new Date(Date.now() - cfg.lookback_hours * 36e5).toISOString();\nreturn cfg.repos.map(repo => ({ json: { repo, since } }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "8c8a223a-9c25-441a-ac6e-ec6ec4998c8a",
+      "name": "GitHub connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "888a516a-b1e3-444a-a4e2-04e220c9888a",
+              "leftValue": "={{ $('config').first().json.use_github }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "ee2da2cb-831c-415b-afb8-cfb83532ee2d",
+      "name": "Fetch open issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $json.repo + '/issues' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "state",
+              "value": "open"
+            },
+            {
+              "name": "since",
+              "value": "={{ $json.since }}"
+            },
+            {
+              "name": "sort",
+              "value": "created"
+            },
+            {
+              "name": "direction",
+              "value": "desc"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "7d7b3237-b8ba-4707-a243-c2432bce7d7b",
+      "name": "Load sample issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GITHUB is true. GitHub issue objects, created in the last few hours.\nconst ago = h => new Date(Date.now() - h * 36e5).toISOString();\nconst iss = (repo, number, title, body, extra = {}) => ({ number, title, body, labels: [], state: 'open', created_at: ago(number % 7 + 1),\n  repository_url: 'https://api.github.com/repos/' + repo, html_url: 'https://github.com/' + repo + '/issues/' + number, user: { login: 'user' + number }, ...extra });\nreturn [\n  iss('northwind/api', 412, 'Crash when exporting invoices', 'Exporting more than 500 invoices throws an exception in src/api/export.ts. Stack trace below.\\n\\nSteps to reproduce:\\n1. Create 600 invoices\\n2. Click export\\n\\nVersion: v2.14.1'),\n  iss('northwind/api', 413, 'Login broken after update', 'Since this morning OAuth login fails with a 500 error.'),\n  iss('northwind/web', 88, 'Add support for dark mode in the dashboard', 'It would be nice to have an option to switch src/components/Theme.tsx to dark mode.'),\n  iss('northwind/web', 89, 'How do I change the date format?', 'Is it possible to show dates as DD/MM/YYYY? I could not find it in the docs.'),\n  iss('northwind/web', 90, 'Typo in README example', 'The example in the README uses --port but the flag is --listen.'),\n  iss('northwind/web', 91, 'Billing page', 'The billing page feels slow and confusing to me.'),\n  iss('northwind/web', 92, 'Use the new chart library', 'Swaps the charts.', { pull_request: { url: 'https://api.github.com/repos/northwind/web/pulls/92' } }),\n  iss('northwind/api', 414, 'Rate limit headers', 'Rate limit headers are missing on /v1/orders.', { labels: [{ name: 'bug' }] }),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "caabb8c7-cfd1-4097-af78-bf78149ecaab",
+      "name": "Combine issue sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "0fa21427-d0f7-4df7-ab7f-bb7f5d3e0fa2",
+      "name": "Label with keyword rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Weighted keyword score per type (title x2). A tie between the top two types, or no\n// match at all, marks the issue unsure. Areas and needs-repro come from the text too.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst since = store.last_run || new Date(Date.now() - cfg.lookback_hours * 36e5).toISOString();\nconst has = (t, w) => w === '--' ? /(^|\\s)--[a-z]/.test(t) : /^[a-z0-9 ]+$/.test(w) ? new RegExp('\\\\b' + w + '\\\\b').test(t) : t.includes(w);\nconst out = [];\nfor (const { json: i } of $input.all()) {\n  if (!i.number || i.pull_request || (i.labels || []).length || i.created_at < since) continue;\n  const title = (i.title || '').toLowerCase(), body = (i.body || '').toLowerCase();\n  const scores = Object.entries(cfg.type_rules).map(([label, words]) => [label, words.reduce((n, w) => n + (has(title, w) ? 2 : 0) + (has(body, w) ? 1 : 0), 0)])\n    .sort((a, b) => b[1] - a[1]);\n  const [top, second] = scores;\n  const unsure = top[1] === 0 || top[1] === second[1];\n  const areas = Object.entries(cfg.area_rules).filter(([, words]) => words.some(w => has(title + ' ' + body, w))).map(([l]) => l);\n  const type = unsure ? '' : top[0];\n  const noSteps = !/steps to reproduce|to reproduce|repro|\\n\\s*1[.)]/.test(body);\n  const noVersion = !/version|v\\d+\\.\\d+|\\d+\\.\\d+\\.\\d+/.test(body);\n  out.push({ repo: i.repository_url.split('/repos/')[1], number: i.number, title: i.title, body: (i.body || '').slice(0, 1500), url: i.html_url,\n    type, unsure, scores: Object.fromEntries(scores), areas, needs_repro: type === 'bug' && (noSteps || noVersion), created_at: i.created_at });\n}\nout.sort((a, b) => a.created_at.localeCompare(b.created_at));\nreturn out.slice(0, cfg.max_per_run).map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "fa57d026-c442-4046-ab72-8b72df75fa57",
+      "name": "Rules decided it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4bec94e6-425d-4906-a0a2-70a2edb54bec",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "4cec9679-04b2-4aa9-a32a-f32a23b44cec",
+              "leftValue": "={{ $json.unsure }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "a6e07229-4bf3-4f59-a3c6-03c67d64a6e0",
+      "name": "Classify unclear issues",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Repository: {{ $json.repo }}\nTitle: {{ $json.title }}\n\n{{ $json.body }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You triage GitHub issues. Pick exactly one type: bug (something worked and now does not, or errors), feature (a request for new behaviour), question (asking how to do something), docs (documentation is wrong or missing). Set confidence between 0 and 1. Set needs_repro true only for a bug that has no steps or no version."
+        }
+      },
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "069e4a28-0316-4da8-a32a-332ad39b069e",
+      "name": "Classify unclear issues model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        512
+      ]
+    },
+    {
+      "id": "fe376201-9dd4-4bb1-aead-eead54ccfe37",
+      "name": "Classify unclear issues output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"type\": \"bug\",\n  \"confidence\": 0.8,\n  \"needs_repro\": false\n}"
+      },
+      "position": [
+        2000,
+        512
+      ]
+    },
+    {
+      "id": "39c3fa1c-95bb-495c-a9f0-39f0c06f39c3",
+      "name": "Use the model answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The model only decides the type, and only when confident; areas stay rule-based.\nconst allowed = Object.keys($('config').first().json.type_rules);\nconst rules = $('Label with keyword rules').all();\nconst unsure = rules.filter(r => r.json.unsure);\nreturn $input.all().map((it, i) => {\n  const base = unsure[i]?.json || {};\n  const o = it.json.output || {};\n  const ok = allowed.includes(o.type) && Number(o.confidence) >= 0.6;\n  return { json: { ...base, type: ok ? o.type : '', unsure: !ok, needs_repro: ok && o.type === 'bug' ? Boolean(o.needs_repro) : base.needs_repro, decided_by: ok ? 'model' : 'nobody' } };\n});\n"
+      },
+      "position": [
+        2240,
+        352
+      ]
+    },
+    {
+      "id": "cff32702-51fb-4a62-aefb-4efb9471cff3",
+      "name": "Combine label sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2464,
+        176
+      ]
+    },
+    {
+      "id": "e5ce2b72-0792-4bd2-a31d-731d71a1e5ce",
+      "name": "Pick the final labels",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Type + areas + needs-repro, or needs-triage when nothing could decide the type.\nreturn $input.all().map(({ json: i }) => {\n  const labels = [i.type || 'needs-triage', ...i.areas, ...(i.needs_repro ? ['needs-repro'] : [])];\n  return { json: { ...i, labels, decided_by: i.decided_by || (i.type ? 'rules' : 'nobody') } };\n});\n"
+      },
+      "position": [
+        2688,
+        176
+      ]
+    },
+    {
+      "id": "01e715a5-0673-4415-a175-5175ce5001e7",
+      "name": "Write to GitHub?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "76411a13-dc6b-4223-a071-407105ca7641",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2928,
+        176
+      ]
+    },
+    {
+      "id": "9eb10c96-af96-49b6-a529-35290da59eb1",
+      "name": "STOP: dry run - GitHub untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3152,
+        352
+      ]
+    },
+    {
+      "id": "1f6e6307-80a1-46d7-acac-fcace15e1f6e",
+      "name": "Add labels on GitHub",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.github.com/repos/' + $json.repo + '/issues/' + $json.number + '/labels' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ labels: $json.labels }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3152,
+        176
+      ]
+    },
+    {
+      "id": "5f2d0553-7479-4963-ac79-2c79128a5f2d",
+      "name": "Ask for repro steps?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dd34484d-b5dd-423d-a539-b5391568dd34",
+              "leftValue": "={{ $('Pick the final labels').item.json.needs_repro }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "dc3446ba-f388-409a-a477-f477a519dc34",
+              "leftValue": "={{ $('config').first().json.repro_comment.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3376,
+        176
+      ]
+    },
+    {
+      "id": "651c4e5a-aaf0-463a-abc0-6bc0cf79651c",
+      "name": "STOP: no comment needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3600,
+        352
+      ]
+    },
+    {
+      "id": "2e767e65-9f5e-40d5-a6c7-b6c7c4902e76",
+      "name": "Comment asking for repro steps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.github.com/repos/' + $('Pick the final labels').item.json.repo + '/issues/' + $('Pick the final labels').item.json.number + '/comments' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ body: $('config').first().json.repro_comment }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3600,
+        176
+      ]
+    },
+    {
+      "id": "40e8930b-2faa-4d9b-a306-5306dbf240e8",
+      "name": "Record the run time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Next run only looks at issues newer than this labelled run.\nconst store = $getWorkflowStaticData('global');\nstore.last_run = $('config').first().json.run_started_at;\nreturn [{ json: { last_run: store.last_run, labelled: $input.all().length } }];\n"
+      },
+      "position": [
+        3376,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List repositories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List repositories": {
+      "main": [
+        [
+          {
+            "node": "GitHub connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch open issues",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch open issues": {
+      "main": [
+        [
+          {
+            "node": "Combine issue sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample issues": {
+      "main": [
+        [
+          {
+            "node": "Combine issue sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine issue sources": {
+      "main": [
+        [
+          {
+            "node": "Label with keyword rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label with keyword rules": {
+      "main": [
+        [
+          {
+            "node": "Rules decided it?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rules decided it?": {
+      "main": [
+        [
+          {
+            "node": "Combine label sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify unclear issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify unclear issues model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify unclear issues",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify unclear issues output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify unclear issues",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify unclear issues": {
+      "main": [
+        [
+          {
+            "node": "Use the model answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use the model answer": {
+      "main": [
+        [
+          {
+            "node": "Combine label sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine label sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the final labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the final labels": {
+      "main": [
+        [
+          {
+            "node": "Write to GitHub?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to GitHub?": {
+      "main": [
+        [
+          {
+            "node": "Add labels on GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - GitHub untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add labels on GitHub": {
+      "main": [
+        [
+          {
+            "node": "Ask for repro steps?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Record the run time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask for repro steps?": {
+      "main": [
+        [
+          {
+            "node": "Comment asking for repro steps",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no comment needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

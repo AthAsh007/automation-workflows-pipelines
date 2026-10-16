@@ -1,0 +1,62 @@
+name: A template does not import or run
+description: An import error, a node that fails, or a preview run that did something it should not.
+title: "[bug] <template folder>: <what went wrong>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before you paste anything, remove real emails, phone numbers,
+        sheet ids, API keys and webhook URLs. If the run contacted a real person while
+        `TEST_RUN` or `DRY_RUN` was still `true`, do not file it here: use a private
+        [security advisory](https://github.com/AthAsh007/automation-workflows-pipelines/security/advisories/new) instead.
+  - type: input
+    id: template
+    attributes:
+      label: Template
+      description: Folder and file, for example `n8n/library/stripe-overdue-invoice-reminders-can-publish/stripe-overdue-invoice-reminders-publish.json`
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where it failed
+      options:
+        - Importing the JSON
+        - The first run with the shipped config (no credentials)
+        - After adding credentials, still in preview or test mode
+        - A live run
+    validations:
+      required: true
+  - type: input
+    id: n8n-version
+    attributes:
+      label: n8n version and hosting
+      placeholder: "1.112.0, n8n Cloud / self-hosted Docker / npm"
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node that failed
+      description: The exact node name from the canvas.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The error text, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Changes you made in the config node
+      description: Only the settings you changed. Leave keys and tokens out.
+      render: js
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed personal data, keys and webhook URLs from everything pasted above
+          required: true

@@ -1,0 +1,914 @@
+{
+  "name": "Rotate the on-call schedule in Google Sheets and announce it in Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Rotate the on-call schedule in Google Sheets and announce it in Slack\n\n**Who's it for**\nSmall engineering teams of 3 to 15 who run on-call from a spreadsheet and forget to hand over, or hand over to someone who is on holiday. The sheet stays the source of truth and the handover happens on time.\n\n**How it works**\n1. Every Monday at 09:00 it reads the Rotation tab (order, name, Slack id, active, away dates) and the Schedule tab, or sample data until a sheet id is set.\n2. The next primary is the next person in rotation order after last week's primary who is active and has no away dates in the week. The secondary is the next eligible person after them. Everyone skipped is listed with the reason.\n3. If the Schedule tab already has a row for the week, the run stops, so a manual re-run never rotates twice.\n4. The count of unacknowledged incidents comes from PagerDuty (or a sample), the new row is appended and the handover is posted to Slack.\n\n**How to set up**\n1. Run it once as imported. It picks the next on-call from sample data and stops at `STOP: dry run - sheet and Slack untouched`.\n2. Create Rotation and Schedule tabs with the columns shown in `Load sample rotation`, connect Google Sheets and set `ROTA_SHEET_ID`.\n3. Optional: add a PagerDuty credential to `Count open incidents` and set `USE_PAGERDUTY = true`. Set `SLACK_CHANNEL_ID`.\n4. Check the pick on `Pick next on-call`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Google Sheet holding the rotation\n- A Slack workspace\n- Optional: PagerDuty\n\n**How to customize**\n- `HANDOVER_DAY` sets which weekday a rotation week starts on.\n- `AWAY_GRACE_DAYS` lets someone take the week if they are away for only that many days of it.\n- `HANDOVER_NOTE` is appended to every handover message.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "e51bb723-5717-4c4e-9a00-e51bb72313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 09:00, the moment the week changes hands. The handover weekday, leave tolerance and note live in `config`; people and dates live in the sheet.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5510f0b6-5717-4c4e-9a00-5510f0b61000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the rotation\n\n`Collect rotation` folds the Rotation rows into one item so `Read Schedule tab` runs once. A blank `ROTA_SHEET_ID` routes to `Load sample rotation`, which has someone on leave and someone inactive.",
+        "height": 704,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "5610f249-5717-4c4e-9a00-5610f2491001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Count open incidents\n\nThe handover tells the incoming person what is already burning. PagerDuty is optional: `Load sample incident count` stands in until `USE_PAGERDUTY` is true.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "5310ed90-5717-4c4e-9a00-5310ed901002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Pick, write and announce\n\nA Schedule row for the week stops the run first, so re-running never rotates twice. The row is appended before the Slack post, so the sheet is right even if Slack fails.",
+        "height": 704,
+        "width": 1744,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        0
+      ],
+      "id": "5410ef23-5717-4c4e-9a00-5410ef231003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "0ffa9d2f-47aa-447f-a760-e760dff60ffa",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ROTATE THE ON-CALL SCHEDULE IN GOOGLE SHEETS AND ANNOUNCE IT IN SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// ROTA_SHEET_ID blank -> SAMPLE rotation. USE_PAGERDUTY false -> SAMPLE incident count.\n// DRY_RUN true -> the pick is shown, the sheet and Slack are untouched.\n\n// Google Sheets id with Rotation and Schedule tabs; blank uses sample data\nconst ROTA_SHEET_ID = '';\n// weekday a rotation week starts: 1 = Monday ... 7 = Sunday\nconst HANDOVER_DAY = 1;\n// away days in the week someone can still cover; 0 = any leave skips them\nconst AWAY_GRACE_DAYS = 0;\n// true counts open incidents in PagerDuty for the handover\nconst USE_PAGERDUTY = false;\n// channel for the handover; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// added to every handover\nconst HANDOVER_NOTE = 'Runbooks: wiki/oncall. Escalate to the secondary after 15 minutes without an ack.';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    rota_sheet_id: ROTA_SHEET_ID,\n    handover_day: HANDOVER_DAY,\n    away_grace_days: AWAY_GRACE_DAYS,\n    use_pagerduty: USE_PAGERDUTY,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    handover_note: HANDOVER_NOTE,\n    dry_run: DRY_RUN,\n    sheets_enabled: ROTA_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "3e0dc8cf-51ea-4e1f-aee0-bee0b6563e0d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "e051f036-c2ca-4b56-a858-58581c05e051",
+      "name": "Every Monday at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "3ef56c21-20e2-4bd1-a55d-455dd1ac3ef5",
+      "name": "Rota sheet blank?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9a36bc2b-7605-4cbb-af9e-6f9eafd29a36",
+              "leftValue": "={{ !$('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "c9f12145-5444-4db5-a0fb-a0fb84b0c9f1",
+      "name": "Load sample rotation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until ROTA_SHEET_ID is set. Same columns as the Rotation and Schedule tabs.\nconst cfg = $('config').first().json;\nconst d = new Date(); d.setUTCHours(0, 0, 0, 0);\nd.setUTCDate(d.getUTCDate() + ((cfg.handover_day % 7) - d.getUTCDay() + 7) % 7);\nconst day = n => new Date(d.getTime() + n * 864e5).toISOString().slice(0, 10);\nreturn [{ json: {\n  rotation: [\n    { order: 1, name: 'Ana Ruiz', email: 'ana@northwind.example', slack_id: 'U01ANA', active: 'yes', away: '' },\n    { order: 2, name: 'Ben Okoro', email: 'ben@northwind.example', slack_id: 'U01BEN', active: 'yes', away: day(2) + '..' + day(4) },\n    { order: 3, name: 'Chloe Martin', email: 'chloe@northwind.example', slack_id: 'U01CHLOE', active: 'no', away: '' },\n    { order: 4, name: 'Dev Patel', email: 'dev@northwind.example', slack_id: 'U01DEV', active: 'yes', away: day(14) + '..' + day(18) },\n    { order: 5, name: 'Esme Larsen', email: 'esme@northwind.example', slack_id: 'U01ESME', active: 'yes', away: '' },\n  ],\n  schedule: [\n    { week_start: day(-14), primary: 'Esme Larsen', secondary: 'Ana Ruiz' },\n    { week_start: day(-7), primary: 'Ana Ruiz', secondary: 'Ben Okoro' },\n  ],\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "b76bb1b2-c1b0-4e12-ae71-de710261b76b",
+      "name": "Read Rotation tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.rota_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Rotation"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "835da3a5-148a-4215-abed-1bed9050835d",
+      "name": "Collect rotation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Many rows -> one item, so the Schedule read below runs once.\nreturn [{ json: { rotation: $input.all().map(i => i.json).filter(r => r.name) } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "a6d89411-0761-48c1-a881-38816f5ca6d8",
+      "name": "Read Schedule tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.rota_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Schedule"
+        },
+        "options": {}
+      },
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "e0b859b2-a319-4612-ae6c-7e6cea61e0b8",
+      "name": "Collect schedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Rotation and schedule side by side, in the sample's shape.\nreturn [{ json: { rotation: $('Collect rotation').first().json.rotation, schedule: $input.all().map(i => i.json).filter(r => r.week_start) } }];\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "ac8338a8-2899-4428-afee-3fee9a1bac83",
+      "name": "Combine rota sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "dbc82ac0-40da-4ec0-ac17-6c176d43dbc8",
+      "name": "PagerDuty connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fdb5a3f8-8f5e-4678-a57b-a57b436bfdb5",
+              "leftValue": "={{ $('config').first().json.use_pagerduty }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "3ce82c43-b5d7-4553-a583-d58394fa3ce8",
+      "name": "Count open incidents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.pagerduty.com/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "pagerDutyApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "statuses[]",
+              "value": "triggered"
+            },
+            {
+              "name": "total",
+              "value": "true"
+            },
+            {
+              "name": "limit",
+              "value": "25"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.pagerduty+json;version=2"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "e526d8de-680e-4f7e-a787-9787e11de526",
+      "name": "Read incident count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Triggered incidents plus a count of high urgency ones for the handover line.\nconst r = $input.first().json;\nconst list = r.incidents || [];\nreturn [{ json: { open: typeof r.total === 'number' ? r.total : list.length, high: list.filter(i => i.urgency === 'high').length } }];\n"
+      },
+      "position": [
+        2304,
+        208
+      ]
+    },
+    {
+      "id": "a0c3a34a-6057-402a-ab23-3b23b7e9a0c3",
+      "name": "Load sample incident count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_PAGERDUTY is true.\nreturn [{ json: { open: 3, high: 1 } }];\n"
+      },
+      "position": [
+        2080,
+        384
+      ]
+    },
+    {
+      "id": "4a5130e4-fb3a-41a4-a8e2-48e275474a51",
+      "name": "Combine incident counts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2528,
+        208
+      ]
+    },
+    {
+      "id": "cff7c93d-ca8a-482d-ac58-5c58b418cff7",
+      "name": "Pick next on-call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Walk the rotation order from last week's primary. Skip inactive people and anyone\n// away for more than AWAY_GRACE_DAYS of the week. Secondary = next eligible after primary.\nconst cfg = $('config').first().json;\nconst { rotation, schedule } = $('Combine rota sources').first().json;\nconst incidents = $input.first().json;\nconst d = new Date(); d.setUTCHours(0, 0, 0, 0);\nd.setUTCDate(d.getUTCDate() + ((cfg.handover_day % 7) - d.getUTCDay() + 7) % 7);\nconst weekStart = d.toISOString().slice(0, 10);\nconst days = Array.from({ length: 7 }, (_, i) => new Date(d.getTime() + i * 864e5).toISOString().slice(0, 10));\nconst people = [...rotation].sort((a, b) => Number(a.order) - Number(b.order));\nconst awayDays = p => String(p.away || '').split(/[;,]/).map(s => s.trim()).filter(Boolean).reduce((n, range) => {\n  const [from, to] = range.split('..').map(s => s.trim());\n  return n + days.filter(x => x >= from && x <= (to || from)).length;\n}, 0);\nconst skipped = [];\nconst eligible = p => {\n  if (['no', 'false', 'inactive'].includes(String(p.active || 'yes').toLowerCase())) { skipped.push({ name: p.name, reason: 'inactive' }); return false; }\n  const a = awayDays(p);\n  if (a > cfg.away_grace_days) { skipped.push({ name: p.name, reason: 'away ' + a + ' day' + (a === 1 ? '' : 's') + ' this week' }); return false; }\n  return true;\n};\nconst past = [...schedule].sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)));\nconst last = past[past.length - 1];\nif (past.some(r => String(r.week_start).slice(0, 10) === weekStart)) return [{ json: { already: true, week_start: weekStart } }];\nconst startIdx = last ? people.findIndex(p => p.name === last.primary) : -1;\nconst order = people.map((_, i) => people[(startIdx + 1 + i) % people.length]);\nconst pool = order.filter(eligible);\nconst primary = pool[0], secondary = pool.find(p => p !== primary);\nif (!primary) return [{ json: { already: false, ok: false, week_start: weekStart, skipped, reason: 'nobody eligible this week' } }];\nreturn [{ json: { already: false, ok: true, week_start: weekStart, previous: last?.primary || '', primary, secondary: secondary || null,\n  skipped: skipped.filter((s, i, a) => a.findIndex(x => x.name === s.name) === i), incidents } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "fd5b19db-f342-436b-a829-8829c4c2fd5b",
+      "name": "Already rotated this week?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0786f059-8d05-4e89-a8a2-98a272d40786",
+              "leftValue": "={{ $json.already === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "b2f0dd84-a098-4c44-a444-9444ada7b2f0",
+      "name": "STOP: already rotated this week",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        208
+      ]
+    },
+    {
+      "id": "75285af2-f9e1-4352-a45f-345f1d217528",
+      "name": "Write the handover",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet row and Slack text from the same pick.\nconst cfg = $('config').first().json;\nconst p = $input.first().json;\nif (!p.ok) return [{ json: { ...p, text: ':warning: On-call for the week of ' + p.week_start + ': ' + p.reason + '. Skipped: ' + p.skipped.map(s => s.name + ' (' + s.reason + ')').join(', '), row: null } }];\nconst tag = x => x?.slack_id ? '<@' + x.slack_id + '>' : (x?.name || 'nobody');\nconst prev = p.previous;\nconst text = [\n  '*On-call handover, week of ' + p.week_start + '*',\n  (prev ? prev + ' hands over to ' : 'Primary: ') + tag(p.primary) + '. Secondary: ' + tag(p.secondary) + '.',\n  p.incidents.open + ' unacknowledged incident' + (p.incidents.open === 1 ? '' : 's') + (p.incidents.high ? ' (' + p.incidents.high + ' high urgency)' : '') + ' to pick up.',\n  p.skipped.length ? 'Skipped this time: ' + p.skipped.map(s => s.name + ' (' + s.reason + ')').join(', ') + '.' : '',\n  cfg.handover_note,\n].filter(Boolean).join('\\n');\nreturn [{ json: { ...p, text, row: { week_start: p.week_start, primary: p.primary.name, secondary: p.secondary?.name || '',\n  open_incidents: p.incidents.open, skipped: p.skipped.map(s => s.name).join(', '), handed_over_at: new Date().toISOString() } } }];\n"
+      },
+      "position": [
+        3216,
+        384
+      ]
+    },
+    {
+      "id": "d01c851d-dddd-4e0d-a21e-d21e4138d01c",
+      "name": "Write and announce?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "263b792f-967f-407f-a2b7-d2b7e3f6263b",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "253b779c-d42a-4edc-a1f1-11f181ef253b",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "283b7c55-1b28-43c5-afd2-afd2ac40283b",
+              "leftValue": "={{ $json.row !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3440,
+        384
+      ]
+    },
+    {
+      "id": "229216fb-cdcb-468b-a541-0541c4a22292",
+      "name": "STOP: dry run - sheet and Slack untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3648,
+        544
+      ]
+    },
+    {
+      "id": "33dd6452-aa1b-4eb2-aa33-1a3347c133dd",
+      "name": "Pick schedule columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the Schedule tab columns go to Sheets.\nreturn [{ json: $input.first().json.row }];\n"
+      },
+      "position": [
+        3648,
+        384
+      ]
+    },
+    {
+      "id": "58523933-b1d7-4743-ac18-1c1847aa5852",
+      "name": "Append the schedule row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.rota_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Schedule"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3872,
+        384
+      ]
+    },
+    {
+      "id": "908469e9-10ab-4b19-a4ab-74ab22a49084",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4096,
+        384
+      ]
+    },
+    {
+      "id": "04cda6c7-2cc5-4e97-a809-e809a69e04cd",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        4320,
+        544
+      ]
+    },
+    {
+      "id": "0f73b83c-fdfa-4d7c-ad45-5d45d94f0f73",
+      "name": "Post the handover to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $('Write the handover').first().json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        4320,
+        384
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Rota sheet blank?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota sheet blank?": {
+      "main": [
+        [
+          {
+            "node": "Load sample rotation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Rotation tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Rotation tab": {
+      "main": [
+        [
+          {
+            "node": "Collect rotation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect rotation": {
+      "main": [
+        [
+          {
+            "node": "Read Schedule tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Schedule tab": {
+      "main": [
+        [
+          {
+            "node": "Collect schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample rotation": {
+      "main": [
+        [
+          {
+            "node": "Combine rota sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect schedule": {
+      "main": [
+        [
+          {
+            "node": "Combine rota sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine rota sources": {
+      "main": [
+        [
+          {
+            "node": "PagerDuty connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PagerDuty connected?": {
+      "main": [
+        [
+          {
+            "node": "Count open incidents",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample incident count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count open incidents": {
+      "main": [
+        [
+          {
+            "node": "Read incident count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read incident count": {
+      "main": [
+        [
+          {
+            "node": "Combine incident counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample incident count": {
+      "main": [
+        [
+          {
+            "node": "Combine incident counts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine incident counts": {
+      "main": [
+        [
+          {
+            "node": "Pick next on-call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick next on-call": {
+      "main": [
+        [
+          {
+            "node": "Already rotated this week?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already rotated this week?": {
+      "main": [
+        [
+          {
+            "node": "STOP: already rotated this week",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write the handover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the handover": {
+      "main": [
+        [
+          {
+            "node": "Write and announce?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write and announce?": {
+      "main": [
+        [
+          {
+            "node": "Pick schedule columns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet and Slack untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick schedule columns": {
+      "main": [
+        [
+          {
+            "node": "Append the schedule row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append the schedule row": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the handover to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

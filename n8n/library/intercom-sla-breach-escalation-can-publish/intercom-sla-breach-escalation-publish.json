@@ -1,0 +1,650 @@
+{
+  "name": "Escalate Intercom conversations waiting past SLA to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Escalate Intercom conversations waiting past SLA to Slack\n\n**Who's it for**\nSupport managers on Intercom who promise reply times by plan (one hour for enterprise, four business hours for pro) and only find out about a miss when the customer complains.\n\n**How it works**\n1. Every 10 minutes it searches Intercom for open conversations, or uses 7 sample conversations until Intercom is connected.\n2. Each conversation gets a tier from its tags or priority flag, and the time since the customer last wrote is measured on that tier's clock: around the clock for enterprise, weekdays 09:00 to 18:00 for the rest.\n3. Past 80% of the SLA it is at risk; past 100% it is breached; past 200% it escalates with a mention.\n4. Each breach level posts once. The key is the conversation and the moment the customer started waiting, so a new customer message starts a new clock.\n\n**How to set up**\n1. Run it once as imported. It measures the sample conversations and stops at `STOP: dry run - nothing posted`.\n2. Add an Intercom credential to `Search open Intercom conversations` and set `USE_INTERCOM = true`.\n3. Set `SLACK_CHANNEL_ID`, and check `TIER_TAGS`, `SLA_BY_TIER` and `BUSINESS_HOURS` match your plans and team.\n4. Set `DRY_RUN = false` and activate the workflow. Escalation memory is kept in workflow static data, which n8n only saves on activated runs.\n\n**Requirements**\n- An Intercom workspace with API access\n- A Slack workspace\n\n**How to customize**\n- `SLA_BY_TIER` sets minutes and clock (`24x7` or `business`) per tier.\n- `WARN_AT_PCT` and `ESCALATE_AT_PCT` set the at-risk and second-level lines.\n- `ESCALATION_MENTION` is who gets tagged at the second level, for example `<!here>` or a user group.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "02deed0b-5717-4c4e-9a00-02deed0b13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nChecks every 10 minutes. Tiers, SLA targets, the business-hours clock and the timezone sit in `config`, so a new plan or a changed rota is one edit.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "db7b0d0e-5717-4c4e-9a00-db7b0d0e1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read open conversations\n\nOne search call returns up to 150 open conversations with `waiting_since`, which already marks when the customer last wrote. `Load sample conversations` gives the same shape until `USE_INTERCOM` is true.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "dc7b0ea1-5717-4c4e-9a00-dc7b0ea11001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Measure against the SLA\n\nA Friday 17:55 message on a business clock has used 5 minutes by Monday morning, not 64 hours. `Keep new breaches only` checks static memory so each breach level is announced exactly once.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "d97b09e8-5717-4c4e-9a00-d97b09e81002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nThree gates keep a quiet run, a blank channel and a dry run silent. Breaches are remembered only after `Post the escalation to Slack` succeeds, so a failed post is retried next run.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "da7b0b7b-5717-4c4e-9a00-da7b0b7b1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "9c1b5633-d999-4443-aed7-0ed7a0aa9c1b",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ESCALATE INTERCOM CONVERSATIONS WAITING PAST SLA TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_INTERCOM false -> SAMPLE conversations.\n// SLACK_CHANNEL_ID blank -> nothing is posted. DRY_RUN true -> nothing is posted or remembered.\n\n// set true after adding the Intercom credential to the search node\nconst USE_INTERCOM = false;\n// Intercom tag name -> tier; untagged conversations are standard\nconst TIER_TAGS = {\n  Enterprise: \"enterprise\",\n  VIP: \"enterprise\",\n  \"Pro plan\": \"pro\"\n};\n// tier for conversations marked priority in Intercom\nconst PRIORITY_TIER = 'enterprise';\n// reply target per tier and which clock it runs on\nconst SLA_BY_TIER = {\n  enterprise: {\n    minutes: 60,\n    clock: \"24x7\"\n  },\n  pro: {\n    minutes: 240,\n    clock: \"business\"\n  },\n  standard: {\n    minutes: 480,\n    clock: \"business\"\n  }\n};\n// business clock: ISO weekdays (1 = Monday) and hours in TIMEZONE\nconst BUSINESS_HOURS = {\n  days: [\n    1,\n    2,\n    3,\n    4,\n    5\n  ],\n  start_hour: 9,\n  end_hour: 18\n};\n// IANA timezone of the support team\nconst TIMEZONE = 'Europe/London';\n// conversations past this share of their SLA are listed as at risk\nconst WARN_AT_PCT = 80;\n// past this share the breach is posted again with a mention\nconst ESCALATE_AT_PCT = 200;\n// Slack mention for the second level\nconst ESCALATION_MENTION = '<!here>';\n// prefix for conversation links in Slack\nconst INTERCOM_APP_URL = 'https://app.intercom.com/a/inbox/your-workspace-id/inbox/conversation/';\n// escalation channel; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_intercom: USE_INTERCOM,\n    tier_tags: TIER_TAGS,\n    priority_tier: PRIORITY_TIER,\n    sla_by_tier: SLA_BY_TIER,\n    business_hours: BUSINESS_HOURS,\n    timezone: TIMEZONE,\n    warn_at_pct: WARN_AT_PCT,\n    escalate_at_pct: ESCALATE_AT_PCT,\n    escalation_mention: ESCALATION_MENTION,\n    intercom_app_url: INTERCOM_APP_URL,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "804c8a3b-feee-45cb-a255-5255ce62804c",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "2927bb50-da31-4250-aa01-ba015e532927",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "d9b491d2-cee3-4432-a408-a408a941d9b4",
+      "name": "Intercom connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3c36ad02-e101-4062-af04-0f04ee713c36",
+              "leftValue": "={{ $('config').first().json.use_intercom }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "ce83254e-ed10-48ee-af39-2f392d0dce83",
+      "name": "Search open Intercom conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.intercom.io/conversations/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "intercomApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Intercom-Version",
+              "value": "2.11"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: { operator: 'AND', value: [{ field: 'state', operator: '=', value: 'open' }] }, pagination: { per_page: 150 } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "c9bc0024-96c9-4ce4-abd8-4bd87307c9bc",
+      "name": "Read Intercom conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search response -> one item per conversation. waiting_since is the moment the\n// customer last wrote after an admin reply; null means the team spoke last.\nconst out = [];\nfor (const page of $input.all()) {\n  for (const c of page.json.conversations || []) {\n    out.push({ json: {\n      id: String(c.id), subject: c.source?.subject || c.title || (c.source?.body || '').replace(/<[^>]+>/g, '').slice(0, 60),\n      customer: c.source?.author?.name || c.source?.author?.email || 'unknown',\n      tags: (c.tags?.tags || []).map(t => t.name), priority: c.priority === 'priority',\n      waiting_since: c.waiting_since ? new Date(c.waiting_since * 1000).toISOString() : null,\n      snoozed: c.state === 'snoozed' || Boolean(c.snoozed_until), assignee: c.admin_assignee_id ? String(c.admin_assignee_id) : '',\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "31a5dab9-e3cc-4ae9-a68c-968c267431a5",
+      "name": "Load sample conversations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_INTERCOM is true. Waits are relative to now so the result does not\n// depend on when it runs: the business-clock breach waited 3 days.\nconst ago = m => new Date(Date.now() - m * 60000).toISOString();\nreturn [\n  { id: '1001', subject: 'SSO login loop after IdP change', customer: 'Priya Shah (Kestrel Bank)', tags: ['Enterprise'], priority: false, waiting_since: ago(95), snoozed: false, assignee: '4412' },\n  { id: '1002', subject: 'API returning 429 for all keys', customer: 'Marco Diaz (Halcyon Air)', tags: ['VIP'], priority: false, waiting_since: ago(150), snoozed: false, assignee: '' },\n  { id: '1003', subject: 'Payment failed on renewal', customer: 'Lena Fischer', tags: [], priority: true, waiting_since: ago(50), snoozed: false, assignee: '4415' },\n  { id: '1004', subject: 'Where do I change my logo?', customer: 'Owen Price', tags: [], priority: false, waiting_since: ago(30), snoozed: false, assignee: '' },\n  { id: '1005', subject: 'Waiting on customer screenshots', customer: 'Ada Brooks', tags: ['Pro plan'], priority: false, waiting_since: ago(300), snoozed: true, assignee: '4412' },\n  { id: '1006', subject: 'Thanks, that worked', customer: 'Hugo Lam', tags: [], priority: false, waiting_since: null, snoozed: false, assignee: '4415' },\n  { id: '1007', subject: 'Report export missing columns', customer: 'Sara Quinn (Tallow Foods)', tags: ['Pro plan'], priority: false, waiting_since: ago(3 * 1440), snoozed: false, assignee: '4419' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "e341b647-2ad7-4617-a228-c228321ee341",
+      "name": "Combine conversation sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "0d9e4108-1fdf-4e88-a52e-b52e1fbb0d9e",
+      "name": "Measure waiting time against SLA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Tier from tags (or the priority flag), then minutes waited on that tier's clock.\n// The business clock walks the wait in 5 minute steps in TIMEZONE, capped at 10 days.\nconst cfg = $('config').first().json;\nconst bh = cfg.business_hours;\nconst fmt = new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, weekday: 'short', hour: 'numeric', hourCycle: 'h23' });\nconst DAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\nconst cache = {};\nconst isOpen = ms => {\n  const k = Math.floor(ms / 900000);\n  if (!(k in cache)) {\n    const p = Object.fromEntries(fmt.formatToParts(new Date(k * 900000)).map(x => [x.type, x.value]));\n    const h = Number(p.hour) % 24;\n    cache[k] = bh.days.includes(DAY[p.weekday]) && h >= bh.start_hour && h < bh.end_hour;\n  }\n  return cache[k];\n};\nconst businessMinutes = (from, to) => {\n  let m = 0;\n  for (let t = Math.max(from, to - 10 * 864e5); t < to; t += 300000) if (isOpen(t)) m += Math.min(5, (to - t) / 60000);\n  return Math.round(m);\n};\nconst now = Date.now();\nconst rows = [];\nfor (const { json: c } of $input.all()) {\n  if (c.snoozed) { rows.push({ ...c, status: 'skipped', note: 'snoozed' }); continue; }\n  if (!c.waiting_since) { rows.push({ ...c, status: 'not waiting', note: 'team replied last' }); continue; }\n  const tagTier = c.tags.map(t => cfg.tier_tags[t]).find(Boolean);\n  const tier = c.priority ? cfg.priority_tier : (tagTier || 'standard');\n  const sla = cfg.sla_by_tier[tier] || cfg.sla_by_tier.standard;\n  const from = new Date(c.waiting_since).getTime();\n  const waited = sla.clock === '24x7' ? Math.round((now - from) / 60000) : businessMinutes(from, now);\n  const pct = Math.round(waited / sla.minutes * 100);\n  const level = pct >= cfg.escalate_at_pct ? 2 : pct >= 100 ? 1 : 0;\n  const status = level ? 'breached' : pct >= cfg.warn_at_pct ? 'at risk' : 'ok';\n  rows.push({ ...c, tier, sla_minutes: sla.minutes, clock: sla.clock, waited_minutes: waited, pct, level, status, note: '' });\n}\nreturn rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "06703d97-ee27-4467-ae9d-fe9dc86e0670",
+      "name": "Keep new breaches only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A breach is posted once per level. The key is conversation + waiting_since + level,\n// so a fresh customer message starts a new clock and a reposted level never repeats.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.escalated || {};\nconst rows = $input.all().map(i => i.json);\nconst escalate = [], already = [];\nfor (const r of rows.filter(r => r.status === 'breached')) {\n  const key = r.id + ':' + r.waiting_since + ':L' + r.level;\n  if (seen[key]) already.push({ id: r.id, key, reason: 'level ' + r.level + ' already posted ' + seen[key] });\n  else escalate.push({ ...r, key });\n}\nescalate.sort((a, b) => b.level - a.level || b.pct - a.pct);\nreturn [{ json: {\n  escalate, already,\n  at_risk: rows.filter(r => r.status === 'at risk'),\n  counts: rows.reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {}),\n} }];\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "33ab99a4-0f7f-4e64-a38c-038c588733ab",
+      "name": "Write the escalation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Slack message per run. Second-level breaches lead and carry the mention.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst dur = m => m >= 120 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + 'm';\nconst line = r => '- <' + cfg.intercom_app_url + r.id + '|' + r.subject + '> (' + r.customer + ', ' + r.tier + ') waited ' + dur(r.waited_minutes)\n  + (r.clock === 'business' ? ' business' : '') + ' of ' + dur(r.sla_minutes) + ' (' + r.pct + '%)' + (r.assignee ? '' : ', *unassigned*');\nconst l2 = d.escalate.filter(r => r.level === 2), l1 = d.escalate.filter(r => r.level === 1);\nconst text = [\n  ...(l2.length ? [cfg.escalation_mention + ' *' + l2.length + ' conversation' + (l2.length === 1 ? '' : 's') + ' past ' + cfg.escalate_at_pct + '% of SLA*', ...l2.map(line), ''] : []),\n  ...(l1.length ? ['*' + l1.length + ' new SLA breach' + (l1.length === 1 ? '' : 'es') + '*', ...l1.map(line), ''] : []),\n  ...(d.at_risk.length ? ['At risk: ' + d.at_risk.map(r => r.subject + ' (' + r.pct + '%)').join(', ')] : []),\n].join('\\n').trim();\nreturn [{ json: { text, new_breaches: d.escalate.length, keys: d.escalate.map(r => r.key) } }];\n"
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "9e9a1e3b-6985-49cb-a62f-462f9a629e9a",
+      "name": "Anything new to escalate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7b09c645-df4b-42b5-abf4-7bf4a5b07b09",
+              "leftValue": "={{ $json.new_breaches > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "af40329b-0c9b-402b-a088-9088b402af40",
+      "name": "STOP: no new breaches",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "ee2e231d-edb9-4c0d-a8f4-f8f47338ee2e",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "2b2452a3-5a31-4db3-ae56-ee568c9a2b24",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "8ff7cc1b-2d99-41ab-af5f-1f5fb5828ff7",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "c693674e-4d80-4aee-ad77-dd77db0dc693",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "d28ff216-35ac-4736-a832-9832c325d28f",
+      "name": "Post the escalation to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "a86ae0b7-2f6c-4d87-acd1-ccd1f24ea86a",
+      "name": "Remember escalated breaches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only after a live post: record each key so the next run stays quiet about it.\n// Keys older than 14 days are dropped to keep static data small.\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.escalated || {};\nconst now = new Date().toISOString();\nfor (const k of $('Write the escalation').first().json.keys) seen[k] = now;\nconst cutoff = new Date(Date.now() - 14 * 864e5).toISOString();\nfor (const [k, v] of Object.entries(seen)) if (v < cutoff) delete seen[k];\nmemory.escalated = seen;\nreturn [{ json: { remembered: Object.keys(seen).length } }];\n"
+      },
+      "position": [
+        2992,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Intercom connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intercom connected?": {
+      "main": [
+        [
+          {
+            "node": "Search open Intercom conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search open Intercom conversations": {
+      "main": [
+        [
+          {
+            "node": "Read Intercom conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Intercom conversations": {
+      "main": [
+        [
+          {
+            "node": "Combine conversation sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample conversations": {
+      "main": [
+        [
+          {
+            "node": "Combine conversation sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine conversation sources": {
+      "main": [
+        [
+          {
+            "node": "Measure waiting time against SLA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Measure waiting time against SLA": {
+      "main": [
+        [
+          {
+            "node": "Keep new breaches only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep new breaches only": {
+      "main": [
+        [
+          {
+            "node": "Write the escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the escalation": {
+      "main": [
+        [
+          {
+            "node": "Anything new to escalate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new to escalate?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new breaches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Post the escalation to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the escalation to Slack": {
+      "main": [
+        [
+          {
+            "node": "Remember escalated breaches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

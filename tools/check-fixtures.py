@@ -30,6 +30,8 @@ ALLOWED_LITERAL = {
     "n8n.example.com", "localhost",
     # Apollo returns this literal string in place of a locked address.
     "domain.com",
+    # Google Calendar room resources: a meeting room, not a mailbox a person reads.
+    "resource.calendar.google.com",
 }
 
 # Third-party services a template calls. These are API endpoints, not contacts.
@@ -63,6 +65,32 @@ VENDOR_HOSTS = {
     "api.coresignal.com", "api.pipedrive.com", "pipedrive.com",
     "api.mailchimp.com", "api.elevenlabs.io", "api.heygen.com",
     "browserless.io", "chrome.browserless.io",
+    # APIs the n8n/library templates call, and the vendor domains their copy names.
+    "stripe.com", "monday.com", "calendly.com", "zohoapis.com", "zoho.com",
+    "zohoapis.com.au", "zoho.com.au", "zohoapis.ca", "zohocloud.ca", "goldapi.io",
+    "myshopify.com", "open.er-api.com", "exchangerate-api.com", "asana.com",
+    "rdap.org", "googleapis.com", "google.com", "ycombinator.com", "algolia.com",
+    "firebaseio.com", "youtube.com", "osv.dev", "brevo.com", "clickup.com",
+    "pinecone.io", "lemonsqueezy.com", "pagerduty.com", "reddit.com",
+    "intercom.com", "intercom.io", "zoom.us", "linear.app", "atlassian.net",
+    "apple.com", "bamboohr.com", "coingecko.com", "convertkit.com", "paypal.com",
+    "sentry.io", "aftership.com", "todoist.com", "open-meteo.com", "xero.com",
+    "kapso.ai", "typeform.com", "hubspot.com", "freshdesk.com", "zendesk.com",
+    "woocommerce.com", "clockify.me", "mailin.fr",
+    # Public news feeds the AI news starter reads.
+    "antaranews.com", "sindonews.com", "viva.co", "viva.co.id",
+    # XML namespaces and licence pages linked from docs.
+    "sitemaps.org", "www.sitemaps.org", "contributor-covenant.org",
+    "www.contributor-covenant.org", "creativecommons.org",
+}
+
+# Referrer, social and link-shortener hosts that UTM attribution and link
+# validation templates classify traffic by. Like PROVIDER_HOSTS, they appear
+# in classification lists, never as a contact.
+CHANNEL_HOSTS = {
+    "google.com", "bing.com", "duckduckgo.com", "ecosia.org", "search.brave.com",
+    "search.yahoo.com", "facebook.com", "instagram.com", "x.com", "twitter.com",
+    "t.co", "threads.net", "linkedin.com", "tinyurl.com", "g2.com", "www.g2.com",
 }
 
 # Numbers that match the North American shape without being phone numbers:
@@ -71,6 +99,8 @@ VENDOR_HOSTS = {
 NOT_PHONE = {
     "2147483648",  # 2**31, the modulus in the deterministic demo generators
     "2147483647",
+    "2166136261",  # FNV-1a 32-bit offset basis, used to derive stable ids and tokens
+    "2654435761",  # Knuth's multiplicative hash constant
 }
 
 # Numbers a vendor publishes for everyone to test against. They belong to the
@@ -86,7 +116,9 @@ PROVIDER_HOSTS = {
     "icloud.com", "live.com", "msn.com", "protonmail.com", "proton.me",
     "10minutemail.com", "guerrillamail.com", "mailinator.com",
     "sharklasers.com", "tempmail.com", "trashmail.com", "yopmail.com",
-    "getnada.com", "temp-mail.org",
+    "getnada.com", "temp-mail.org", "tempmail.dev",
+    # Common typos of the free-mail providers, flagged by lead validation.
+    "gmial.com", "gmai.com", "gamil.com", "hotmial.com", "yahooo.com", "outlok.com",
 }
 
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
@@ -132,7 +164,7 @@ def reserved(host):
 
 def allowed_host(host):
     h = host.lower().rstrip(".")
-    if reserved(h) or h in VENDOR_HOSTS or h in PROVIDER_HOSTS:
+    if reserved(h) or h in VENDOR_HOSTS or h in PROVIDER_HOSTS or h in CHANNEL_HOSTS:
         return True
     return any(h == v or h.endswith("." + v) for v in VENDOR_HOSTS)
 
@@ -148,9 +180,11 @@ def is_test_file(rel):
     already listed above. Any other routable domain still fails, in a test or not.
     """
     name = os.path.basename(rel).lower()
-    return name.startswith("test_") or name.endswith(("test.cls", "_test.py",
-                                                      "test.py", ".test.ts",
-                                                      ".spec.ts"))
+    # n8n/library/_specs/*.ts hold the simulator scenarios that prove a template
+    # treats a disposable address as disposable.
+    in_specs = "/library/_specs/" in rel.replace("\\", "/")
+    return in_specs or name.startswith("test_") or name.endswith((
+        "test.cls", "_test.py", "test.py", ".test.ts", ".spec.ts"))
 
 
 def check(path, rel):

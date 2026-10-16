@@ -1,0 +1,668 @@
+{
+  "name": "Send a welcome sequence to new Brevo contacts based on signup source",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send a welcome sequence to new Brevo contacts based on signup source\n\n**Who's it for**\nSmall teams on Brevo who collect signups from a trial form, webinars and content downloads, and want each group welcomed differently without building three automations in the Brevo editor.\n\n**How it works**\n1. Every hour from 08:00 to 18:00 it reads contacts created in the last 7 days from Brevo, or 7 sample contacts until Brevo is connected.\n2. The SOURCE attribute picks the variant (trial, webinar, content or default), and the WELCOME_STEP attribute says which email went last.\n3. The next email is sent once its day (0, 2 or 5 after signup) arrives. Unsubscribed and hard-bounced contacts stop, contacts who signed up before the sequence existed are left alone, and at most 100 emails go per run.\n4. Each email goes through the Brevo transactional API and WELCOME_STEP is updated on the contact, so a step is never repeated.\n\n**How to set up**\n1. Run it once as imported. It plans emails for the sample contacts and stops at `STOP: preview - nothing sent`.\n2. In Brevo, create the number attribute WELCOME_STEP and a text attribute SOURCE that your forms fill in.\n3. Add a Brevo credential to the three Brevo nodes, set `SENDER` to a verified sender and set `USE_BREVO = true`.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Brevo account with transactional email enabled\n- Signup forms that set a SOURCE attribute\n\n**How to customize**\n- `SEQUENCES` holds the subject and opening line of every email per variant.\n- `SOURCE_MAP` maps your SOURCE values to a variant.\n- `START_WITHIN_DAYS` and `DAILY_CAP` control who starts the sequence and how many emails one run sends.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "3d49dd01-5717-4c4e-9a00-3d49dd0113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns hourly in working hours, so a day 0 email arrives within an hour of signup. Every subject, opening line and source mapping is in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6a6df634-5717-4c4e-9a00-6a6df6341000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read new contacts\n\nOnly contacts created in the last week are read, filtered by Brevo itself with createdSince. `Load sample contacts` covers every sequence decision, including an unsubscribe and a pre-existing contact.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "6b6df7c7-5717-4c4e-9a00-6b6df7c71001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick the next step\n\nThe step already sent lives on the contact in WELCOME_STEP, so the sequence survives a reinstall and is visible in Brevo. `START_WITHIN_DAYS` stops the first run from emailing everyone who joined last week.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "6c6df95a-5717-4c4e-9a00-6c6df95a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and record\n\nNothing is sent in preview. A test send goes to `TEST_EMAIL` and leaves WELCOME_STEP alone; only a live send moves the contact on to the next step.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "6d6dfaed-5717-4c4e-9a00-6d6dfaed1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "58d3aa90-fae6-4d90-aad9-0ad97c1358d3",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND A WELCOME SEQUENCE TO NEW BREVO CONTACTS BASED ON SIGNUP SOURCE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_BREVO false -> SAMPLE contacts.\n// Sends go through the Brevo transactional API; WELCOME_STEP is written only on a live run.\n\n// set true after adding the Brevo credential to the three Brevo nodes\nconst USE_BREVO = false;\n// verified Brevo sender\nconst SENDER = {\n  name: \"Mara at Tallyroom\",\n  email: \"hello@yourcompany.example\"\n};\n// days after signup for steps 1, 2 and 3\nconst SEQUENCE_DAYS = [\n  0,\n  2,\n  5\n];\n// SOURCE attribute value (lowercase) -> variant; anything else uses default\nconst SOURCE_MAP = {\n  trial: \"trial\",\n  \"free-trial\": \"trial\",\n  webinar: \"webinar\",\n  ebook: \"content\",\n  guide: \"content\",\n  checklist: \"content\"\n};\n// per variant: one entry per step with subject and opening line (avoid apostrophes)\nconst SEQUENCES = {\n  trial: [\n    {\n      subject: \"Your trial is ready, here is the 5-minute setup\",\n      line: \"Most teams are set up after three steps: invite one colleague, connect a card and upload last month of receipts.\"\n    },\n    {\n      subject: \"The one report trial users open most\",\n      line: \"The spend-by-person report shows where the money went last month, and it fills itself once receipts are in.\"\n    },\n    {\n      subject: \"Questions before your trial ends?\",\n      line: \"Reply to this email with anything that is not working. A person reads every reply within one working day.\"\n    }\n  ],\n  webinar: [\n    {\n      subject: \"Thanks for registering, here is what to expect\",\n      line: \"You will get the join link an hour before we start. Bring one question about your month-end process.\"\n    },\n    {\n      subject: \"The checklist from the session\",\n      line: \"This is the month-end checklist we walked through, ready to copy.\"\n    },\n    {\n      subject: \"Want to try it on your own numbers?\",\n      line: \"A free trial takes five minutes to set up and you can import last month to compare.\"\n    }\n  ],\n  content: [\n    {\n      subject: \"Your download is inside\",\n      line: \"Here is the link to the guide you asked for. It takes about 12 minutes to read.\"\n    },\n    {\n      subject: \"Three templates that go with the guide\",\n      line: \"These are the expense policy, approval rules and reimbursement templates referenced in chapter two.\"\n    },\n    {\n      subject: \"How one 12-person team uses it\",\n      line: \"Northwind Labs cut their close from six days to two with the steps in the guide.\"\n    }\n  ],\n  default: [\n    {\n      subject: \"Welcome to Tallyroom\",\n      line: \"Thanks for signing up. Here is where to start.\"\n    },\n    {\n      subject: \"Three things worth setting up first\",\n      line: \"Invite a colleague, connect a card and set one approval rule.\"\n    },\n    {\n      subject: \"Anything we can help with?\",\n      line: \"Reply to this email and a person will answer within one working day.\"\n    }\n  ]\n};\n// contacts older than this with no step sent never start (protects existing contacts on day one)\nconst START_WITHIN_DAYS = 1;\n// hard ceiling on emails per run\nconst DAILY_CAP = 100;\n// your unsubscribe page; the contact email is appended as ?email=\nconst UNSUBSCRIBE_URL = 'https://www.yourcompany.example/unsubscribe';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_brevo: USE_BREVO,\n    sender: SENDER,\n    sequence_days: SEQUENCE_DAYS,\n    source_map: SOURCE_MAP,\n    sequences: SEQUENCES,\n    start_within_days: START_WITHIN_DAYS,\n    daily_cap: DAILY_CAP,\n    unsubscribe_url: UNSUBSCRIBE_URL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "d6fdb294-449c-4c54-a4b2-b4b22b37d6fd",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "b2213a47-34c5-4a17-a579-e5791e1eb221",
+      "name": "Every hour from 08:00 to 18:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8-18 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "a65ee256-950f-4376-a2fd-c2fde0e5a65e",
+      "name": "Brevo connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1f4161d7-3aa4-44a7-af26-ef26022e1f41",
+              "leftValue": "={{ $('config').first().json.use_brevo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "d8c623fd-695c-46ed-a908-d908ac58d8c6",
+      "name": "Fetch new Brevo contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.brevo.com/v3/contacts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "brevoApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "1000"
+            },
+            {
+              "name": "sort",
+              "value": "desc"
+            },
+            {
+              "name": "createdSince",
+              "value": "={{ new Date(Date.now() - (Math.max(...$('config').first().json.sequence_days) + 2) * 864e5).toISOString() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "53796b23-b91b-4e33-ace0-dce0691a5379",
+      "name": "Read Brevo contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Brevo /contacts -> flat contacts with the two attributes the sequence uses.\nconst out = [];\nfor (const page of $input.all()) for (const c of page.json.contacts || []) out.push({\n  email: c.email, first_name: c.attributes?.FIRSTNAME || '', source: String(c.attributes?.SOURCE || ''), step: Number(c.attributes?.WELCOME_STEP || 0),\n  created_at: c.createdAt, unsubscribed: Boolean(c.emailBlacklisted) });\nreturn [{ json: { contacts: out } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "073ec325-6f94-4995-a3ba-93bacbd0073e",
+      "name": "Load sample contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_BREVO is true. One contact per sequence decision.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [{ json: { contacts: [\n  { email: 'ana@northwind-labs.example', first_name: 'Ana', source: 'Trial', step: 0, created_at: ago(0.1), unsubscribed: false },\n  { email: 'ben@harbourdesign.example', first_name: 'Ben', source: 'webinar', step: 1, created_at: ago(2.2), unsubscribed: false },\n  { email: 'cai@pineco.example', first_name: 'Cai', source: 'ebook', step: 2, created_at: ago(5.5), unsubscribed: false },\n  { email: 'dee@lumenphysio.example', first_name: 'Dee', source: 'trial', step: 2, created_at: ago(3), unsubscribed: false },\n  { email: 'eve@orchardlane.example', first_name: 'Eve', source: 'trial', step: 0, created_at: ago(0.5), unsubscribed: true },\n  { email: 'fin@northfield.example', first_name: 'Fin', source: 'podcast', step: 0, created_at: ago(6), unsubscribed: false },\n  { email: 'gia@studio.example', first_name: '', source: 'partner', step: 0, created_at: ago(0.2), unsubscribed: false },\n] } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "816ca3c9-13b6-4ef9-a28f-d28fc1c4816c",
+      "name": "Combine contact sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "468109b2-ae0a-4612-a6b8-36b83a614681",
+      "name": "Pick the next email per contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One step per contact per run: the first step after WELCOME_STEP whose day has\n// arrived. A contact who never got step 1 and is older than START_WITHIN_DAYS\n// was there before the sequence and is left alone.\nconst cfg = $('config').first().json;\nconst days = cfg.sequence_days;\nconst due = [], held = [];\nfor (const c of $input.first().json.contacts) {\n  const age = (Date.now() - new Date(c.created_at).getTime()) / 864e5;\n  const variant = cfg.source_map[c.source.trim().toLowerCase()] || 'default';\n  const next = c.step + 1;\n  const reason =\n    c.unsubscribed ? 'unsubscribed or blocked' :\n    next > days.length ? 'sequence finished' :\n    c.step === 0 && age > cfg.start_within_days ? 'joined before the sequence started' :\n    age < days[next - 1] ? 'step ' + next + ' due in ' + Math.ceil(days[next - 1] - age) + ' day(s)' : '';\n  if (reason) { held.push({ email: c.email, reason }); continue; }\n  due.push({ ...c, variant, next_step: next, age_days: Math.floor(age) });\n}\ndue.sort((a, b) => a.next_step - b.next_step || b.age_days - a.age_days);\nfor (const d of due.slice(cfg.daily_cap)) held.push({ email: d.email, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { emails: due.slice(0, cfg.daily_cap), held } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "cff83068-afd2-4fe8-a987-a987fb5bcff8",
+      "name": "Any emails due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5d58d923-c994-4c33-a389-1389cb1a5d58",
+              "leftValue": "={{ $json.emails.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "5b807d02-165a-4062-ab3c-6b3c1e715b80",
+      "name": "STOP: no emails due",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "f1b1b146-62af-4766-a185-11854f55f1b1",
+      "name": "One item per contact",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "emails",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "9179ed32-0827-4192-acf8-3cf811e19179",
+      "name": "Write each email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Subject and opening line from SEQUENCES, the rest is a fixed frame. Builds the\n// Brevo /smtp/email payload; test mode sends to TEST_EMAIL with the real address in the subject.\nconst cfg = $('config').first().json;\nconst esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');\nreturn $input.all().map(({ json: c }) => {\n  const copy = cfg.sequences[c.variant][c.next_step - 1];\n  const to = cfg.mode === 'test' ? cfg.test_email : c.email;\n  const html = '<p>Hi ' + esc(c.first_name || 'there') + ',</p><p>' + esc(copy.line) + '</p><p>' + esc(cfg.sender.name) + '</p>' +\n    '<p style=\"font-size:12px;color:#777\">You are getting this because you signed up. <a href=\"' + cfg.unsubscribe_url + '?email=' + encodeURIComponent(c.email) + '\">Unsubscribe</a></p>';\n  return { json: { email: c.email, step: c.next_step, variant: c.variant, subject: copy.subject, payload: {\n    sender: cfg.sender, to: [{ email: to, name: c.first_name || undefined }],\n    subject: (cfg.mode === 'test' ? '[TEST to ' + c.email + '] ' : '') + copy.subject, htmlContent: html,\n    tags: ['welcome', 'welcome-' + c.variant, 'welcome-step-' + c.next_step] } } };\n});\n"
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "8f10b493-557b-44a3-acf4-0cf4b04a8f10",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "ed94c524-27c6-41e4-aa71-da71d807ed94",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "217fc435-6a76-45a5-ab94-db948d60217f",
+      "name": "Send through Brevo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.brevo.com/v3/smtp/email",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "brevoApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "f777b062-0d2d-45c2-a343-c343c611f777",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "cca137dd-155a-44cd-a270-32703178cca1",
+      "name": "STOP: test send - contacts untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3008,
+        352
+      ]
+    },
+    {
+      "id": "e3df9068-6f2b-4fe8-aa66-7a665b5be3df",
+      "name": "Record the step on the contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://api.brevo.com/v3/contacts/' + encodeURIComponent($('Write each email').item.json.email) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "brevoApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ attributes: { WELCOME_STEP: $('Write each email').item.json.step } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3008,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour from 08:00 to 18:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Brevo connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brevo connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch new Brevo contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch new Brevo contacts": {
+      "main": [
+        [
+          {
+            "node": "Read Brevo contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Brevo contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine contact sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the next email per contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the next email per contact": {
+      "main": [
+        [
+          {
+            "node": "Any emails due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any emails due?": {
+      "main": [
+        [
+          {
+            "node": "One item per contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no emails due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per contact": {
+      "main": [
+        [
+          {
+            "node": "Write each email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send through Brevo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send through Brevo": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record the step on the contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - contacts untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

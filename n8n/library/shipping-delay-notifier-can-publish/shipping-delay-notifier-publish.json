@@ -1,0 +1,948 @@
+{
+  "name": "Warn customers from Gmail when AfterShip shows a stalled shipment",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Warn customers from Gmail when AfterShip shows a stalled shipment\n\n**Who's it for**\nOnline shops that ship with several carriers and hear about lost or stuck parcels only when the customer writes in angry. A short, early email turns most of those tickets into a thank-you.\n\n**How it works**\n1. Every weekday at 10:00 it reads open shipments from the Shipments tab, or 7 sample shipments until the sheet is set.\n2. It looks up all tracking numbers in one AfterShip call, or uses sample tracking until `AFTERSHIP_ENABLED` is on.\n3. A shipment is delayed if the carrier reports an exception or failed attempt, if the last scan is 3 or more days old, or if the label was created 4 or more days ago and never scanned.\n4. Each delayed shipment gets one email in plain words for its case; a filled notified_at column means it never gets another.\n5. The team gets one Slack digest of every delay, plus tracking numbers AfterShip does not know.\n\n**How to set up**\n1. Run it once as imported. It checks the sample shipments and stops at `STOP: preview - nothing sent`.\n2. Create a Shipments tab (order, email, first_name, carrier, tracking_number, shipped_at, notified_at, delay_reason) and put its id in `SHIPMENT_SHEET_ID`.\n3. Add a Header Auth credential named `as-api-key` with your AfterShip key to `Fetch tracking from AfterShip`, and set `AFTERSHIP_ENABLED = true`.\n4. Connect Gmail and Slack, set `SLACK_CHANNEL_ID`, then put your address in `TEST_EMAIL` before setting `TEST_RUN = false`.\n\n**Requirements**\n- An AfterShip account with API access\n- A Google Sheet of shipments\n- A Gmail account\n- Optional: a Slack workspace\n\n**How to customize**\n- `STALL_DAYS` and `LABEL_ONLY_DAYS` set when silence counts as a delay.\n- `EXCEPTION_TAGS` lists AfterShip statuses that trigger an email at once.\n- `MESSAGES` holds the wording for each delay type.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "df416721-5717-4c4e-9a00-df41672113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns weekdays at 10:00, after carriers have posted the overnight scans. The delay thresholds and every email sentence live in `config`.",
+        "height": 1024,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e0198454-5717-4c4e-9a00-e01984541000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read open shipments\n\nThe sheet is the list of what you shipped and the memory of who was told. `Collect tracking numbers` makes one item so AfterShip is called once for up to 50 parcels.",
+        "height": 1024,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "e11985e7-5717-4c4e-9a00-e11985e71001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Look up tracking\n\nOne read-only AfterShip call with a Header Auth key. `Read AfterShip trackings` keeps only the newest checkpoint per parcel, which is all the delay rules need.",
+        "height": 1024,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "e219877a-5717-4c4e-9a00-e219877a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Decide, email and record\n\nA carrier exception outranks silence, so a customs hold is described as one. A shipment AfterShip does not know goes to the team only, because the number itself may be wrong. Only a live send fills notified_at.",
+        "height": 1024,
+        "width": 1520,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "e319890d-5717-4c4e-9a00-e319890d1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "a15a0ff6-62aa-4f16-ac3f-2c3f9945a15a",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WARN CUSTOMERS FROM GMAIL WHEN AFTERSHIP SHOWS A STALLED SHIPMENT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SHIPMENT_SHEET_ID blank -> SAMPLE shipments. AFTERSHIP_ENABLED false -> SAMPLE tracking.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. The sheet is updated only on a live run.\n\n// Google Sheets id with a Shipments tab; blank uses sample shipments\nconst SHIPMENT_SHEET_ID = '';\n// set true after adding the AfterShip Header Auth credential\nconst AFTERSHIP_ENABLED = false;\n// no carrier scan for this many days counts as stalled\nconst STALL_DAYS = 3;\n// a label never scanned this many days after shipping counts as delayed\nconst LABEL_ONLY_DAYS = 4;\n// AfterShip tags that mean a problem now\nconst EXCEPTION_TAGS = [\n  \"Exception\",\n  \"AttemptFail\",\n  \"Expired\"\n];\n// AfterShip tags that close a shipment\nconst DONE_TAGS = [\n  \"Delivered\",\n  \"AvailableForPickup\"\n];\n// email text per delay type; {order}, {carrier}, {last_scan}, {location}, {detail}, {shipped} are filled in\nconst MESSAGES = {\n  stalled: \"Your parcel for order {order} has not been scanned by {carrier} since {last_scan} ({location}). That usually means it is waiting at a depot; we have asked the carrier to check.\",\n  exception: \"The carrier reported a problem with your parcel for order {order}: \\\"{detail}\\\". We are on it and will update you as soon as we hear back.\",\n  label_only: \"The shipping label for order {order} was created on {shipped}, but {carrier} has not collected the parcel yet. We are chasing the pickup today.\"\n};\n// used in the subject and sign-off\nconst SHOP_NAME = 'Larch & Loom';\n// hard ceiling on emails per run\nconst DAILY_CAP = 40;\n// channel for the internal digest; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    shipment_sheet_id: SHIPMENT_SHEET_ID,\n    aftership_enabled: AFTERSHIP_ENABLED,\n    stall_days: STALL_DAYS,\n    label_only_days: LABEL_ONLY_DAYS,\n    exception_tags: EXCEPTION_TAGS,\n    done_tags: DONE_TAGS,\n    messages: MESSAGES,\n    shop_name: SHOP_NAME,\n    daily_cap: DAILY_CAP,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheet_enabled: SHIPMENT_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "2c066d82-3d22-48e2-a2d3-c2d392f12c06",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "f7c442e3-8b14-49f3-a87a-587aaa5af7c4",
+      "name": "Every weekday at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "97a7003a-a208-421a-a1c6-51c6369997a7",
+      "name": "Shipment sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4d851ecb-6c35-4d5b-aced-3ced29324d85",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "b71af53f-ea17-478f-ab54-3b541486b71a",
+      "name": "Read open shipments",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.shipment_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Shipments"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "40c6c2ed-e279-4add-aece-1ece66c840c6",
+      "name": "Load sample shipments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until SHIPMENT_SHEET_ID is set. 3006 was already told about its delay.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [\n  ['3001', 'hana@cobblestone.example', 'Hana', 'ups', '1Z555A0101', day(6), ''],\n  ['3002', 'ivo@riverbend.example', 'Ivo', 'usps', '9400555010200', day(3), ''],\n  ['3003', 'jon@meadowlark.example', 'Jon', 'dhl', 'JD5550103', day(4), ''],\n  ['3004', 'kai@westbrook.example', 'Kai', 'fedex', '555010400001', day(5), ''],\n  ['3005', 'lou@bayside.example', 'Lou', 'usps', '9400555010500', day(5), ''],\n  ['3006', 'mae@ashgrove.example', 'Mae', 'ups', '1Z555A0106', day(9), day(2)],\n  ['3007', 'ned@fernhill.example', 'Ned', 'royal-mail', 'RM555010700GB', day(2), ''],\n].map(([order, email, first_name, carrier, tracking_number, shipped_at, notified_at]) => ({ json: { order, email, first_name, carrier, tracking_number, shipped_at, notified_at, delay_reason: '' } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "2f3b87ff-6539-4e4f-ae83-ce8324c62f3b",
+      "name": "Combine shipment sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "542291f5-1486-4765-a19a-b19a1ca05422",
+      "name": "Collect tracking numbers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item with every open shipment; delivered rows and blank tracking numbers are dropped.\nconst rows = $input.all().map(i => i.json).filter(r => r.tracking_number && String(r.status || '').toLowerCase() !== 'delivered');\nreturn [{ json: { shipments: rows, numbers: rows.map(r => String(r.tracking_number).trim()) } }];\n"
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "2ac96390-093c-4690-a174-7174bd132ac9",
+      "name": "AfterShip connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "48d7f673-5d82-4083-ae00-de00ce6a48d7",
+              "leftValue": "={{ $('config').first().json.aftership_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "7c5c03db-777e-4d6b-a619-16197ac27c5c",
+      "name": "Fetch tracking from AfterShip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.aftership.com/tracking/2024-07/trackings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tracking_numbers",
+              "value": "={{ $json.numbers.slice(0, 50).join(\",\") }}"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "54fc7292-ce10-48f2-a87a-687aa08154fc",
+      "name": "Read AfterShip trackings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Trackings -> status tag, last checkpoint and carrier message, keyed by number.\nconst t = {};\nfor (const page of $input.all()) for (const x of page.json.data?.trackings || []) {\n  const cps = (x.checkpoints || []).slice().sort((a, b) => String(a.checkpoint_time).localeCompare(String(b.checkpoint_time)));\n  const last = cps[cps.length - 1];\n  t[x.tracking_number] = { tag: x.tag, subtag_message: x.subtag_message || '', last_scan: last?.checkpoint_time || null,\n    location: last?.location || [last?.city, last?.country_region].filter(Boolean).join(', ') || '', detail: last?.message || x.subtag_message || '', scans: cps.length };\n}\nreturn [{ json: { tracking: t } }];\n"
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "cde113ff-68db-4a4f-af13-7f1338c6cde1",
+      "name": "Load sample tracking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until AFTERSHIP_ENABLED is true. 3007 is unknown to the carrier feed.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [{ json: { tracking: {\n  '1Z555A0101': { tag: 'InTransit', last_scan: ago(4), location: 'Louisville, KY', detail: 'Departed facility', scans: 4 },\n  '9400555010200': { tag: 'InTransit', last_scan: ago(1), location: 'Denver, CO', detail: 'Arrived at hub', scans: 3 },\n  'JD5550103': { tag: 'Exception', last_scan: ago(1), location: 'Leipzig, DE', detail: 'Held by customs: invoice required', scans: 5 },\n  '555010400001': { tag: 'Delivered', last_scan: ago(1), location: 'Austin, TX', detail: 'Delivered, front door', scans: 6 },\n  '9400555010500': { tag: 'InfoReceived', last_scan: ago(5), location: '', detail: 'Shipping label created', scans: 1 },\n  '1Z555A0106': { tag: 'InTransit', last_scan: ago(6), location: 'Ontario, CA', detail: 'In transit', scans: 3 },\n} } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "8cdd062c-5830-406c-afbb-2fbbaebf8cdd",
+      "name": "Combine tracking sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "b1625072-c17d-40d2-a959-595982a1b162",
+      "name": "Find delayed shipments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Exception first, then label never collected, then stalled. One email per shipment\n// ever: a filled notified_at means skip. Unknown numbers go to the team, not the customer.\nconst cfg = $('config').first().json;\nconst { shipments } = $('Collect tracking numbers').first().json;\nconst tracking = $input.first().json.tracking || {};\nconst days = iso => iso ? (Date.now() - new Date(iso).getTime()) / 864e5 : null;\nconst notify = [], quiet = [], unknown = [], already = [];\nfor (const s of shipments) {\n  const t = tracking[String(s.tracking_number).trim()];\n  if (!t) { unknown.push({ order: s.order, tracking: s.tracking_number }); continue; }\n  if (cfg.done_tags.includes(t.tag)) { quiet.push({ order: s.order, reason: t.tag }); continue; }\n  const sinceScan = days(t.last_scan), sinceShip = days(s.shipped_at);\n  const type =\n    cfg.exception_tags.includes(t.tag) ? 'exception' :\n    (t.tag === 'InfoReceived' || t.tag === 'Pending' || t.scans <= 1) && sinceShip >= cfg.label_only_days ? 'label_only' :\n    sinceScan !== null && sinceScan >= cfg.stall_days ? 'stalled' : '';\n  if (!type) { quiet.push({ order: s.order, reason: 'moving (last scan ' + Math.floor(sinceScan) + 'd ago)' }); continue; }\n  if (String(s.notified_at || '').trim()) { already.push({ order: s.order, type, notified_at: s.notified_at }); continue; }\n  notify.push({ ...s, type, tag: t.tag, last_scan: t.last_scan ? t.last_scan.slice(0, 10) : '', location: t.location || 'unknown location', detail: t.detail, days_quiet: Math.floor(sinceScan ?? sinceShip) });\n}\nconst capped = notify.slice(0, cfg.daily_cap);\nreturn [{ json: { notify: capped, deferred: notify.slice(cfg.daily_cap).map(n => n.order), quiet, unknown, already } }];\n"
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "a19355f7-4491-4ec7-a49a-f49af50ea193",
+      "name": "Write each delay email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Wording per delay type from MESSAGES, filled with the carrier's own facts.\nconst cfg = $('config').first().json;\nreturn $input.first().json.notify.map(n => {\n  const text = cfg.messages[n.type].replace('{order}', n.order).replace('{carrier}', n.carrier.toUpperCase()).replace('{last_scan}', n.last_scan)\n    .replace('{location}', n.location).replace('{detail}', n.detail).replace('{shipped}', n.shipped_at);\n  return { json: { ...n, subject: 'An update on your order ' + n.order,\n    body: ['Hi ' + (n.first_name || 'there') + ',', '', text, '', 'Tracking: ' + n.tracking_number + ' (' + n.carrier.toUpperCase() + ')', '', 'Sorry for the wait. Reply to this email if you need anything.', '', cfg.shop_name].join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : n.email } };\n});\n"
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "e451926d-2606-425d-a11d-711db248e451",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "ca2b9056-75d1-4176-a3f6-f3f682e5ca2b",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "c47cd6ad-c0f3-429d-ab3d-3b3d2508c47c",
+      "name": "Email the customer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "cc52b5e8-a202-4d68-a04e-a04e04dbcc52",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "b5a0a822-9eda-4182-a0e4-20e41051b5a0",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "400009bf-3eab-440f-a271-827115064000",
+      "name": "STOP: test send - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "3ddbf5fe-59ec-429e-a9b6-29b624fd3ddb",
+      "name": "Mark shipments as notified",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// notified_at is what stops a second email; delay_reason records which case it was.\nconst now = new Date().toISOString();\nreturn $('Write each delay email').all().map(({ json: n }) => ({ json: { tracking_number: n.tracking_number, notified_at: now, delay_reason: n.type } }));\n"
+      },
+      "position": [
+        3440,
+        176
+      ]
+    },
+    {
+      "id": "22018491-33dc-4141-af0f-cf0fe3dc2201",
+      "name": "Update the shipment rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.shipment_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Shipments"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "tracking_number"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3664,
+        176
+      ]
+    },
+    {
+      "id": "95742137-4dce-4607-a772-b77216ce9574",
+      "name": "Write the internal digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// What the team should know today, including what customers were told.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst label = { stalled: 'no scan', exception: 'carrier exception', label_only: 'not collected' };\nconst text = [\n  '*Shipping delays* (' + cfg.mode + '): ' + d.notify.length + ' customer' + (d.notify.length === 1 ? '' : 's') + (cfg.mode === 'live' ? ' emailed' : ' to email'),\n  ...d.notify.map(n => '• ' + n.order + ' ' + n.carrier.toUpperCase() + ' ' + n.tracking_number + ': ' + label[n.type] + ' (' + n.detail + ', ' + n.days_quiet + 'd)'),\n  ...(d.already.length ? ['Still delayed, already told: ' + d.already.map(a => a.order).join(', ')] : []),\n  ...(d.unknown.length ? ['Not found in AfterShip: ' + d.unknown.map(u => u.order + ' (' + u.tracking + ')').join(', ')] : []),\n  ...(d.deferred.length ? ['Over DAILY_CAP, tomorrow: ' + d.deferred.join(', ')] : []),\n].join('\\n');\nreturn [{ json: { text, items: d.notify.length + d.already.length + d.unknown.length } }];\n"
+      },
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "d2eb1f90-9e6b-4290-af81-df81f113d2eb",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        352
+      ]
+    },
+    {
+      "id": "8e16b05e-df3e-4efe-a73f-f73f949d8e16",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        512
+      ]
+    },
+    {
+      "id": "cbdbf5b7-a689-4287-af89-2f89074ecbdb",
+      "name": "Digest switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "88524584-8b19-4444-a57c-b57c75a78852",
+              "leftValue": "={{ $('config').first().json.sends_enabled && $json.items > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        688
+      ]
+    },
+    {
+      "id": "74e465af-a093-44ff-a10c-310cec7674e4",
+      "name": "STOP: preview or nothing to report",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        864
+      ]
+    },
+    {
+      "id": "b6b1f05c-d766-4b9c-af8f-4f8f982fb6b1",
+      "name": "Post the digest to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3216,
+        688
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Shipment sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shipment sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read open shipments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample shipments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read open shipments": {
+      "main": [
+        [
+          {
+            "node": "Combine shipment sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample shipments": {
+      "main": [
+        [
+          {
+            "node": "Combine shipment sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine shipment sources": {
+      "main": [
+        [
+          {
+            "node": "Collect tracking numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect tracking numbers": {
+      "main": [
+        [
+          {
+            "node": "AfterShip connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AfterShip connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch tracking from AfterShip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample tracking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch tracking from AfterShip": {
+      "main": [
+        [
+          {
+            "node": "Read AfterShip trackings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read AfterShip trackings": {
+      "main": [
+        [
+          {
+            "node": "Combine tracking sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample tracking": {
+      "main": [
+        [
+          {
+            "node": "Combine tracking sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine tracking sources": {
+      "main": [
+        [
+          {
+            "node": "Find delayed shipments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find delayed shipments": {
+      "main": [
+        [
+          {
+            "node": "Write each delay email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the internal digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each delay email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the customer": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Mark shipments as notified",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark shipments as notified": {
+      "main": [
+        [
+          {
+            "node": "Update the shipment rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the internal digest": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Digest switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest switched on?": {
+      "main": [
+        [
+          {
+            "node": "Post the digest to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview or nothing to report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -11,8 +11,7 @@ const base = String(cfg.ghl_api_base || '').replace(/\/+$/, '');
 const headers = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
-  Version: cfg.ghl_api_version,
-  Authorization: 'Bearer ' + (cfg.ghl_api_key || '')
+  Version: cfg.ghl_api_version
 };
 
 return $input.all().map((item) => {

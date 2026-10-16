@@ -1,0 +1,1274 @@
+{
+  "name": "Send CSAT surveys after Freshdesk tickets close and log scores in Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send CSAT surveys after Freshdesk tickets close and log scores in Google Sheets\n\n**Who's it for**\nSupport teams on Freshdesk plans without built-in surveys, or who want CSAT scores in a sheet they own. One workflow sends the survey and records the answer.\n\n**How it works**\n1. Every day at 10:00 it lists Freshdesk tickets updated in the last 24 hours and keeps the resolved and closed ones, or 9 sample tickets until Freshdesk is connected.\n2. A ticket is skipped if it was resolved under 2 hours ago, already surveyed, tagged `no_survey`, from an internal domain, or if the requester had a survey in the last 30 days.\n3. Each survey email has five signed links that point back to this workflow's own webhook.\n4. A click records the score against the ticket in the Surveys tab, shows a thank-you message, and posts any 1 or 2 to Slack with a link to the ticket.\n\n**How to set up**\n1. Run it once as imported. It previews against sample tickets and stops at `STOP: preview - nothing sent`.\n2. Add a Freshdesk credential to `Fetch recently updated tickets`, fill in `FRESHDESK_DOMAIN` and set `USE_FRESHDESK = true`.\n3. Create a sheet with a Surveys tab (ticket_id, requester_email, subject, sent_at, score, scored_at, mode) and put its id in `SURVEY_SHEET_ID`.\n4. Activate the workflow, copy the production URL of `Score link clicked` into `WEBHOOK_URL` and change `LINK_SALT` to any phrase.\n5. Put your address in `TEST_EMAIL` to receive the surveys yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Freshdesk account with API access\n- A Gmail account\n- A Google Sheet\n- Optional: a Slack workspace\n\n**How to customize**\n- `COOLDOWN_DAYS` stops frequent requesters getting a survey after every ticket.\n- `MIN_HOURS_AFTER_RESOLVE` waits before asking, in case the customer reopens.\n- `ALERT_AT_OR_BELOW` sets which scores reach Slack.",
+        "height": 1104,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "a0c676bc-5717-4c4e-9a00-a0c676bc13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThree ways in: by hand, the 10:00 schedule, or a customer clicking a score link. All three read the same `config`, so the link signature and sheet id are set once.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7dc85271-5717-4c4e-9a00-7dc852711000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Record a clicked score\n\n`Read the clicked score` recomputes the link signature before anything is saved, and the customer gets a reply either way. The score is written onto the ticket's existing Surveys row; only 1 and 2 go to Slack.",
+        "height": 704,
+        "width": 2400,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "7cc850de-5717-4c4e-9a00-7cc850de1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read resolved tickets\n\nFreshdesk has no resolved-since filter, so `Fetch recently updated tickets` lists the last day of updates and the status check happens in code. `Load sample tickets` stands in until `USE_FRESHDESK` is true.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2912,
+        0
+      ],
+      "id": "7bc84f4b-5717-4c4e-9a00-7bc84f4b1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Skip anyone already asked\n\nThe Surveys tab is the memory: a ticket in it is never asked twice, and a requester asked inside `COOLDOWN_DAYS` is held. Every skipped ticket carries its reason in `Pick tickets to survey`.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3824,
+        0
+      ],
+      "id": "7ac84db8-5717-4c4e-9a00-7ac84db81003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Send and log\n\nNothing goes out while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test send reaches you and leaves the log alone, so the real customer still gets asked once you go live.",
+        "height": 704,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4736,
+        0
+      ],
+      "id": "81c858bd-5717-4c4e-9a00-81c858bd1004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "d4c8c8b9-5371-48e9-a0df-40df4874d4c8",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND CSAT SURVEYS AFTER FRESHDESK TICKETS CLOSE AND LOG SCORES IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_FRESHDESK false -> SAMPLE tickets. SURVEY_SHEET_ID blank -> SAMPLE survey log, nothing recorded.\n// SLACK_CHANNEL_ID blank -> low scores are not posted.\n\n// set true after adding the Freshdesk credential to the fetch node\nconst USE_FRESHDESK = false;\n// the part before .freshdesk.com\nconst FRESHDESK_DOMAIN = 'yourcompany';\n// tickets resolved in this window are considered\nconst LOOKBACK_HOURS = 24;\n// wait this long after resolution before asking\nconst MIN_HOURS_AFTER_RESOLVE = 2;\n// one survey per requester in this many days\nconst COOLDOWN_DAYS = 30;\n// requester domains that never get a survey (your own staff)\nconst SKIP_DOMAINS = [\n  \"yourcompany.example\"\n];\n// hard ceiling on surveys per run\nconst DAILY_CAP = 100;\n// Google Sheets id with a Surveys tab; blank uses a sample log and records nothing\nconst SURVEY_SHEET_ID = '';\n// production URL of the Score link clicked node\nconst WEBHOOK_URL = 'https://your-n8n.example/webhook/freshdesk-csat';\n// any phrase; signs survey links so scores cannot be forged by editing the URL\nconst LINK_SALT = 'change-this-phrase';\n// shown in the email and the thank-you message\nconst COMPANY_NAME = 'Acme Support';\n// scores at or below this are posted to Slack\nconst ALERT_AT_OR_BELOW = 2;\n// channel for low scores; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_freshdesk: USE_FRESHDESK,\n    freshdesk_domain: FRESHDESK_DOMAIN,\n    lookback_hours: LOOKBACK_HOURS,\n    min_hours_after_resolve: MIN_HOURS_AFTER_RESOLVE,\n    cooldown_days: COOLDOWN_DAYS,\n    skip_domains: SKIP_DOMAINS,\n    daily_cap: DAILY_CAP,\n    survey_sheet_id: SURVEY_SHEET_ID,\n    webhook_url: WEBHOOK_URL,\n    link_salt: LINK_SALT,\n    company_name: COMPANY_NAME,\n    alert_at_or_below: ALERT_AT_OR_BELOW,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheet_enabled: SURVEY_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "f70f7bc9-c965-46f9-a226-822639c4f70f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "3bd51994-ee39-4354-ad30-ad302e373bd5",
+      "name": "Every day at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "41e13884-9cca-4744-a185-c18568a741e1",
+      "name": "Score link clicked",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "b5f8814b-570a-47db-a99e-b99e8bb2b5f8",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "freshdesk-csat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        544
+      ]
+    },
+    {
+      "id": "56669565-a83d-47d5-a187-3187f7905666",
+      "name": "Which trigger fired?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The schedule and the score links share one config node. If the webhook ran, this\n// execution is a click to record; otherwise it is a survey run.\nlet hook = null;\ntry { if ($('Score link clicked').isExecuted) hook = $('Score link clicked').first().json; } catch (e) { hook = null; }\nreturn [{ json: { route: hook ? 'score' : 'send', query: hook?.query || {} } }];\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "8c252e39-94cc-4669-a8d3-78d30df48c25",
+      "name": "Survey run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b62513ad-761a-4f9d-a210-52105208b625",
+              "leftValue": "={{ $json.route === 'send' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "c5bd5b43-2d73-4453-afba-1fba7ffac5bd",
+      "name": "Read the clicked score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Query is ?t=<ticket>&s=<1-5>&k=<signature>. The signature is recomputed from\n// LINK_SALT, so a link with an edited ticket id or score is rejected.\nconst sign = (salt, ticket, score) => { let a = 2166136261, b = 5381; const s = salt + '|' + ticket + '|' + score; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 16777619); b = (Math.imul(b, 33) ^ c) >>> 0; } return (a >>> 0).toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0'); };\nconst cfg = $('config').first().json;\nconst q = $input.first().json.query || {};\nconst ticket = String(q.t || '').replace(/[^0-9]/g, '');\nconst score = Number(q.s);\nconst ok = ticket !== '' && Number.isInteger(score) && score >= 1 && score <= 5 && q.k === sign(cfg.link_salt, ticket, score);\nreturn [{ json: {\n  valid: ok, ticket_id: ticket, score: ok ? score : null, scored_at: new Date().toISOString(),\n  message: ok ? 'Thanks, your rating of ' + score + '/5 for ticket #' + ticket + ' was recorded by ' + cfg.company_name + '.' : 'Sorry, this survey link was not recognised.',\n} }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "07a6c760-342c-4960-ac96-6c964ca307a6",
+      "name": "Show the thank-you message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ message: $json.message }) }}",
+        "options": {}
+      },
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "76f6adaa-1429-4c8a-af8e-ef8e8b8976f6",
+      "name": "Score valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5a563634-f266-4df4-a036-303669975a56",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "997ec55b-9c7b-46eb-a149-f149c442997e",
+      "name": "STOP: link not recognised",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1616,
+        544
+      ]
+    },
+    {
+      "id": "242105a9-1bd0-4ad9-ae8f-2e8fc8e42421",
+      "name": "Recording switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "114fefd9-3641-4609-afd6-8fd64254114f",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "104fee46-73ec-4466-a7c7-c7c7e855104f",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1616,
+        384
+      ]
+    },
+    {
+      "id": "70868783-5a35-4c93-a5ba-45ba3aba7086",
+      "name": "STOP: preview or no sheet - score not saved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1840,
+        544
+      ]
+    },
+    {
+      "id": "a037ebe5-395c-4655-a3eb-13eba610a037",
+      "name": "Shape the score row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Matches the Surveys tab by ticket_id so the score lands on the row written at send time.\nconst cfg = $('config').first().json;\nconst s = $input.first().json;\nreturn [{ json: { ticket_id: s.ticket_id, score: s.score, scored_at: s.scored_at, mode: cfg.mode } }];\n"
+      },
+      "position": [
+        1840,
+        384
+      ]
+    },
+    {
+      "id": "9189de93-561b-4ea3-aae9-eae9864a9189",
+      "name": "Record the score in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.survey_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Surveys"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "ticket_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2048,
+        384
+      ]
+    },
+    {
+      "id": "9d0ea6d2-f718-4932-ace7-8ce7da419d0e",
+      "name": "Low score?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e73d2c60-93e5-4e60-a90b-b90bbda3e73d",
+              "leftValue": "={{ $('Read the clicked score').first().json.score <= $('config').first().json.alert_at_or_below }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2272,
+        384
+      ]
+    },
+    {
+      "id": "eb7a8a4d-f7a3-443d-ac71-bc71c368eb7a",
+      "name": "STOP: score above the alert line",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2496,
+        544
+      ]
+    },
+    {
+      "id": "6eb6d66f-8b9d-49bf-a2ab-32ab0ab66eb6",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2496,
+        384
+      ]
+    },
+    {
+      "id": "a9f36719-2164-4949-a967-59670814a9f3",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2720,
+        544
+      ]
+    },
+    {
+      "id": "65953b51-819e-4c01-aade-dade401c6595",
+      "name": "Flag the low score in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ ':warning: Ticket <https://' + $('config').first().json.freshdesk_domain + '.freshdesk.com/a/tickets/' + $('Read the clicked score').first().json.ticket_id + '|#' + $('Read the clicked score').first().json.ticket_id + '> was rated ' + $('Read the clicked score').first().json.score + '/5. Worth a call today.' }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2720,
+        384
+      ]
+    },
+    {
+      "id": "139c0878-30aa-42f8-aa2b-9a2bcfeb139c",
+      "name": "Freshdesk connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8329d41a-12c1-4ffa-a353-d3537bb98329",
+              "leftValue": "={{ $('config').first().json.use_freshdesk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2960,
+        208
+      ]
+    },
+    {
+      "id": "c06f2b39-0f89-4369-a221-3221faf4c06f",
+      "name": "Fetch recently updated tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.freshdesk_domain + '.freshdesk.com/api/v2/tickets' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "freshdeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "updated_since",
+              "value": "={{ new Date(Date.now() - $('config').first().json.lookback_hours * 3600000).toISOString().slice(0, 19) + 'Z' }}"
+            },
+            {
+              "name": "include",
+              "value": "requester,stats"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            },
+            {
+              "name": "order_by",
+              "value": "updated_at"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3184,
+        208
+      ]
+    },
+    {
+      "id": "35db7f7b-4971-470b-ad6d-2d6d512235db",
+      "name": "Read Freshdesk tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Ticket list -> one item per ticket. Status 4 is resolved, 5 is closed; resolved_at\n// comes from the stats include and falls back to closed_at, then updated_at.\nconst out = [];\nfor (const page of $input.all()) {\n  const list = Array.isArray(page.json) ? page.json : (page.json.data || [page.json]);\n  for (const t of list) {\n    if (!t || !t.id) continue;\n    out.push({ json: {\n      id: t.id, subject: t.subject || '', status: t.status, tags: t.tags || [],\n      requester_email: t.requester?.email || '', requester_name: t.requester?.name || '',\n      resolved_at: t.stats?.resolved_at || t.stats?.closed_at || t.updated_at,\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        3408,
+        208
+      ]
+    },
+    {
+      "id": "5a307ace-cbd2-466e-a068-a068d28d5a30",
+      "name": "Load sample tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_FRESHDESK is true. Nine tickets, one for every skip rule.\nconst ago = h => new Date(Date.now() - h * 3600000).toISOString();\nreturn [\n  { id: 101, subject: 'Cannot reset my password', status: 4, tags: [], requester_email: 'mia@larkspur.example', requester_name: 'Mia Chen', resolved_at: ago(5) },\n  { id: 102, subject: 'Invoice shows the wrong VAT number', status: 5, tags: [], requester_email: 'tom@brookfield.example', requester_name: 'Tom Adeyemi', resolved_at: ago(20) },\n  { id: 103, subject: 'Import keeps timing out', status: 2, tags: [], requester_email: 'ola@finchworks.example', requester_name: 'Ola Berg', resolved_at: ago(3) },\n  { id: 104, subject: 'Add a second admin', status: 4, tags: [], requester_email: 'raj@ivyhall.example', requester_name: 'Raj Patel', resolved_at: ago(1) },\n  { id: 105, subject: 'Webhook retries', status: 4, tags: [], requester_email: 'kim@solent.example', requester_name: 'Kim Novak', resolved_at: ago(6) },\n  { id: 106, subject: 'Change billing email', status: 4, tags: [], requester_email: 'ed@marlowe.example', requester_name: 'Ed Marlowe', resolved_at: ago(8) },\n  { id: 107, subject: 'Test ticket from QA', status: 4, tags: [], requester_email: 'qa@yourcompany.example', requester_name: 'QA Bot', resolved_at: ago(3) },\n  { id: 108, subject: 'Legal hold on account', status: 5, tags: ['no_survey'], requester_email: 'counsel@harrow.example', requester_name: 'Harrow Legal', resolved_at: ago(10) },\n  { id: 109, subject: 'Password reset email in spam', status: 4, tags: [], requester_email: 'mia@larkspur.example', requester_name: 'Mia Chen', resolved_at: ago(4) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        3184,
+        384
+      ]
+    },
+    {
+      "id": "1ca019c2-bb8c-4122-abd0-abd054b11ca0",
+      "name": "Combine ticket sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        3632,
+        208
+      ]
+    },
+    {
+      "id": "d73ed338-754d-41b8-ad9c-ed9c612bd73e",
+      "name": "Survey log set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f1ed1ede-fe3b-457e-a3b9-33b96b1df1ed",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3872,
+        208
+      ]
+    },
+    {
+      "id": "f9652ad4-4bbc-4094-a558-855810f7f965",
+      "name": "Read the survey log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.survey_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Surveys"
+        },
+        "options": {}
+      },
+      "position": [
+        4096,
+        208
+      ]
+    },
+    {
+      "id": "06da8f7d-04ca-4a6d-a6f6-06f64bd806da",
+      "name": "Load sample survey log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until SURVEY_SHEET_ID is set. Ticket 105 was surveyed already; Ed had a survey 10 days ago.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [\n  { ticket_id: '105', requester_email: 'kim@solent.example', subject: 'Webhook retries', sent_at: ago(0.2), score: '', scored_at: '', mode: 'live' },\n  { ticket_id: '88', requester_email: 'ed@marlowe.example', subject: 'Seats on the plan', sent_at: ago(10), score: 5, scored_at: ago(9), mode: 'live' },\n  { ticket_id: '61', requester_email: 'tom@brookfield.example', subject: 'Export to Xero', sent_at: ago(45), score: 4, scored_at: ago(44), mode: 'live' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        4096,
+        384
+      ]
+    },
+    {
+      "id": "f8a9d21d-3bf4-4b0d-a392-5392ba38f8a9",
+      "name": "Combine survey logs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        4320,
+        208
+      ]
+    },
+    {
+      "id": "2bd17a2a-7999-410a-ab4f-6b4fa0092bd1",
+      "name": "Pick tickets to survey",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every resolved or closed ticket is either picked or held with a reason. One survey\n// per requester per run (the most recently resolved ticket), none inside COOLDOWN_DAYS.\nconst cfg = $('config').first().json;\nconst tickets = $('Combine ticket sources').all().map(i => i.json);\nconst log = $input.all().map(i => i.json).filter(r => r.ticket_id !== undefined && r.ticket_id !== '');\nconst surveyed = new Set(log.map(r => String(r.ticket_id)));\nconst lastSent = {};\nfor (const r of log) {\n  const e = String(r.requester_email || '').toLowerCase();\n  if (e && (!lastSent[e] || r.sent_at > lastSent[e])) lastSent[e] = r.sent_at;\n}\nconst now = Date.now();\nconst picked = [], held = [];\nconst sorted = tickets.filter(t => t.status === 4 || t.status === 5)\n  .sort((a, b) => String(b.resolved_at).localeCompare(String(a.resolved_at)));\nfor (const t of tickets.filter(t => t.status !== 4 && t.status !== 5)) held.push({ id: t.id, reason: 'not resolved (status ' + t.status + ')' });\nconst thisRun = new Set();\nfor (const t of sorted) {\n  const email = t.requester_email.toLowerCase();\n  const hours = (now - new Date(t.resolved_at)) / 36e5;\n  const days = lastSent[email] ? (now - new Date(lastSent[email])) / 864e5 : null;\n  const reason =\n    !email ? 'no requester email' :\n    surveyed.has(String(t.id)) ? 'already surveyed' :\n    t.tags.includes('no_survey') ? 'tagged no_survey' :\n    cfg.skip_domains.includes(email.split('@')[1]) ? 'internal requester' :\n    hours > cfg.lookback_hours ? 'resolved before the lookback window' :\n    hours < cfg.min_hours_after_resolve ? 'resolved under ' + cfg.min_hours_after_resolve + 'h ago, may reopen' :\n    days !== null && days < cfg.cooldown_days ? 'surveyed ' + Math.floor(days) + ' days ago' :\n    thisRun.has(email) ? 'newer ticket from the same person this run' : '';\n  if (reason) { held.push({ id: t.id, reason }); continue; }\n  thisRun.add(email);\n  picked.push(t);\n}\nfor (const t of picked.slice(cfg.daily_cap)) held.push({ id: t.id, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { surveys: picked.slice(0, cfg.daily_cap), held, checked: tickets.length } }];\n"
+      },
+      "position": [
+        4544,
+        208
+      ]
+    },
+    {
+      "id": "cf67eef7-4fdf-47c7-abaa-4baa120ecf67",
+      "name": "Write each survey email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Five signed links per email, each a one-click answer. The ticket subject is quoted\n// so the customer knows which conversation the question is about.\nconst sign = (salt, ticket, score) => { let a = 2166136261, b = 5381; const s = salt + '|' + ticket + '|' + score; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 16777619); b = (Math.imul(b, 33) ^ c) >>> 0; } return (a >>> 0).toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0'); };\nconst cfg = $('config').first().json;\nconst labels = { 1: 'Very poor', 2: 'Poor', 3: 'Okay', 4: 'Good', 5: 'Excellent' };\nreturn $input.first().json.surveys.map(t => {\n  const link = n => cfg.webhook_url + '?t=' + t.id + '&s=' + n + '&k=' + sign(cfg.link_salt, String(t.id), n);\n  const buttons = [1, 2, 3, 4, 5].map(n => '<a href=\"' + link(n) + '\" style=\"display:inline-block;margin:4px;padding:10px 14px;border:1px solid #ccc;border-radius:6px;text-decoration:none;color:#222\">' + n + ' ' + labels[n] + '</a>').join('');\n  const html = '<p>Hi ' + (t.requester_name.split(' ')[0] || 'there') + ',</p>'\n    + '<p>We closed your request \"' + t.subject + '\" (#' + t.id + '). How did we do?</p>'\n    + '<p>' + buttons + '</p><p>One click is all it takes. Reply to this email if anything is still not right.</p><p>' + cfg.company_name + '</p>';\n  return { json: { ticket_id: String(t.id), email: t.requester_email, subject_line: 'How did we do on \"' + t.subject + '\"?', html,\n    send_to: cfg.mode === 'test' ? cfg.test_email : t.requester_email, ticket_subject: t.subject } };\n});\n"
+      },
+      "position": [
+        4784,
+        208
+      ]
+    },
+    {
+      "id": "0f300986-f480-4ba6-a4d2-a4d2de150f30",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        5008,
+        208
+      ]
+    },
+    {
+      "id": "7b61ddcd-bd8b-4fbd-a629-c6298ee87b61",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        5232,
+        384
+      ]
+    },
+    {
+      "id": "50968f1c-e8c1-4e5c-ad9f-7d9f956f5096",
+      "name": "Email the survey",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject_line }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        5232,
+        208
+      ]
+    },
+    {
+      "id": "129ba3e2-1fa0-4142-a8eb-98eb7191129b",
+      "name": "Log this send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "50fb009c-0a59-47dc-a20b-e20b9eef50fb",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "51fb022f-ccad-497f-acb5-acb570f651fb",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        5440,
+        208
+      ]
+    },
+    {
+      "id": "650ae33c-dbd2-487c-a1a3-b1a3984f650a",
+      "name": "STOP: test send or no sheet - log untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        5664,
+        384
+      ]
+    },
+    {
+      "id": "a0af6901-2f20-42b1-ab88-1b88f7cca0af",
+      "name": "Shape the log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Surveys row per email sent; the score columns are filled when the link is clicked.\nconst cfg = $('config').first().json;\nreturn $('Write each survey email').all().map(s => ({ json: { ticket_id: s.json.ticket_id, requester_email: s.json.email,\n  subject: s.json.ticket_subject, sent_at: new Date().toISOString(), score: '', scored_at: '', mode: cfg.mode } }));\n"
+      },
+      "position": [
+        5664,
+        208
+      ]
+    },
+    {
+      "id": "84b26c88-55e1-4208-aa89-6a897f3b84b2",
+      "name": "Log the survey as sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.survey_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Surveys"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        5888,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score link clicked": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Which trigger fired?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which trigger fired?": {
+      "main": [
+        [
+          {
+            "node": "Survey run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Survey run?": {
+      "main": [
+        [
+          {
+            "node": "Freshdesk connected?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the clicked score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the clicked score": {
+      "main": [
+        [
+          {
+            "node": "Show the thank-you message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Show the thank-you message": {
+      "main": [
+        [
+          {
+            "node": "Score valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score valid?": {
+      "main": [
+        [
+          {
+            "node": "Recording switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: link not recognised",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recording switched on?": {
+      "main": [
+        [
+          {
+            "node": "Shape the score row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview or no sheet - score not saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the score row": {
+      "main": [
+        [
+          {
+            "node": "Record the score in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record the score in Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Low score?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low score?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: score above the alert line",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Flag the low score in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshdesk connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch recently updated tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch recently updated tickets": {
+      "main": [
+        [
+          {
+            "node": "Read Freshdesk tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Freshdesk tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine ticket sources": {
+      "main": [
+        [
+          {
+            "node": "Survey log set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Survey log set?": {
+      "main": [
+        [
+          {
+            "node": "Read the survey log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample survey log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the survey log": {
+      "main": [
+        [
+          {
+            "node": "Combine survey logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample survey log": {
+      "main": [
+        [
+          {
+            "node": "Combine survey logs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine survey logs": {
+      "main": [
+        [
+          {
+            "node": "Pick tickets to survey",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick tickets to survey": {
+      "main": [
+        [
+          {
+            "node": "Write each survey email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each survey email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the survey",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the survey": {
+      "main": [
+        [
+          {
+            "node": "Log this send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log this send?": {
+      "main": [
+        [
+          {
+            "node": "Shape the log row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send or no sheet - log untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the log row": {
+      "main": [
+        [
+          {
+            "node": "Log the survey as sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

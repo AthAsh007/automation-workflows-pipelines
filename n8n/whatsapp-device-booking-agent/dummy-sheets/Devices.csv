@@ -1,0 +1,9 @@
+device_id,label,model,status,location
+IPAD-001,iPad 1,iPad 9th gen,available,Room A
+IPAD-002,iPad 2,iPad 9th gen,available,Room A
+IPAD-003,iPad 3,iPad 9th gen,available,Room A
+IPAD-004,iPad 4,iPad 9th gen,available,Room A
+IPAD-005,iPad 5,iPad 9th gen,available,Room A
+IPAD-006,iPad 6,iPad 10th gen,available,Room A
+IPAD-007,iPad 7,iPad 10th gen,maintenance,Room A
+IPAD-008,iPad 8,iPad 10th gen,available,Room B

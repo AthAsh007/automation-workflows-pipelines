@@ -1,0 +1,651 @@
+{
+  "name": "Email a daily briefing from Hacker News and RSS on chosen topics",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Email a daily briefing from Hacker News and RSS on chosen topics\n\n**Who's it for**\nFounders, engineers and analysts who skim Hacker News and a handful of blogs every morning to keep up with a few topics. One email replaces a dozen open tabs.\n\n**How it works**\n1. Every weekday at 06:45 it reads the top 60 Hacker News stories and every feed in `FEEDS`, or a sample set until live reading is on.\n2. Stories older than 30 hours or matching an excluded word are dropped. The same link from two sources (tracking parameters ignored) or two titles sharing 60% of their words count once.\n3. Each story is scored per topic: 3 points for a keyword in the title, 1 in the summary, plus a bonus for HN points. It goes under its best topic only.\n4. The top 5 per topic are emailed as one HTML briefing with source, points and comment links.\n\n**How to set up**\n1. Run it once as imported. It builds a briefing from sample stories and stops at `STOP: preview - nothing sent`.\n2. Edit `TOPICS` and `FEEDS`, then set `USE_LIVE_SOURCES = true`. Neither Hacker News nor RSS needs a key.\n3. Connect Gmail to `Email your briefing` and set `BRIEFING_TO`.\n4. Put your address in `TEST_EMAIL` for a test copy, then set `TEST_RUN = false` for the daily send.\n\n**Requirements**\n- A Gmail account\n- At least one RSS feed you follow\n\n**How to customize**\n- `TOPICS` holds the keywords for each section of the email.\n- `TOP_PER_TOPIC` and `MIN_SCORE` decide how much makes the cut.\n- `EXCLUDE_KEYWORDS` drops stories you never want, whatever their score.",
+        "height": 912,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "3a846f63-5717-4c4e-9a00-3a846f6313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 06:45 so the email is waiting at breakfast. Topics, feeds, exclusions and the per-topic cap all sit in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "479a5ef6-5717-4c4e-9a00-479a5ef61000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read Hacker News and the feeds\n\nBoth sources are public, but they still wait for `USE_LIVE_SOURCES`. A missing HN item or a dead feed continues as an empty result, so one bad source never cancels your briefing. `Load sample stories` uses the merged shape directly.",
+        "height": 512,
+        "width": 1952,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "489a6089-5717-4c4e-9a00-489a60891001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score, dedupe and pick\n\nStories are sorted by points before dedupe, so when HN and a feed carry the same link the HN copy with its discussion link wins. Each story lands under one topic only, its best match.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2464,
+        0
+      ],
+      "id": "459a5bd0-5717-4c4e-9a00-459a5bd01002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send your briefing\n\nNothing is sent in preview. A test run sends one copy to `TEST_EMAIL`; a live run sends to `BRIEFING_TO`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3376,
+        0
+      ],
+      "id": "469a5d63-5717-4c4e-9a00-469a5d631003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "0a6c7bcc-fc59-440c-a00d-900d5f1f0a6c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EMAIL A DAILY BRIEFING FROM HACKER NEWS AND RSS ON CHOSEN TOPICS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_SOURCES false -> SAMPLE stories from both sources.\n// Your briefing is emailed only when at least one story makes the cut.\n\n// set true to read Hacker News and FEEDS (both public)\nconst USE_LIVE_SOURCES = false;\n// front page stories read from Hacker News\nconst HN_TOP_N = 60;\n// RSS or Atom feeds to include (at least one)\nconst FEEDS = [\n  \"https://blog.example.com/feed.xml\",\n  \"https://news.example.org/rss\"\n];\n// sections of your briefing and the keywords that place a story in each\nconst TOPICS = [\n  {\n    name: \"AI and LLMs\",\n    keywords: [\n      \"llm\",\n      \"gpt\",\n      \"openai\",\n      \"anthropic\",\n      \"claude\",\n      \"model\",\n      \"inference\",\n      \"agent\",\n      \"fine-tuning\"\n    ]\n  },\n  {\n    name: \"Developer tools\",\n    keywords: [\n      \"rust\",\n      \"postgres\",\n      \"sqlite\",\n      \"compiler\",\n      \"git\",\n      \"kubernetes\",\n      \"database\",\n      \"typescript\",\n      \"editor\"\n    ]\n  },\n  {\n    name: \"Startups and business\",\n    keywords: [\n      \"startup\",\n      \"funding\",\n      \"pricing\",\n      \"acquisition\",\n      \"revenue\",\n      \"founder\",\n      \"layoffs\",\n      \"ipo\"\n    ]\n  }\n];\n// stories mentioning these are dropped\nconst EXCLUDE_KEYWORDS = [\n  \"crypto\",\n  \"nft\",\n  \"sponsored\"\n];\n// stories per topic\nconst TOP_PER_TOPIC = 5;\n// a story needs at least this topic score to be included\nconst MIN_SCORE = 3;\n// stories older than this are dropped\nconst MAX_AGE_HOURS = 30;\n// who gets your briefing\nconst BRIEFING_TO = 'you@yourcompany.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_sources: USE_LIVE_SOURCES,\n    hn_top_n: HN_TOP_N,\n    feeds: FEEDS,\n    topics: TOPICS,\n    exclude_keywords: EXCLUDE_KEYWORDS,\n    top_per_topic: TOP_PER_TOPIC,\n    min_score: MIN_SCORE,\n    max_age_hours: MAX_AGE_HOURS,\n    briefing_to: BRIEFING_TO,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "eaea43e8-ece9-4b68-a70a-e70ac6dbeaea",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "12d9db13-cc41-4323-aff1-bff18eca12d9",
+      "name": "Every weekday at 06:45",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "45 6 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "cff2544d-f2ef-4e3d-a2d9-e2d91968cff2",
+      "name": "Use sample stories?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6deb1b30-96b7-4c30-a86b-086bf7736deb",
+              "leftValue": "={{ $('config').first().json.use_live_sources }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "ad0329bd-bb85-40ad-a9df-19dff898ad03",
+      "name": "Load sample stories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_SOURCES is true. Already in the shape the scorer reads; it\n// includes a cross-source duplicate, a near-duplicate title, an old story and an excluded one.\nconst h = n => new Date(Date.now() - n * 3600e3).toISOString();\nconst s = (source, title, url, hours, points, comments, summary = '', hn_id = '') => ({ source, title, url, published: h(hours), points, comments, summary, hn_id });\nreturn [{ json: { stories: [\n  s('hn', 'Running a 7B model on a laptop GPU: inference benchmarks', 'https://bench.example.net/7b-laptop', 5, 412, 188, '', '41100001'),\n  s('hn', 'Postgres 18 adds asynchronous I/O', 'https://www.postgresql.example.org/about/news/pg18?utm_source=hn', 9, 655, 240, '', '41100002'),\n  s('rss', 'Postgres 18 adds asynchronous I/O', 'https://postgresql.example.org/about/news/pg18/', 10, 0, 0, 'The release notes, with benchmarks for read-heavy workloads.'),\n  s('hn', 'Show HN: A SQLite extension for vector search', 'https://github.example.com/acme/sqlite-vec-lite', 3, 120, 40, '', '41100003'),\n  s('rss', 'How we cut our LLM inference bill by 60%', 'https://blog.example.com/llm-bill', 12, 0, 0, 'Batching, caching and a smaller model for 80% of requests.'),\n  s('rss', 'How we cut our LLM inference costs by 60 percent', 'https://medium.example.com/llm-costs-60', 14, 0, 0, 'A repost of the same write-up.'),\n  s('hn', 'Seed round pricing in 2026: what founders are seeing', 'https://news.example.org/seed-pricing', 7, 98, 77, '', '41100004'),\n  s('hn', 'Crypto exchange launches new token', 'https://coins.example/token', 4, 300, 200, '', '41100005'),\n  s('hn', 'A history of the typewriter', 'https://history.example/typewriter', 6, 250, 60, '', '41100006'),\n  s('rss', 'Agent frameworks compared: five ways to call tools', 'https://blog.example.com/agents-compared', 20, 0, 0, 'We built the same agent five times.'),\n  s('hn', 'Ask HN: What editor do you use for TypeScript in 2026?', '', 8, 140, 390, '', '41100007'),\n  s('rss', 'The startup that sold for one dollar', 'https://news.example.org/one-dollar', 50, 0, 0, 'An acquisition story from last week.'),\n] } }];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "c300d1ad-08d6-4d9d-a5a5-f5a5a408c300",
+      "name": "Fetch Hacker News top stories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://hacker-news.firebaseio.com/v0/topstories.json",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "d7d0f105-d775-4175-a165-c16526f0d7d0",
+      "name": "Keep the first story ids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// topstories returns up to 500 ids, best first; keep HN_TOP_N.\nconst ids = $input.all().flatMap(i => Array.isArray(i.json) ? i.json : (i.json.data || Object.values(i.json)));\nreturn ids.slice(0, $('config').first().json.hn_top_n).map(id => ({ json: { id } }));\n"
+      },
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "c1b9fec7-69c6-4697-aac1-6ac19e9ec1b9",
+      "name": "Fetch each Hacker News story",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ \"https://hacker-news.firebaseio.com/v0/item/\" + $json.id + \".json\" }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1168,
+        352
+      ]
+    },
+    {
+      "id": "3219f200-e552-4200-ab03-3b03e3033219",
+      "name": "Collect Hacker News stories",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "position": [
+        1392,
+        352
+      ]
+    },
+    {
+      "id": "e99ec4ab-5c77-4d3b-acee-2ceefc52e99e",
+      "name": "List RSS feeds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per feed URL.\nreturn $('config').first().json.feeds.map(url => ({ json: { url } }));\n"
+      },
+      "position": [
+        1616,
+        352
+      ]
+    },
+    {
+      "id": "5b0308bd-e2d5-4fad-a445-54450f985b03",
+      "name": "Read each RSS feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "position": [
+        1824,
+        352
+      ]
+    },
+    {
+      "id": "8913df38-b046-4db8-a578-2578852b8913",
+      "name": "Combine both sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// HN items and RSS entries -> one list in the scorer's shape. Ask HN posts with\n// no URL link to the discussion. Deleted, dead and non-story items are skipped.\nconst hn = ($('Collect Hacker News stories').first().json.data || []).filter(x => x && x.type === 'story' && !x.dead && !x.deleted && x.title)\n  .map(x => ({ source: 'hn', title: x.title, url: x.url || '', published: new Date(x.time * 1000).toISOString(), points: x.score || 0, comments: x.descendants || 0, summary: '', hn_id: String(x.id) }));\nconst feed = $input.all().map(i => i.json).filter(x => x.title && x.link)\n  .map(x => ({ source: 'rss', title: x.title, url: x.link, published: x.isoDate || x.pubDate || '', points: 0, comments: 0, summary: String(x.contentSnippet || '').slice(0, 280), hn_id: '' }));\nreturn [{ json: { stories: [...hn, ...feed] } }];\n"
+      },
+      "position": [
+        2048,
+        352
+      ]
+    },
+    {
+      "id": "93f06408-5634-4188-a49c-b49c52bb93f0",
+      "name": "Combine story sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2272,
+        176
+      ]
+    },
+    {
+      "id": "a85f3baf-41a6-4aff-a96e-796ef676a85f",
+      "name": "Score and pick stories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Drop old and excluded stories, dedupe by normalised URL and by title word\n// overlap (Jaccard >= 0.6), score per topic, keep TOP_PER_TOPIC under each\n// story's best topic. HN points add log2(points) as a tie breaker.\nconst cfg = $('config').first().json;\nconst stories = $input.first().json.stories;\nconst normUrl = u => { try { const x = new URL(u); [...x.searchParams.keys()].filter(k => /^(utm_|ref|fbclid|gclid)/.test(k)).forEach(k => x.searchParams.delete(k)); return (x.hostname.replace(/^www\\./, '') + x.pathname.replace(/\\/$/, '') + (x.search || '')).toLowerCase(); } catch (e) { return ''; } };\nconst words = t => new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(w => w.length > 2));\nconst jacc = (a, b) => { const i = [...a].filter(w => b.has(w)).length; return i / (a.size + b.size - i || 1); };\nconst now = Date.now();\nconst kept = [], dropped = [];\nfor (const s of [...stories].sort((a, b) => b.points - a.points)) {\n  const text = (s.title + ' ' + s.summary).toLowerCase();\n  const age = (now - new Date(s.published).getTime()) / 3600e3;\n  const u = normUrl(s.url), w = words(s.title);\n  const reason = !s.published || age > cfg.max_age_hours ? 'too old' :\n    cfg.exclude_keywords.some(k => text.includes(k)) ? 'excluded keyword' :\n    (u && kept.some(k => k.nurl === u)) ? 'same link' :\n    kept.some(k => jacc(k.words, w) >= 0.6) ? 'similar title' : '';\n  if (reason) { dropped.push({ title: s.title, reason }); continue; }\n  kept.push({ ...s, nurl: u, words: w });\n}\nconst hit = (t, k) => new RegExp('(^|[^a-z0-9])' + k.replace(/[-]/g, '\\\\-') + '(s)?([^a-z0-9]|$)').test(t);\nconst sections = cfg.topics.map(t => ({ name: t.name, stories: [] }));\nlet unplaced = 0;\nfor (const s of kept) {\n  const title = s.title.toLowerCase(), sum = s.summary.toLowerCase();\n  const scores = cfg.topics.map(t => t.keywords.reduce((a, k) => a + (hit(title, k) ? 3 : 0) + (hit(sum, k) ? 1 : 0), 0));\n  const best = scores.indexOf(Math.max(...scores));\n  if (scores[best] < cfg.min_score) { unplaced++; continue; }\n  const bonus = s.points > 0 ? Math.round(Math.log2(s.points) * 10) / 10 : 0;\n  sections[best].stories.push({ title: s.title, url: s.url || 'https://news.ycombinator.com/item?id=' + s.hn_id, source: s.source === 'hn' ? 'Hacker News' : (s.url ? new URL(s.url).hostname.replace(/^www\\./, '') : 'RSS'),\n    points: s.points, comments: s.comments, discussion: s.hn_id ? 'https://news.ycombinator.com/item?id=' + s.hn_id : '', summary: s.summary, score: scores[best] + bonus });\n}\nfor (const sec of sections) sec.stories = sec.stories.sort((a, b) => b.score - a.score).slice(0, cfg.top_per_topic);\nconst total = sections.reduce((a, s) => a + s.stories.length, 0);\nreturn [{ json: { sections: sections.filter(s => s.stories.length), total, dropped, unplaced, read: stories.length } }];\n"
+      },
+      "position": [
+        2512,
+        176
+      ]
+    },
+    {
+      "id": "1256bcab-bfe2-453b-a2af-52af94521256",
+      "name": "Build your briefing email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain HTML that renders in every mail client: one heading per topic, one line per story.\nconst cfg = $('config').first().json;\nconst b = $input.first().json;\nconst esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst day = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });\nconst html = '<div style=\"font-family:Arial,sans-serif;max-width:640px\">' + b.sections.map(sec => '<h2 style=\"font-size:16px;margin:20px 0 8px\">' + esc(sec.name) + '</h2><ol style=\"padding-left:20px\">' +\n  sec.stories.map(s => '<li style=\"margin-bottom:8px\"><a href=\"' + esc(s.url) + '\">' + esc(s.title) + '</a><br><span style=\"color:#666;font-size:12px\">' + esc(s.source) +\n    (s.points ? ' | ' + s.points + ' points' : '') + (s.discussion ? ' | <a href=\"' + s.discussion + '\">' + s.comments + ' comments</a>' : '') + '</span>' +\n    (s.summary ? '<br><span style=\"font-size:13px\">' + esc(s.summary) + '</span>' : '') + '</li>').join('') + '</ol>').join('') +\n  '<p style=\"color:#888;font-size:12px\">' + b.read + ' stories read, ' + b.dropped.length + ' dropped as old, excluded or duplicate, ' + b.unplaced + ' off-topic.</p></div>';\nconst subject = 'Briefing, ' + day + ': ' + b.total + ' stories across ' + b.sections.length + ' topics';\nreturn [{ json: { subject, html, total: b.total, send_to: cfg.mode === 'test' ? cfg.test_email : cfg.briefing_to } }];\n"
+      },
+      "position": [
+        2736,
+        176
+      ]
+    },
+    {
+      "id": "3f941c6f-94b1-4fbf-a8d8-b8d824b63f94",
+      "name": "Anything worth sending?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b9ba37be-abeb-485e-a84b-384b453db9ba",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2960,
+        176
+      ]
+    },
+    {
+      "id": "277e83f8-8521-4678-ad5f-0d5f236b277e",
+      "name": "STOP: no stories made the cut",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3184,
+        352
+      ]
+    },
+    {
+      "id": "1171353f-e3f9-478f-a0c0-50c054861171",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3424,
+        176
+      ]
+    },
+    {
+      "id": "81c45388-6671-4908-a388-4388e23b81c4",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3648,
+        352
+      ]
+    },
+    {
+      "id": "26f41667-af7b-4c37-a721-572158fe26f4",
+      "name": "Email your briefing",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3648,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 06:45": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample stories?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample stories?": {
+      "main": [
+        [
+          {
+            "node": "Load sample stories",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Hacker News top stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Hacker News top stories": {
+      "main": [
+        [
+          {
+            "node": "Keep the first story ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep the first story ids": {
+      "main": [
+        [
+          {
+            "node": "Fetch each Hacker News story",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch each Hacker News story": {
+      "main": [
+        [
+          {
+            "node": "Collect Hacker News stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Hacker News stories": {
+      "main": [
+        [
+          {
+            "node": "List RSS feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List RSS feeds": {
+      "main": [
+        [
+          {
+            "node": "Read each RSS feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read each RSS feed": {
+      "main": [
+        [
+          {
+            "node": "Combine both sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample stories": {
+      "main": [
+        [
+          {
+            "node": "Combine story sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine both sources": {
+      "main": [
+        [
+          {
+            "node": "Combine story sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine story sources": {
+      "main": [
+        [
+          {
+            "node": "Score and pick stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and pick stories": {
+      "main": [
+        [
+          {
+            "node": "Build your briefing email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build your briefing email": {
+      "main": [
+        [
+          {
+            "node": "Anything worth sending?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything worth sending?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no stories made the cut",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email your briefing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

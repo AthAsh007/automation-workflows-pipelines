@@ -1,0 +1,12 @@
+{
+  "event_type": "EMAIL_REPLY",
+  "campaign_id": "demo-campaign-a",
+  "campaign_name": "Tier A (demo)",
+  "sl_email_lead_id": "demo-4",
+  "sl_lead_email": "nora.quinn@vaultline.example",
+  "to_name": "Nora Quinn",
+  "subject": "Re: Vaultline",
+  "reply_message": {
+    "text": "Please remove me from your list."
+  }
+}

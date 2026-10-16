@@ -1,0 +1,25 @@
+name: Fix a README or sticky note
+description: Instructions that are wrong, out of date, or missing a step.
+title: "[docs] <file>: <what is wrong>"
+labels: ["documentation"]
+body:
+  - type: input
+    id: file
+    attributes:
+      label: File or sticky note
+      placeholder: "n8n/library/<folder>/README.md, or the 'How to set up' section of a template's yellow note"
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What it says now
+    validations:
+      required: true
+  - type: textarea
+    id: right
+    attributes:
+      label: What it should say
+      description: Follow docs/SANITIZATION.md if you can. No em dashes, no marketing words.
+    validations:
+      required: true

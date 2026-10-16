@@ -1,0 +1,638 @@
+{
+  "name": "Sync Linear issues to a Google Sheets roadmap",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sync Linear issues to a Google Sheets roadmap\n\n**Who's it for**\nProduct and engineering leads who share a roadmap with sales or leadership in Google Sheets while the real work lives in Linear. It keeps the sheet current without anyone copying issues across on Friday afternoon.\n\n**How it works**\n1. Every weekday at 06:30 it queries Linear for one team, filtered to the labels in `ROADMAP_LABELS`, or loads 6 sample issues until Linear is connected.\n2. Each issue becomes one roadmap row: state, priority label, estimate, cycle number with its dates, assignee, project and due date.\n3. The rows already on the Roadmap tab are compared by issue id. New issues are added, rows with a changed field are updated, unchanged rows are left alone.\n4. Rows whose issue was cancelled or no longer matches the filter are marked removed with a date instead of being deleted, so nobody loses a line they were tracking.\n\n**How to set up**\n1. Run it once as imported. It plans changes against sample issues and stops at `STOP: dry run - roadmap untouched`.\n2. Add a Linear credential to `Query Linear issues`, set `LINEAR_TEAM` and set `USE_LINEAR = true`.\n3. Create a Roadmap tab with an `Issue ID` column, connect Google Sheets and paste the spreadsheet id into `ROADMAP_SHEET_ID`.\n4. Check the plan in `Plan roadmap changes`, then set `DRY_RUN = false` to write the tab.\n\n**Requirements**\n- A Linear workspace and API access\n- A Google Sheet with a Roadmap tab\n\n**How to customize**\n- `ROADMAP_LABELS` picks which issues belong on the roadmap. An empty list syncs the whole team.\n- `COMPARE_FIELDS` decides which columns count as a change worth rewriting.\n- Set `CANCELED_AS_REMOVED = false` to keep cancelled issues on the sheet with their state.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7959a2d3-5717-4c4e-9a00-7959a2d313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 06:30 or by hand. Team key, labels and the columns that count as a change all live in `config`, so the sync can be pointed at another team by editing one node.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f0aae2e6-5717-4c4e-9a00-f0aae2e61000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read Linear issues\n\n`Build the Linear query` adds the label filter only when labels are set. Until `USE_LINEAR` is true, `Load sample Linear issues` returns the same GraphQL shape, so `Map issues to roadmap rows` is tested on every run.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "f1aae479-5717-4c4e-9a00-f1aae4791001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read the roadmap tab\n\nThe current tab is read before anything is written, because the diff needs it. A blank `ROADMAP_SHEET_ID` routes to `Load sample roadmap rows`, a tab that is one week out of date.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "eeaadfc0-5717-4c4e-9a00-eeaadfc01002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Plan, write and summarise\n\nOnly new, changed and removed rows leave `Plan roadmap changes`, so an idle week writes nothing. Rows are marked removed rather than deleted. `Write to the roadmap?` needs a live run and a sheet id.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "efaae153-5717-4c4e-9a00-efaae1531003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "483e7aa7-e70c-4c77-a551-25517bbe483e",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SYNC LINEAR ISSUES TO A GOOGLE SHEETS ROADMAP - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LINEAR false -> SAMPLE issues. ROADMAP_SHEET_ID blank -> SAMPLE roadmap rows.\n// DRY_RUN true -> the plan is computed and shown, the sheet is not written.\n\n// set true after adding the Linear credential to Query Linear issues\nconst USE_LINEAR = false;\n// team key as shown in issue identifiers (ENG-123 -> ENG)\nconst LINEAR_TEAM = 'ENG';\n// only issues with one of these labels are synced; [] syncs every issue in the team\nconst ROADMAP_LABELS = [\n  \"roadmap\"\n];\n// Google Sheets id holding the Roadmap tab; blank uses sample rows\nconst ROADMAP_SHEET_ID = '';\n// a row is rewritten only when one of these columns changed\nconst COMPARE_FIELDS = [\n  \"Title\",\n  \"State\",\n  \"Priority\",\n  \"Estimate\",\n  \"Cycle\",\n  \"Assignee\",\n  \"Project\",\n  \"Due\"\n];\n// cancelled and duplicate issues are marked removed on the sheet\nconst CANCELED_AS_REMOVED = true;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_linear: USE_LINEAR,\n    linear_team: LINEAR_TEAM,\n    roadmap_labels: ROADMAP_LABELS,\n    roadmap_sheet_id: ROADMAP_SHEET_ID,\n    compare_fields: COMPARE_FIELDS,\n    canceled_as_removed: CANCELED_AS_REMOVED,\n    dry_run: DRY_RUN,\n    sheets_enabled: ROADMAP_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "1eb42317-1b13-41e7-abda-bbdabdee1eb4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "b69e76cc-978a-4f0c-a074-20742a1fb69e",
+      "name": "Every weekday at 06:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 6 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "29001e58-3c54-42d8-a20c-420cc30b2900",
+      "name": "Linear connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a8979318-9f7b-4b98-a3c7-c3c75a4ba897",
+              "leftValue": "={{ $('config').first().json.use_linear }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "08d4ab61-4fe2-4711-a573-1573fa6c08d4",
+      "name": "Build the Linear query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One GraphQL request: the team filter always applies, the label filter only when\n// ROADMAP_LABELS has entries. 100 issues per run is the API page limit.\nconst cfg = $('config').first().json;\nconst filter = { team: { key: { eq: cfg.linear_team } } };\nif (cfg.roadmap_labels.length) filter.labels = { some: { name: { in: cfg.roadmap_labels } } };\nconst query = [\n  'query Roadmap($filter: IssueFilter) {',\n  '  issues(first: 100, filter: $filter, orderBy: updatedAt) {',\n  '    nodes { id identifier title url priority priorityLabel estimate dueDate updatedAt',\n  '      state { name type } assignee { name } project { name }',\n  '      cycle { number startsAt endsAt } }',\n  '    pageInfo { hasNextPage }',\n  '  }',\n  '}',\n].join('\\n');\nreturn [{ json: { body: { query, variables: { filter } } } }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "eeab471c-880c-465c-a514-b5140d6feeab",
+      "name": "Query Linear issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "linearApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        208
+      ]
+    },
+    {
+      "id": "0b9386be-f281-475e-aee2-3ee26c3d0b93",
+      "name": "Load sample Linear issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LINEAR is true. Same shape as the GraphQL response so the mapper runs on both.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\nconst cycle = { number: 14, startsAt: day(-4) + 'T00:00:00.000Z', endsAt: day(10) + 'T00:00:00.000Z' };\nconst issue = (id, key, title, state, type, priority, estimate, who, project, due, c) => ({\n  id, identifier: key, title, url: 'https://linear.app/acme-example/issue/' + key, priority, estimate,\n  dueDate: due, updatedAt: new Date().toISOString(), state: { name: state, type },\n  assignee: who ? { name: who } : null, project: project ? { name: project } : null, cycle: c,\n});\nreturn [{ json: { data: { issues: { pageInfo: { hasNextPage: false }, nodes: [\n  issue('lin-1', 'ENG-201', 'SSO login for workspace admins', 'In Progress', 'started', 1, 5, 'Priya Natarajan', 'Enterprise auth', day(9), cycle),\n  issue('lin-2', 'ENG-207', 'Usage-based billing export', 'Done', 'completed', 2, 3, 'Marco Lindqvist', 'Billing v2', day(-2), cycle),\n  issue('lin-3', 'ENG-215', 'Audit log retention settings', 'Todo', 'unstarted', 3, 2, 'Priya Natarajan', 'Enterprise auth', null, cycle),\n  issue('lin-4', 'ENG-220', 'Bulk invite from CSV', 'Backlog', 'backlog', 4, null, null, 'Onboarding', null, null),\n  issue('lin-5', 'ENG-224', 'Public status page', 'Todo', 'unstarted', 0, 8, 'Dana Okafor', null, day(30), null),\n  issue('lin-6', 'ENG-190', 'Legacy CSV importer rewrite', 'Canceled', 'canceled', 3, 5, 'Marco Lindqvist', 'Onboarding', null, null),\n] } } } }];\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "43b062fb-59aa-428b-a102-7102d8a243b0",
+      "name": "Combine issue sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        208
+      ]
+    },
+    {
+      "id": "9c3eaebd-d889-45ad-a252-a252f9989c3e",
+      "name": "Map issues to roadmap rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// GraphQL nodes -> one sheet row per issue, with the column names the Roadmap tab uses.\n// Linear priority is 0-4; priorityLabel is used when the API sends it.\nconst cfg = $('config').first().json;\nconst PRIORITY = { 0: 'No priority', 1: 'Urgent', 2: 'High', 3: 'Normal', 4: 'Low' };\nconst rows = [];\nlet truncated = false;\nfor (const { json } of $input.all()) {\n  const issues = json.data?.issues;\n  if (!issues) continue;\n  if (issues.pageInfo?.hasNextPage) truncated = true;\n  for (const i of issues.nodes || []) {\n    const cyc = i.cycle ? 'Cycle ' + i.cycle.number + ' (' + String(i.cycle.startsAt).slice(0, 10) + ' to ' + String(i.cycle.endsAt).slice(0, 10) + ')' : '';\n    const dropped = cfg.canceled_as_removed && ['canceled', 'duplicate'].includes(i.state?.type);\n    rows.push({\n      'Issue ID': i.id, Key: i.identifier, Title: i.title, State: i.state?.name || '',\n      Priority: i.priorityLabel || PRIORITY[i.priority] || 'No priority',\n      Estimate: i.estimate ?? '', Cycle: cyc, Assignee: i.assignee?.name || 'Unassigned',\n      Project: i.project?.name || '', Due: i.dueDate || '', URL: i.url, _dropped: dropped,\n    });\n  }\n}\nreturn [{ json: { rows, truncated } }];\n"
+      },
+      "position": [
+        1392,
+        208
+      ]
+    },
+    {
+      "id": "02be03b1-be26-4661-a98d-498d85bc02be",
+      "name": "Roadmap sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "eec21bf3-cea0-4e03-a6e4-36e407eaeec2",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        208
+      ]
+    },
+    {
+      "id": "4e45659d-a5bd-468d-a157-515705b84e45",
+      "name": "Read current roadmap rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.roadmap_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Roadmap"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "4b0ae562-cd01-4ac2-a110-d1103b114b0a",
+      "name": "Load sample roadmap rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until ROADMAP_SHEET_ID is set. What last week's sync left on the tab.\nconst cycle = 'Cycle 13 (old)';\nreturn [\n  { 'Issue ID': 'lin-1', Key: 'ENG-201', Title: 'SSO login for workspace admins', State: 'In Progress', Priority: 'Urgent', Estimate: 5, Cycle: '', Assignee: 'Priya Natarajan', Project: 'Enterprise auth', Due: '', 'Sync status': 'active' },\n  { 'Issue ID': 'lin-2', Key: 'ENG-207', Title: 'Usage-based billing export', State: 'In Progress', Priority: 'High', Estimate: 3, Cycle: cycle, Assignee: 'Marco Lindqvist', Project: 'Billing v2', Due: '', 'Sync status': 'active' },\n  { 'Issue ID': 'lin-4', Key: 'ENG-220', Title: 'Bulk invite from CSV', State: 'Backlog', Priority: 'Low', Estimate: '', Cycle: '', Assignee: 'Unassigned', Project: 'Onboarding', Due: '', 'Sync status': 'active' },\n  { 'Issue ID': 'lin-6', Key: 'ENG-190', Title: 'Legacy CSV importer rewrite', State: 'Todo', Priority: 'Normal', Estimate: 5, Cycle: '', Assignee: 'Marco Lindqvist', Project: 'Onboarding', Due: '', 'Sync status': 'active' },\n  { 'Issue ID': 'lin-9', Key: 'ENG-150', Title: 'Moved to the Platform team', State: 'Todo', Priority: 'Normal', Estimate: 2, Cycle: '', Assignee: 'Dana Okafor', Project: '', Due: '', 'Sync status': 'active' },\n  { 'Issue ID': 'lin-8', Key: 'ENG-120', Title: 'Old pricing page', State: 'Canceled', Priority: 'Low', Estimate: '', Cycle: '', Assignee: 'Unassigned', Project: '', Due: '', 'Sync status': 'removed', 'Removed on': '2026-01-05' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1856,
+        384
+      ]
+    },
+    {
+      "id": "b0330b68-9707-4ae8-a5d6-b5d6ea5bb033",
+      "name": "Combine roadmap sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "a397fbdb-382c-456b-a65a-965a12c2a397",
+      "name": "Plan roadmap changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Diff by Issue ID. Only rows that need writing leave this node, each tagged in\n// 'Sync status' so the sheet shows why it changed. Rows are never deleted.\nconst cfg = $('config').first().json;\nconst { rows } = $('Map issues to roadmap rows').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst sheet = new Map();\nfor (const { json } of $input.all()) if (json['Issue ID']) sheet.set(String(json['Issue ID']), json);\nconst seen = new Set();\nconst out = [];\nfor (const r of rows) {\n  const { _dropped, ...row } = r;\n  seen.add(row['Issue ID']);\n  const old = sheet.get(row['Issue ID']);\n  if (_dropped) {\n    if (old && old['Sync status'] !== 'removed') out.push({ 'Issue ID': row['Issue ID'], State: row.State, 'Sync status': 'removed', 'Removed on': today, 'Last synced': today, _change: 'removed: ' + row.State.toLowerCase() });\n    continue;\n  }\n  if (!old) { out.push({ ...row, 'Sync status': 'active', 'Removed on': '', 'Last synced': today, _change: 'new' }); continue; }\n  const changed = cfg.compare_fields.filter(f => String(old[f] ?? '') !== String(row[f] ?? ''));\n  if (changed.length || old['Sync status'] === 'removed') out.push({ ...row, 'Sync status': 'active', 'Removed on': '', 'Last synced': today, _change: 'updated: ' + (changed.join(', ') || 'back on roadmap') });\n}\nfor (const [id, old] of sheet) {\n  if (seen.has(id) || old['Sync status'] === 'removed') continue;\n  out.push({ 'Issue ID': id, 'Sync status': 'removed', 'Removed on': today, 'Last synced': today, _change: 'removed: no longer matches the filter' });\n}\n// _change explains the decision in the run log; strip it before the sheet sees the row.\nreturn out.map(({ _change, ...json }) => ({ json: { ...json, Change: _change } }));\n"
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "70bf779f-4914-4bef-aa4e-9a4e202670bf",
+      "name": "Write to the roadmap?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "82aaa55d-ed20-4a4d-a2e0-d2e0eef882aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "81aaa3ca-2acb-48aa-a863-08639c6981aa",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "e571f3fd-1177-46ed-a4b1-c4b1dc58e571",
+      "name": "STOP: dry run - roadmap untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "62839263-da6e-4173-a93a-393a75da6283",
+      "name": "Upsert roadmap rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.roadmap_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Roadmap"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Issue ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "1cdc74df-e593-452f-ab00-ab0076e61cdc",
+      "name": "Summarise the sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One line per change plus totals, readable in the execution log.\nconst cfg = $('config').first().json;\nconst plan = $input.all().map(i => i.json);\nconst mapped = $('Map issues to roadmap rows').first().json;\nconst count = p => plan.filter(r => r.Change.startsWith(p)).length;\nconst lines = plan.map(r => '- ' + (r.Key || r['Issue ID']) + ': ' + r.Change);\nconst text = [\n  'Roadmap sync (' + cfg.mode + '): ' + mapped.rows.length + ' Linear issues read.',\n  count('new') + ' new, ' + count('updated') + ' updated, ' + count('removed') + ' marked removed.',\n  mapped.truncated ? 'Linear returned more than 100 issues; narrow ROADMAP_LABELS or the oldest are missing.' : '',\n  ...lines,\n].filter(Boolean).join('\\n');\nreturn [{ json: { text, new: count('new'), updated: count('updated'), removed: count('removed') } }];\n"
+      },
+      "position": [
+        2544,
+        384
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 06:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Linear connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Linear connected?": {
+      "main": [
+        [
+          {
+            "node": "Build the Linear query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample Linear issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Linear query": {
+      "main": [
+        [
+          {
+            "node": "Query Linear issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Linear issues": {
+      "main": [
+        [
+          {
+            "node": "Combine issue sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample Linear issues": {
+      "main": [
+        [
+          {
+            "node": "Combine issue sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine issue sources": {
+      "main": [
+        [
+          {
+            "node": "Map issues to roadmap rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map issues to roadmap rows": {
+      "main": [
+        [
+          {
+            "node": "Roadmap sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roadmap sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read current roadmap rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample roadmap rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read current roadmap rows": {
+      "main": [
+        [
+          {
+            "node": "Combine roadmap sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample roadmap rows": {
+      "main": [
+        [
+          {
+            "node": "Combine roadmap sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine roadmap sources": {
+      "main": [
+        [
+          {
+            "node": "Plan roadmap changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan roadmap changes": {
+      "main": [
+        [
+          {
+            "node": "Write to the roadmap?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the roadmap?": {
+      "main": [
+        [
+          {
+            "node": "Upsert roadmap rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - roadmap untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

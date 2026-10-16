@@ -1,0 +1,647 @@
+{
+  "name": "Reconcile Stripe payouts against bank transactions in Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Reconcile Stripe payouts against bank transactions in Google Sheets\n\n**Who's it for**\nBookkeepers and founders who export bank transactions into Google Sheets and tick off Stripe payouts by hand at month end. It does the matching every Monday so the gaps show up within a week, not at close.\n\n**How it works**\n1. Every Monday at 07:00 it reads Stripe payouts that arrived in the last 35 days and the bank credits on your Bank tab, or sample data until both are connected.\n2. Each payout is matched to a bank line with the same amount (within 0.01) dated 0 to 3 days after the payout arrival date.\n3. A payout with two possible bank lines is marked duplicate, one with only a close amount is marked partial, and one with nothing after 5 days is marked missing.\n4. Bank lines that mention Stripe but match no payout are listed too, then every row is written to the Reconciliation tab, keyed by payout id.\n\n**How to set up**\n1. Run it once as imported. It reconciles sample data and stops at `STOP: dry run - sheet untouched`.\n2. Add a Stripe credential to `Fetch payouts from Stripe` and set `USE_STRIPE = true` in `config`.\n3. Connect Google Sheets, put the spreadsheet id in `BANK_SHEET_ID`, and check the column names in `BANK_COLUMNS` match your Bank tab.\n4. Read the preview in `Match payouts to bank lines`, then set `DRY_RUN = false` to write the Reconciliation tab.\n\n**Requirements**\n- A Stripe account that pays out to a bank account\n- A Google Sheet with your bank transactions\n- A Reconciliation tab with a payout_id column\n\n**How to customize**\n- `DATE_WINDOW_DAYS` and `AMOUNT_TOLERANCE` set how strict a match is.\n- `PARTIAL_PCT` decides how close an amount must be to count as a partial match rather than missing.\n- `BANK_DATE_FORMAT` handles bank exports that use DD/MM/YYYY or MM/DD/YYYY.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "58a799f0-5717-4c4e-9a00-58a799f013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 07:00 or by hand. Match rules, column names and the date format all live in `config`, so a different bank export only means editing one node.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8a8ad4a5-5717-4c4e-9a00-8a8ad4a51000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read Stripe payouts\n\n`Stripe connected?` reads payouts that arrived inside `LOOKBACK_DAYS`. Until `USE_STRIPE` is true, `Load sample payouts` feeds the same single item, so the matcher can be checked before a credential exists.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "898ad312-5717-4c4e-9a00-898ad3121001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read bank lines\n\n`Read bank rows` parses money strings and three date formats and drops debits, because only credits can be payouts. A blank `BANK_SHEET_ID` routes to `Load sample bank lines` instead.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "888ad17f-5717-4c4e-9a00-888ad17f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Match, write and summarise\n\nA bank line is claimed by one payout only, so a double import shows as duplicate rather than two clean matches. `Write to the sheet?` needs both a live run and a sheet id; the summary is built either way.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "878acfec-5717-4c4e-9a00-878acfec1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "c1a9544c-f33f-448c-a51c-b51cb79fc1a9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// RECONCILE STRIPE PAYOUTS AGAINST BANK TRANSACTIONS IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_STRIPE false -> SAMPLE payouts. BANK_SHEET_ID blank -> SAMPLE bank lines.\n// DRY_RUN true -> the reconciliation is computed and shown, nothing is written.\n\n// set true after adding the Stripe credential to the payouts node\nconst USE_STRIPE = false;\n// Google Sheets id holding the Bank and Reconciliation tabs; blank uses sample bank lines\nconst BANK_SHEET_ID = '';\n// column headers on your Bank tab\nconst BANK_COLUMNS = {\n  date: \"Date\",\n  description: \"Description\",\n  amount: \"Amount\",\n  reference: \"Reference\"\n};\n// how dates are written on the Bank tab: 'YYYY-MM-DD', 'DD/MM/YYYY' or 'MM/DD/YYYY'\nconst BANK_DATE_FORMAT = 'YYYY-MM-DD';\n// payouts that arrived in this many days are checked\nconst LOOKBACK_DAYS = 35;\n// a bank line may land this many days after the payout arrival date\nconst DATE_WINDOW_DAYS = 3;\n// largest difference that still counts as the same amount (major units)\nconst AMOUNT_TOLERANCE = 0.01;\n// a bank line within this percent of the payout is a partial match\nconst PARTIAL_PCT = 5;\n// an unmatched payout younger than this is pending, not missing\nconst GRACE_DAYS = 5;\n// words that mark a bank line as a Stripe deposit\nconst STRIPE_WORDS = [\n  \"stripe\",\n  \"strp\"\n];\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_stripe: USE_STRIPE,\n    bank_sheet_id: BANK_SHEET_ID,\n    bank_columns: BANK_COLUMNS,\n    bank_date_format: BANK_DATE_FORMAT,\n    lookback_days: LOOKBACK_DAYS,\n    date_window_days: DATE_WINDOW_DAYS,\n    amount_tolerance: AMOUNT_TOLERANCE,\n    partial_pct: PARTIAL_PCT,\n    grace_days: GRACE_DAYS,\n    stripe_words: STRIPE_WORDS,\n    dry_run: DRY_RUN,\n    sheets_enabled: BANK_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "bc7c5868-461a-47e8-aa2b-fa2b635bbc7c",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "4c76ce25-2587-4495-af68-3f6826d04c76",
+      "name": "Every Monday at 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "6c7ea239-e67a-4a69-a75d-275d69f46c7e",
+      "name": "Stripe connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c52a34d4-76b2-4a94-aaaa-9aaaa6f7c52a",
+              "leftValue": "={{ $('config').first().json.use_stripe }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "23d5d654-bd32-4414-a842-6842d07723d5",
+      "name": "Fetch payouts from Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.stripe.com/v1/payouts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "arrival_date[gte]",
+              "value": "={{ Math.floor(Date.now() / 1000) - $('config').first().json.lookback_days * 86400 }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "c48dce00-2e69-4e00-ad3a-1d3a7703c48d",
+      "name": "Read Stripe payouts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stripe list response -> one item holding every payout in major units.\n// Failed and canceled payouts never reach the bank, so they are kept but marked.\nconst payouts = [];\nfor (const page of $input.all()) {\n  for (const p of page.json.data || []) {\n    payouts.push({\n      id: p.id, amount: (p.amount || 0) / 100, currency: (p.currency || 'usd').toUpperCase(),\n      arrival_date: new Date(p.arrival_date * 1000).toISOString().slice(0, 10),\n      status: p.status, descriptor: p.statement_descriptor || '',\n    });\n  }\n}\nreturn [{ json: { payouts } }];\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "4c931dd7-9603-40a7-a223-5223362e4c93",
+      "name": "Load sample payouts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_STRIPE is true. Six payouts that cover every outcome the matcher has.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [{ json: { payouts: [\n  { id: 'po_sample_1', amount: 4210.55, currency: 'USD', arrival_date: day(20), status: 'paid', descriptor: 'STRIPE' },\n  { id: 'po_sample_2', amount: 1875.00, currency: 'USD', arrival_date: day(13), status: 'paid', descriptor: 'STRIPE' },\n  { id: 'po_sample_3', amount: 960.40,  currency: 'USD', arrival_date: day(9),  status: 'paid', descriptor: 'STRIPE' },\n  { id: 'po_sample_4', amount: 2300.00, currency: 'USD', arrival_date: day(8),  status: 'paid', descriptor: 'STRIPE' },\n  { id: 'po_sample_5', amount: 512.75,  currency: 'USD', arrival_date: day(2),  status: 'in_transit', descriptor: 'STRIPE' },\n  { id: 'po_sample_6', amount: 330.00,  currency: 'USD', arrival_date: day(11), status: 'failed', descriptor: 'STRIPE' },\n] } }];\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "02118ec5-fcf1-4335-a819-081992300211",
+      "name": "Combine payout sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "03f5606c-166e-46ac-ad01-7d01527f03f5",
+      "name": "Bank sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6311f7df-e07d-482f-a3f8-c3f82de66311",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "be0cf669-45fc-4f99-ac3f-dc3f6724be0c",
+      "name": "Read bank transactions",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.bank_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Bank"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "a486699d-df95-4a8d-acd1-dcd171b8a486",
+      "name": "Read bank rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet rows -> one item of normalised bank lines. Amounts like \"$1,875.00\" or\n// \"(42.10)\" are parsed; the date is read in BANK_DATE_FORMAT.\nconst cfg = $('config').first().json;\nconst col = cfg.bank_columns;\nconst toNum = v => {\n  if (typeof v === 'number') return v;\n  const s = String(v || '').trim();\n  const neg = /^\\(.*\\)$/.test(s) || s.startsWith('-');\n  const n = Number(s.replace(/[^0-9.]/g, ''));\n  return neg ? -n : n;\n};\nconst toDate = v => {\n  const s = String(v || '').trim();\n  const m = s.match(/^(\\d{1,4})[\\/.-](\\d{1,2})[\\/.-](\\d{1,4})$/);\n  if (!m) return null;\n  const [a, b, c] = m.slice(1).map(Number);\n  const [y, mo, d] = cfg.bank_date_format === 'DD/MM/YYYY' ? [c, b, a] : cfg.bank_date_format === 'MM/DD/YYYY' ? [c, a, b] : [a, b, c];\n  return new Date(Date.UTC(y, mo - 1, d)).toISOString().slice(0, 10);\n};\nconst bank = $input.all().map(({ json: r }, i) => ({\n  row: r.row_number || i + 2, date: toDate(r[col.date]), description: String(r[col.description] || ''),\n  amount: toNum(r[col.amount]), reference: String(r[col.reference] || ''),\n})).filter(b => b.date && b.amount > 0);\nreturn [{ json: { bank } }];\n"
+      },
+      "position": [
+        1872,
+        208
+      ]
+    },
+    {
+      "id": "95e2a955-9b03-40c5-aef9-eef9694095e2",
+      "name": "Load sample bank lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until BANK_SHEET_ID is set. Credits only; one is doubled, one is short, one is orphaned.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [{ json: { bank: [\n  { row: 2, date: day(19), description: 'STRIPE TRANSFER ST-K2L9', amount: 4210.55, reference: 'ST-K2L9' },\n  { row: 3, date: day(12), description: 'STRIPE TRANSFER ST-P4Q1', amount: 1875.00, reference: 'ST-P4Q1' },\n  { row: 4, date: day(11), description: 'STRIPE TRANSFER ST-P4Q1', amount: 1875.00, reference: 'ST-P4Q1' },\n  { row: 5, date: day(8),  description: 'STRIPE TRANSFER ST-W7E3', amount: 948.20,  reference: 'ST-W7E3' },\n  { row: 6, date: day(15), description: 'CLIENT PAYMENT NORTHFIELD STUDIO', amount: 2300.00, reference: 'INV-1038' },\n  { row: 7, date: day(4),  description: 'STRIPE TRANSFER ST-Z0X8', amount: 120.00,  reference: 'ST-Z0X8' },\n] } }];\n"
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "5fdd53f1-ab7a-42a1-a9c5-b9c5c37c5fdd",
+      "name": "Combine bank sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2096,
+        208
+      ]
+    },
+    {
+      "id": "b5534ac2-889a-4222-aee0-dee0c9b1b553",
+      "name": "Match payouts to bank lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Exact match first (amount within AMOUNT_TOLERANCE, bank date 0..DATE_WINDOW_DAYS\n// after arrival). A bank line can satisfy only one payout. Anything without an\n// exact match is tried as partial, then aged into pending or missing.\nconst cfg = $('config').first().json;\nconst payouts = $('Combine payout sources').first().json.payouts;\nconst bank = $input.first().json.bank;\nconst words = cfg.stripe_words.map(w => w.toLowerCase());\nconst isStripe = b => words.some(w => (b.description + ' ' + b.reference).toLowerCase().includes(w));\nconst daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);\nconst today = new Date().toISOString().slice(0, 10);\nconst claimed = new Set();\nconst rows = [];\nconst inWindow = (p, b) => { const d = daysBetween(p.arrival_date, b.date); return d >= 0 && d <= cfg.date_window_days; };\n\nfor (const p of [...payouts].sort((a, b) => a.arrival_date.localeCompare(b.arrival_date))) {\n  const base = { payout_id: p.id, arrival_date: p.arrival_date, payout_amount: p.amount, currency: p.currency };\n  if (p.status === 'failed' || p.status === 'canceled') {\n    rows.push({ ...base, status: 'not expected', bank_row: '', bank_amount: '', difference: '', note: 'payout ' + p.status + ' in Stripe' });\n    continue;\n  }\n  const exact = bank.filter(b => !claimed.has(b.row) && inWindow(p, b) && Math.abs(b.amount - p.amount) <= cfg.amount_tolerance);\n  if (exact.length === 1) {\n    claimed.add(exact[0].row);\n    rows.push({ ...base, status: 'matched', bank_row: exact[0].row, bank_amount: exact[0].amount, difference: 0, note: '' });\n    continue;\n  }\n  if (exact.length > 1) {\n    exact.forEach(b => claimed.add(b.row));\n    rows.push({ ...base, status: 'duplicate', bank_row: exact.map(b => b.row).join(', '), bank_amount: exact[0].amount, difference: 0,\n      note: exact.length + ' bank lines match; check for a double import' });\n    continue;\n  }\n  const near = bank.filter(b => !claimed.has(b.row) && inWindow(p, b) && isStripe(b)\n    && Math.abs(b.amount - p.amount) / p.amount * 100 <= cfg.partial_pct)\n    .sort((a, b) => Math.abs(a.amount - p.amount) - Math.abs(b.amount - p.amount));\n  if (near.length) {\n    claimed.add(near[0].row);\n    const diff = Math.round((near[0].amount - p.amount) * 100) / 100;\n    rows.push({ ...base, status: 'partial', bank_row: near[0].row, bank_amount: near[0].amount, difference: diff,\n      note: 'bank shows ' + (diff < 0 ? 'less' : 'more') + ' than Stripe by ' + Math.abs(diff).toFixed(2) });\n    continue;\n  }\n  const age = daysBetween(p.arrival_date, today);\n  rows.push({ ...base, status: age < cfg.grace_days ? 'pending' : 'missing', bank_row: '', bank_amount: '', difference: '',\n    note: age < cfg.grace_days ? 'arrived ' + age + ' days ago, inside GRACE_DAYS' : 'no bank line ' + age + ' days after arrival' });\n}\nfor (const b of bank.filter(b => !claimed.has(b.row) && isStripe(b))) {\n  rows.push({ payout_id: 'bank-row-' + b.row, arrival_date: b.date, payout_amount: '', currency: '', status: 'bank only',\n    bank_row: b.row, bank_amount: b.amount, difference: '', note: 'Stripe deposit on the bank with no payout in the window' });\n}\nconst counts = rows.reduce((m, r) => ({ ...m, [r.status]: (m[r.status] || 0) + 1 }), {});\nreturn rows.map(r => ({ json: { ...r, checked_at: cfg.run_started_at, _counts: counts } }));\n"
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "49a5d2bf-754b-4d0f-a37c-b37ca20649a5",
+      "name": "Write to the sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ffccb7ae-79be-4d4e-a277-6277a8adffcc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "00ccb941-3c12-4ef1-ab2f-ab2f358c00cc",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        208
+      ]
+    },
+    {
+      "id": "404b2ca7-a5f5-4e77-a3f5-73f539be404b",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2784,
+        384
+      ]
+    },
+    {
+      "id": "a26d9981-b40c-4b31-a4a8-f4a86c4ca26d",
+      "name": "Write Reconciliation tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.bank_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Reconciliation"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "payout_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        208
+      ]
+    },
+    {
+      "id": "223bbb7a-7a1f-495a-a087-d0875359223b",
+      "name": "Summarise the reconciliation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One readable summary of the run for the execution log, whatever mode it ran in.\nconst cfg = $('config').first().json;\nconst rows = $('Match payouts to bank lines').all().map(i => i.json);\nconst counts = rows[0]?._counts || {};\nconst problems = rows.filter(r => ['missing', 'partial', 'duplicate', 'bank only'].includes(r.status));\nconst text = [\n  'Stripe payout reconciliation (' + cfg.mode + ')',\n  Object.entries(counts).map(([k, v]) => v + ' ' + k).join(', '),\n  ...problems.map(r => '- ' + r.payout_id + ': ' + r.status + (r.note ? ' (' + r.note + ')' : '')),\n].join('\\n');\nreturn [{ json: { text, problems: problems.length, counts } }];\n"
+      },
+      "position": [
+        2560,
+        384
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 07:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Stripe connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch payouts from Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample payouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch payouts from Stripe": {
+      "main": [
+        [
+          {
+            "node": "Read Stripe payouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Stripe payouts": {
+      "main": [
+        [
+          {
+            "node": "Combine payout sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample payouts": {
+      "main": [
+        [
+          {
+            "node": "Combine payout sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine payout sources": {
+      "main": [
+        [
+          {
+            "node": "Bank sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bank sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read bank transactions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample bank lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read bank transactions": {
+      "main": [
+        [
+          {
+            "node": "Read bank rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read bank rows": {
+      "main": [
+        [
+          {
+            "node": "Combine bank sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample bank lines": {
+      "main": [
+        [
+          {
+            "node": "Combine bank sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine bank sources": {
+      "main": [
+        [
+          {
+            "node": "Match payouts to bank lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match payouts to bank lines": {
+      "main": [
+        [
+          {
+            "node": "Write to the sheet?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the reconciliation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the sheet?": {
+      "main": [
+        [
+          {
+            "node": "Write Reconciliation tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

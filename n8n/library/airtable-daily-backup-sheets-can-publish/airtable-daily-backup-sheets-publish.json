@@ -1,0 +1,845 @@
+{
+  "name": "Back up Airtable tables to Google Sheets every night",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Back up Airtable tables to Google Sheets every night\n\n**Who's it for**\nTeams that run a CRM, content calendar or inventory in Airtable and have no copy outside it. A bulk delete or a broken automation shows up in the morning as a Slack alert, and the rows are still in the sheet.\n\n**How it works**\n1. Every night at 02:00 it reads each table in `TABLES` from Airtable, 100 records per table, or sample tables until Airtable is connected.\n2. Fields are flattened for a spreadsheet: attachments become file name and URL, linked records and multi-selects become a ; list, collaborators become their name, checkboxes become TRUE or FALSE.\n3. Row counts are compared with last night's line on the Backup log tab. A drop of more than `DROP_ALERT_PCT` percent (and at least `MIN_DROP_ROWS` rows) is flagged, and so is a table with more than 100 records, because the rest was not copied.\n4. Rows are upserted by Airtable record id into a tab named `Backup <table>`, so a deleted record stays in the sheet. Tonight's counts are appended to the Backup log.\n\n**How to set up**\n1. Run it once as imported. It flattens sample tables and stops at `STOP: dry run - sheet untouched`.\n2. Add an Airtable personal access token credential to `Fetch records from Airtable`, set `AIRTABLE_BASE_ID` and `TABLES`, then set `USE_AIRTABLE = true`.\n3. Create a sheet with a Backup log tab and one `Backup <table>` tab per table, each with a Record ID column. Connect Google Sheets and set `BACKUP_SHEET_ID`.\n4. Optionally set `SLACK_CHANNEL_ID`, then set `DRY_RUN = false`.\n\n**Requirements**\n- An Airtable base and a personal access token\n- A Google Sheet for the copies\n- Optional: a Slack workspace\n\n**How to customize**\n- `TABLES` lists table names or ids to copy.\n- `DROP_ALERT_PCT` and `MIN_DROP_ROWS` decide when a smaller table is worth an alert.\n- `MAX_CELL_CHARS` trims long text so a cell stays under the Google Sheets limit.",
+        "height": 1088,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "51d2f7e0-5717-4c4e-9a00-51d2f7e013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every night at 02:00, when nobody is editing. Base id, the table list and the alert thresholds all live in `config`.",
+        "height": 848,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0d8f9195-5717-4c4e-9a00-0d8f91951000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read and flatten Airtable\n\nOne request per table with pageSize 100 and no paging loop; a returned offset is reported instead of followed. `Flatten records into rows` turns every Airtable cell type into text a sheet can hold.",
+        "height": 848,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0c8f9002-5717-4c4e-9a00-0c8f90021001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read last night's counts\n\nCounts live on a Backup log tab rather than in workflow memory, so they survive a re-import and anyone can read the history. `Load sample backup log` makes the Projects drop visible in a preview.",
+        "height": 848,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "0b8f8e6f-5717-4c4e-9a00-0b8f8e6f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Compare, alert and write\n\nThe comparison runs before anything is written, so tonight's log line can never be compared with itself. Copies are upserted by record id, so a record deleted in Airtable keeps its last row in the sheet.",
+        "height": 848,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "0a8f8cdc-5717-4c4e-9a00-0a8f8cdc1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "c9a3d61f-fd24-426f-a9c2-f9c2d2a6c9a3",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// BACK UP AIRTABLE TABLES TO GOOGLE SHEETS EVERY NIGHT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_AIRTABLE false -> SAMPLE tables. BACKUP_SHEET_ID blank -> SAMPLE backup log.\n// DRY_RUN true -> rows and counts are computed and shown, nothing is written or posted.\n\n// set true after adding the Airtable credential\nconst USE_AIRTABLE = false;\n// base id, starts with app, from the base URL\nconst AIRTABLE_BASE_ID = '';\n// table names or ids to back up\nconst TABLES = [\n  \"Clients\",\n  \"Projects\",\n  \"Invoices\"\n];\n// Google Sheets id with a Backup log tab and Backup <table> tabs\nconst BACKUP_SHEET_ID = '';\n// alert when a table has this percent fewer rows than last night\nconst DROP_ALERT_PCT = 20;\n// and at least this many rows fewer\nconst MIN_DROP_ROWS = 3;\n// longer text is cut to fit in one Sheets cell\nconst MAX_CELL_CHARS = 45000;\n// channel for drop and truncation alerts; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_airtable: USE_AIRTABLE,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    tables: TABLES,\n    backup_sheet_id: BACKUP_SHEET_ID,\n    drop_alert_pct: DROP_ALERT_PCT,\n    min_drop_rows: MIN_DROP_ROWS,\n    max_cell_chars: MAX_CELL_CHARS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    sheets_enabled: BACKUP_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "28a8a83f-dbab-4a8f-a594-a594078628a8",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "ec79fef3-ea0f-4103-a38d-338dfaeaec79",
+      "name": "Every night at 02:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "86d63710-2e92-4210-a806-5806e49386d6",
+      "name": "List the tables to back up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per table, so each Airtable request is its own call.\nreturn $('config').first().json.tables.map(table => ({ json: { table } }));\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "f9a419eb-c632-4e7b-a1c4-b1c46f12f9a4",
+      "name": "Airtable connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4bc42a59-21c4-4889-a384-e384f8d44bc4",
+              "leftValue": "={{ $('config').first().json.use_airtable }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "573f08d9-f262-4f09-a65f-365f4f54573f",
+      "name": "Fetch records from Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($json.table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        176
+      ]
+    },
+    {
+      "id": "22f4a585-72f5-4df5-abf5-0bf5377022f4",
+      "name": "Load sample Airtable records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_AIRTABLE is true. One list response per table. Invoices returns an\n// offset, the API's sign that more than 100 records exist.\nconst ago = n => new Date(Date.now() - n * 864e5).toISOString();\nconst rec = (id, days, fields) => ({ id, createdTime: ago(days), fields });\nconst owner = { id: 'usrA', email: 'ana@northwind.example', name: 'Ana Ruiz' };\nconst data = {\n  Clients: { records: [\n    rec('recC1', 400, { Name: 'Harbour Dental', Email: 'ap@harbour-dental.example', Status: 'Active', Owner: owner, Tags: ['dental', 'retainer'],\n      Logo: [{ id: 'att1', url: 'https://dl.airtable.example/harbour.png', filename: 'harbour.png', size: 20412, type: 'image/png' }] }),\n    rec('recC2', 300, { Name: 'Northfield Studio', Email: 'billing@northfield.example', Status: 'Active', Owner: owner, Tags: ['design'] }),\n    rec('recC3', 200, { Name: 'Orchard Lane Cafe', Status: 'Paused', Tags: [] }),\n    rec('recC4', 90, { Name: 'Pine & Co', Email: 'accounts@pineco.example', Status: 'Lead', Notes: 'Met at the October expo.\\nWants a quote for Q1.' }),\n    rec('recC5', 10, { Name: 'Lumen Physio', Email: 'admin@lumenphysio.example', Status: 'Active', VIP: true }),\n  ] },\n  Projects: { records: [\n    rec('recP1', 60, { Project: 'Website rebuild', Client: ['recC1'], Budget: 18000, Active: true }),\n    rec('recP2', 45, { Project: 'Brand refresh', Client: ['recC2'], Budget: 9500, Active: true }),\n    rec('recP3', 30, { Project: 'Menu photography', Client: ['recC3'], Budget: 1200, Active: false }),\n    rec('recP4', 5, { Project: 'Booking funnel', Client: ['recC5', 'recC1'], Budget: 6400, Active: true }),\n  ] },\n  Invoices: { offset: 'itrSAMPLE/recI3', records: [\n    rec('recI1', 40, { Number: 'INV-1041', Amount: 1200, Paid: false }),\n    rec('recI2', 20, { Number: 'INV-1044', Amount: 20, Paid: true }),\n    rec('recI3', 3, { Number: 'INV-1046', Amount: 980, Paid: false }),\n  ] },\n};\nreturn $input.all().map(i => ({ json: { _table: i.json.table, ...(data[i.json.table] || { records: [] }) } }));\n"
+      },
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "02d24ad5-e287-4a45-ae89-5e8992c002d2",
+      "name": "Combine record sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "fc062f90-44b1-4290-ab92-3b92a113fc06",
+      "name": "Flatten records into rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Airtable cell types -> plain text a sheet can hold. Responses line up with the table\n// list by position (the HTTP node returns one response per table item).\nconst cfg = $('config').first().json;\nconst tables = $('List the tables to back up').all().map(i => i.json.table);\nconst stamp = new Date().toISOString();\nconst cell = v => {\n  if (v === null || v === undefined) return '';\n  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';\n  if (typeof v === 'number') return v;\n  if (Array.isArray(v)) return v.map(x => x && typeof x === 'object' ? (x.filename ? x.filename + ' (' + x.url + ')' : x.name || x.email || x.id || JSON.stringify(x)) : String(x)).join('; ');\n  if (typeof v === 'object') return v.name || v.email || (v.label ?? '') || JSON.stringify(v);\n  return String(v).slice(0, cfg.max_cell_chars);\n};\nconst rows = [], counts = [];\n$input.all().forEach((item, i) => {\n  const table = item.json._table || tables[i];\n  const records = item.json.records || [];\n  counts.push({ table, rows: records.length, truncated: Boolean(item.json.offset) });\n  for (const r of records) {\n    const row = { 'Record ID': r.id, Table: table, Created: r.createdTime, 'Backed up at': stamp };\n    for (const [k, v] of Object.entries(r.fields || {})) row[k] = cell(v);\n    rows.push(row);\n  }\n});\nreturn [{ json: { rows, counts, stamp } }];\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "5fe10cf5-a85c-4265-a412-141287a05fe1",
+      "name": "Backup sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "22cde307-7929-46d7-a38c-538c615e22cd",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "596a02f5-c654-4865-a1a4-91a4d1a0596a",
+      "name": "Read the Backup log tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.backup_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Backup log"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "c888da4b-85e9-40db-a62d-b62d28b2c888",
+      "name": "Load sample backup log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until BACKUP_SHEET_ID is set: last night's counts. Projects had 9 rows, so\n// tonight's 4 reads as a drop.\nconst yesterday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);\nreturn [\n  { Date: yesterday, Table: 'Clients', Rows: 5, Truncated: 'FALSE' },\n  { Date: yesterday, Table: 'Projects', Rows: 9, Truncated: 'FALSE' },\n  { Date: yesterday, Table: 'Invoices', Rows: 100, Truncated: 'TRUE' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "2f9c4656-f8c5-4776-af2b-ef2b1ce52f9c",
+      "name": "Combine log sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "bbe94eb6-6f9d-41d6-a353-23538285bbe9",
+      "name": "Compare counts with last night",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Latest earlier log line per table vs tonight. A drop alerts only when it is both\n// DROP_ALERT_PCT percent and MIN_DROP_ROWS rows, so a single deletion stays quiet.\nconst cfg = $('config').first().json;\nconst flat = $('Flatten records into rows').first().json;\nconst today = flat.stamp.slice(0, 10);\nconst log = $input.all().map(i => i.json).filter(r => r.Table && String(r.Date || '').slice(0, 10) < today)\n  .sort((a, b) => String(b.Date).localeCompare(String(a.Date)));\nconst alerts = [];\nconst tables = flat.counts.map(c => {\n  const prev = log.find(l => l.Table === c.table);\n  const before = prev ? Number(prev.Rows) : null;\n  const diff = before === null ? null : c.rows - before;\n  const pct = before ? Math.round(-diff / before * 100) : 0;\n  // A truncated count is only a lower bound, so it never raises a drop alert.\n  if (!c.truncated && before !== null && diff < 0 && pct >= cfg.drop_alert_pct && -diff >= cfg.min_drop_rows) alerts.push(c.table + ': ' + before + ' -> ' + c.rows + ' rows (' + pct + '% fewer than ' + String(prev.Date).slice(0, 10) + ')');\n  if (c.truncated) alerts.push(c.table + ': more than 100 records, only the first 100 were copied');\n  return { ...c, before, diff };\n});\nreturn [{ json: { tables, alerts, rows: flat.rows.length, log_rows: flat.counts.map(c => ({ Date: today, Table: c.table, Rows: c.rows, Truncated: c.truncated ? 'TRUE' : 'FALSE' })) } }];\n"
+      },
+      "position": [
+        2320,
+        176
+      ]
+    },
+    {
+      "id": "95e443ad-d6fa-4f9d-ac96-6c96220895e4",
+      "name": "Split into sheet rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per record; the Table column picks the tab.\nreturn $('Flatten records into rows').first().json.rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "51146858-6f55-4cd8-a68b-368b690b5114",
+      "name": "Write the backup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "626b0190-d5a9-4490-a25a-c25aef13626b",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "636b0323-97fd-4633-ad04-8d04c11a636b",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "0e35399e-dffa-443e-ac8f-ac8f7c5d0e35",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        352
+      ]
+    },
+    {
+      "id": "4f0b0daf-d2b5-4cff-a3e2-93e2d4764f0b",
+      "name": "Upsert rows into the table tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.backup_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ 'Backup ' + $json.Table }}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Record ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        176
+      ]
+    },
+    {
+      "id": "aa9276c4-a582-4184-a1db-91db3867aa92",
+      "name": "Shape the log rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Tonight's counts, written once after the copies, for tomorrow's comparison.\nreturn $('Compare counts with last night').first().json.log_rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        3200,
+        176
+      ]
+    },
+    {
+      "id": "d6fd4f73-6b66-4983-a399-e399cf6ad6fd",
+      "name": "Append to the Backup log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.backup_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Backup log"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3424,
+        176
+      ]
+    },
+    {
+      "id": "f3d62821-cd20-47d1-a337-e337b5acf3d6",
+      "name": "Write the alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only problems are posted; a clean night says nothing.\nconst cfg = $('config').first().json;\nconst c = $input.first().json;\nconst text = ['*Airtable backup* (' + cfg.mode + '): ' + c.rows + ' records from ' + c.tables.length + ' tables.', ...c.alerts.map(a => '- ' + a)].join('\\n');\nreturn [{ json: { text, alerts: c.alerts.length } }];\n"
+      },
+      "position": [
+        2544,
+        352
+      ]
+    },
+    {
+      "id": "f36c890f-4f0b-4a5f-a24e-224ecd16f36c",
+      "name": "Post the alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d294685-3871-4ef5-ab79-4b797c706d29",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "6c2944f2-761d-4d52-a172-8172d3216c29",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "6b29435f-b3c8-4baf-aed5-fed55d666b29",
+              "leftValue": "={{ $json.alerts }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "1ce377f1-ffbd-46a1-a9a1-89a1bf7c1ce3",
+      "name": "STOP: no alert posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        512
+      ]
+    },
+    {
+      "id": "5653564b-e785-4cdb-a982-99823cb25653",
+      "name": "Post the alert to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2976,
+        688
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every night at 02:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List the tables to back up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List the tables to back up": {
+      "main": [
+        [
+          {
+            "node": "Airtable connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch records from Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample Airtable records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch records from Airtable": {
+      "main": [
+        [
+          {
+            "node": "Combine record sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample Airtable records": {
+      "main": [
+        [
+          {
+            "node": "Combine record sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine record sources": {
+      "main": [
+        [
+          {
+            "node": "Flatten records into rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten records into rows": {
+      "main": [
+        [
+          {
+            "node": "Backup sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Backup log tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample backup log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Backup log tab": {
+      "main": [
+        [
+          {
+            "node": "Combine log sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample backup log": {
+      "main": [
+        [
+          {
+            "node": "Combine log sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine log sources": {
+      "main": [
+        [
+          {
+            "node": "Compare counts with last night",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare counts with last night": {
+      "main": [
+        [
+          {
+            "node": "Split into sheet rows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the alert": {
+      "main": [
+        [
+          {
+            "node": "Post the alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the alert?": {
+      "main": [
+        [
+          {
+            "node": "Post the alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no alert posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into sheet rows": {
+      "main": [
+        [
+          {
+            "node": "Write the backup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the backup?": {
+      "main": [
+        [
+          {
+            "node": "Upsert rows into the table tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert rows into the table tab": {
+      "main": [
+        [
+          {
+            "node": "Shape the log rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the log rows": {
+      "main": [
+        [
+          {
+            "node": "Append to the Backup log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

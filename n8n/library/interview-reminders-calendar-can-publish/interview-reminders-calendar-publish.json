@@ -1,0 +1,553 @@
+{
+  "name": "Send interview reminders to candidates from Google Calendar with Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send interview reminders to candidates from Google Calendar with Gmail\n\n**Who's it for**\nRecruiters and hiring managers who book interviews in Google Calendar and lose candidates to no-shows. Candidates get a short, specific reminder with the link and what to prepare, without anyone writing it.\n\n**How it works**\n1. Every hour it lists events on `CALENDAR_ID` that match `EVENT_KEYWORD` and start within the next 27 hours, or sample events until Calendar is connected.\n2. A reminder is due when an event starts inside an hour of a step in `REMINDERS` (24 hours and 2 hours by default) and that step was not sent for that event.\n3. The candidate is the attendee outside `COMPANY_DOMAINS` who has not declined. Cancelled events, internal-only events and events with no link or address are held back with a reason.\n4. The meeting link comes from Google Meet, conference data or a Zoom or Teams URL in the description. Prep notes come from `INTERVIEW_TYPES` by keyword in the title.\n\n**How to set up**\n1. Run it once as imported. It plans reminders for sample events and stops at `STOP: preview - nothing sent`.\n2. Add a Google Calendar credential to `Fetch interview events`, set `CALENDAR_ID` and `USE_CALENDAR = true`.\n3. Connect Gmail and list your email domains in `COMPANY_DOMAINS` so interviewers are never mistaken for candidates.\n4. Put your address in `TEST_EMAIL` to receive every reminder yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Calendar with interview events\n- A Gmail account\n\n**How to customize**\n- `REMINDERS` sets the steps, in hours before the start.\n- `INTERVIEW_TYPES` maps title keywords to prep notes and what to bring.\n- `EVENT_KEYWORD` limits the search to events with that word, for example Interview.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "c9281f32-5717-4c4e-9a00-c9281f3213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 5 past every hour or by hand. The reminder steps, company domains and prep notes live in `config`, so adding a 1-hour nudge is one more line in `REMINDERS`.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "08502007-5717-4c4e-9a00-085020071000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read upcoming interviews\n\n`Fetch interview events` expands recurring events and filters on `EVENT_KEYWORD` server side. `Load sample events` returns the same events-list shape, so the parser in the next step is exercised either way.",
+        "height": 576,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "07501e74-5717-4c4e-9a00-07501e741001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find the candidate and the link\n\nThe candidate is whoever is outside `COMPANY_DOMAINS`, so interviewers never get the reminder. Events with no link or address are held instead of sending a reminder that cannot be acted on.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "0a50232d-5717-4c4e-9a00-0a50232d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and remember\n\nIn test mode reminders go to `TEST_EMAIL` and nothing is recorded, so you can repeat the test. A live send records the event and step, which is what stops the next hourly run from sending it again.",
+        "height": 576,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        0
+      ],
+      "id": "0950219a-5717-4c4e-9a00-0950219a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "5c1b6a59-6b57-4889-a9da-a9da38d45c1b",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND INTERVIEW REMINDERS TO CANDIDATES FROM GOOGLE CALENDAR WITH GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_CALENDAR false -> SAMPLE events, so the run works before any credential exists.\n// Reminders already sent are remembered per event and step in workflow static data.\n\n// set true after adding the Google Calendar credential\nconst USE_CALENDAR = false;\n// calendar to read; 'primary' or a shared calendar id\nconst CALENDAR_ID = 'primary';\n// only events whose text contains this word\nconst EVENT_KEYWORD = 'Interview';\n// attendees on these domains are interviewers, never candidates\nconst COMPANY_DOMAINS = [\n  \"northwind.example\"\n];\n// reminder steps in hours before the start; each fires once per event\nconst REMINDERS = [\n  {\n    hours: 24,\n    label: \"tomorrow\"\n  },\n  {\n    hours: 2,\n    label: \"in 2 hours\"\n  }\n];\n// title keyword -> prep note and what to bring\nconst INTERVIEW_TYPES = {\n  \"phone screen\": {\n    prep: \"A 30-minute conversation about your background and what you are looking for.\",\n    bring: \"Nothing to prepare beyond questions you have for us.\"\n  },\n  technical: {\n    prep: \"A practical session with two engineers. You will share your screen and work through a small problem together.\",\n    bring: \"A laptop with your usual editor and a working microphone.\"\n  },\n  onsite: {\n    prep: \"You will meet 3 people across the team over about 2 hours, with a break.\",\n    bring: \"Photo ID for reception.\"\n  },\n  final: {\n    prep: \"A conversation with a founder about how you like to work and the first 90 days in the role.\",\n    bring: \"Any questions about the offer or the team.\"\n  }\n};\n// sign-off on every reminder\nconst RECRUITER_NAME = 'Maya at Northwind';\n// hard ceiling on reminders per run\nconst DAILY_CAP = 40;\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_calendar: USE_CALENDAR,\n    calendar_id: CALENDAR_ID,\n    event_keyword: EVENT_KEYWORD,\n    company_domains: COMPANY_DOMAINS,\n    reminders: REMINDERS,\n    interview_types: INTERVIEW_TYPES,\n    recruiter_name: RECRUITER_NAME,\n    daily_cap: DAILY_CAP,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        240
+      ]
+    },
+    {
+      "id": "faf8e8a9-765f-4dd9-ae92-ee924be4faf8",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        240
+      ]
+    },
+    {
+      "id": "a7414c18-aa44-4498-a940-8940974ba741",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        416
+      ]
+    },
+    {
+      "id": "eaf75553-eb2b-4963-a7d4-f7d4c28aeaf7",
+      "name": "Calendar connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f1e81e8f-caa7-47df-a8f6-58f62296f1e8",
+              "leftValue": "={{ $('config').first().json.use_calendar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        240
+      ]
+    },
+    {
+      "id": "fe47ad83-d1b6-4293-a14e-514e34bafe47",
+      "name": "Fetch interview events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($('config').first().json.calendar_id) + '/events' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeMin",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "timeMax",
+              "value": "={{ new Date(Date.now() + (Math.max(...$('config').first().json.reminders.map(r => r.hours)) + 3) * 36e5).toISOString() }}"
+            },
+            {
+              "name": "singleEvents",
+              "value": "true"
+            },
+            {
+              "name": "orderBy",
+              "value": "startTime"
+            },
+            {
+              "name": "maxResults",
+              "value": "250"
+            },
+            {
+              "name": "q",
+              "value": "={{ $('config').first().json.event_keyword }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        240
+      ]
+    },
+    {
+      "id": "412e78f8-1596-4b78-a8a9-88a9846b412e",
+      "name": "Load sample events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_CALENDAR is true. Same shape as the Calendar events list, times relative to now.\nconst at = h => new Date(Date.now() + h * 36e5).toISOString();\nconst ev = (id, h, summary, attendees, extra = {}) => ({ id, status: 'confirmed', summary, start: { dateTime: at(h) }, end: { dateTime: at(h + 1) }, attendees, ...extra });\nconst cand = (email, name, rs = 'accepted') => ({ email, displayName: name, responseStatus: rs });\nconst staff = (email, name) => ({ email, displayName: name, responseStatus: 'accepted' });\nreturn [{ json: { kind: 'calendar#events', items: [\n  ev('evt_tech', 24.4, 'Technical interview: Jonas Berg', [staff('ravi@northwind.example', 'Ravi Shah'), staff('lucy@northwind.example', 'Lucy Grant'), cand('jonas.berg@mailbox.example', 'Jonas Berg')],\n    { description: 'Join: https://us02web.zoom.us/j/81234567890?pwd=abc123 (passcode 4411)' }),\n  ev('evt_screen', 23.7, 'Phone screen - Aisha Rahman (Interview)', [staff('maya@northwind.example', 'Maya Torres'), cand('aisha.r@mailbox.example', 'Aisha Rahman', 'needsAction')],\n    { hangoutLink: 'https://meet.google.com/abc-defg-hij' }),\n  ev('evt_onsite', 1.6, 'Onsite interview: Pedro Alves', [staff('maya@northwind.example', 'Maya Torres'), cand('pedro.alves@mailbox.example', 'Pedro Alves')],\n    { location: 'Northwind, 4 Harbour Street, Lisbon' }),\n  ev('evt_declined', 24.2, 'Final interview: Wen Li', [staff('ceo@northwind.example', 'Sara Holm'), cand('wen.li@mailbox.example', 'Wen Li', 'declined')], { hangoutLink: 'https://meet.google.com/xyz-abcd-efg' }),\n  ev('evt_internal', 24.0, 'Interview debrief: backend role', [staff('ravi@northwind.example', 'Ravi Shah'), staff('maya@northwind.example', 'Maya Torres')], { hangoutLink: 'https://meet.google.com/int-erna-lll' }),\n  ev('evt_nolink', 2.3, 'Interview: Omar Haddad', [staff('lucy@northwind.example', 'Lucy Grant'), cand('omar.h@mailbox.example', 'Omar Haddad')]),\n  ev('evt_later', 10, 'Technical interview: Kim Park', [staff('ravi@northwind.example', 'Ravi Shah'), cand('kim.park@mailbox.example', 'Kim Park')], { hangoutLink: 'https://meet.google.com/kim-park-xyz' }),\n  ev('evt_cancel', 24.5, 'Interview: Leo Marsh', [cand('leo.marsh@mailbox.example', 'Leo Marsh')], { status: 'cancelled' }),\n] } }];\n"
+      },
+      "position": [
+        736,
+        416
+      ]
+    },
+    {
+      "id": "2ea4b4e6-eacb-4906-abe4-abe40db52ea4",
+      "name": "Combine event sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "id": "ead49fbb-97ae-434b-a71c-671cc7e2ead4",
+      "name": "Pick reminders due",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A step is due when the event starts within 1 hour either side of the step's hours,\n// so an hourly schedule catches every event once per step. Sent steps are remembered\n// as eventId|hours, which also covers events moved inside the window.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst sent = store.sent || {};\nconst domains = cfg.company_domains.map(d => d.toLowerCase());\nconst external = a => !a.resource && !a.self && !domains.some(d => (a.email || '').toLowerCase().endsWith('@' + d));\nconst linkIn = s => (String(s || '').match(/https:\\/\\/[^\\s<>\"]*(zoom\\.us\\/j|teams\\.microsoft\\.com\\/l\\/meetup-join|meet\\.google\\.com)[^\\s<>\"]*/i) || [])[0] || '';\nconst due = [], held = [];\nfor (const page of $input.all()) for (const e of page.json.items || []) {\n  const start = new Date(e.start?.dateTime || e.start?.date);\n  const hoursTo = (start - Date.now()) / 36e5;\n  const step = cfg.reminders.find(r => Math.abs(hoursTo - r.hours) <= 1);\n  if (!step) continue;\n  const name = e.summary || e.id;\n  const key = e.id + '|' + step.hours;\n  if (e.status === 'cancelled') { held.push({ event: name, reason: 'event cancelled' }); continue; }\n  if (sent[key]) { held.push({ event: name, reason: 'step ' + step.label + ' already sent' }); continue; }\n  const cands = (e.attendees || []).filter(external);\n  if (!cands.length) { held.push({ event: name, reason: 'no external attendee' }); continue; }\n  const link = e.hangoutLink || (e.conferenceData?.entryPoints || []).find(p => p.entryPointType === 'video')?.uri || linkIn(e.description) || linkIn(e.location);\n  const where = link ? '' : (e.location || '');\n  if (!link && !where) { held.push({ event: name, reason: 'no meeting link or address' }); continue; }\n  const title = (e.summary || '').toLowerCase();\n  const typeKey = Object.keys(cfg.interview_types).find(k => title.includes(k)) || '';\n  const interviewers = (e.attendees || []).filter(a => !external(a) && !a.resource).map(a => a.displayName || a.email.split('@')[0]);\n  for (const c of cands) {\n    if (c.responseStatus === 'declined') { held.push({ event: name, reason: c.email + ' declined' }); continue; }\n    due.push({ key, event_id: e.id, title: e.summary, step: step.label, hours: step.hours, start: start.toISOString(),\n      candidate_email: c.email, candidate_name: c.displayName || '', link, where, type: typeKey, interviewers,\n      unconfirmed: c.responseStatus === 'needsAction' });\n  }\n}\ndue.sort((a, b) => a.start.localeCompare(b.start));\nfor (const x of due.slice(cfg.daily_cap)) held.push({ event: x.title, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { reminders: due.slice(0, cfg.daily_cap), held } }];\n"
+      },
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "id": "d464e83f-5313-4a8f-a6ea-96ea4786d464",
+      "name": "Write each reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Facts from the event, prep from INTERVIEW_TYPES. Times are shown in UTC with the date,\n// because the candidate's time zone is not on the event.\nconst cfg = $('config').first().json;\nconst fmt = iso => new Date(iso).toUTCString().replace(/:00 GMT$/, ' UTC');\nreturn $input.first().json.reminders.map(r => {\n  const t = cfg.interview_types[r.type] || { prep: 'A conversation with the team about the role.', bring: 'Questions you have for us.' };\n  const first = (r.candidate_name || '').split(' ')[0] || 'there';\n  const body = [\n    'Hi ' + first + ',', '',\n    'A reminder that your interview is ' + r.step + ': ' + fmt(r.start) + '.',\n    r.link ? 'Join here: ' + r.link : 'Address: ' + r.where,\n    r.interviewers.length ? 'You will meet: ' + r.interviewers.join(', ') + '.' : '', '',\n    t.prep, 'Please bring: ' + t.bring, '',\n    r.unconfirmed ? 'You have not accepted the calendar invite yet. Reply to this email if the time no longer works.' : 'If the time no longer works, reply to this email and we will find another slot.', '',\n    cfg.recruiter_name,\n  ].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\\n');\n  return { json: { ...r, subject: 'Your interview ' + r.step + ': ' + r.title, body, send_to: cfg.mode === 'test' ? cfg.test_email : r.candidate_email } };\n});\n"
+      },
+      "position": [
+        1424,
+        240
+      ]
+    },
+    {
+      "id": "d43ca8e6-a72f-4d06-aa5e-5a5e09b5d43c",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1664,
+        240
+      ]
+    },
+    {
+      "id": "8bf37ced-f650-44dd-afae-0fae2cc88bf3",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1888,
+        416
+      ]
+    },
+    {
+      "id": "124a50a4-50bb-4564-acc1-ecc10787124a",
+      "name": "Email the reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.candidate_email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1888,
+        240
+      ]
+    },
+    {
+      "id": "e0cd8e69-fcfe-4799-ab47-bb47df24e0cd",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        240
+      ]
+    },
+    {
+      "id": "befc1810-3f1c-4310-a7ee-97eef993befc",
+      "name": "STOP: test send - steps not recorded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        416
+      ]
+    },
+    {
+      "id": "8ad8b895-0d19-4c05-a8fe-a8fe67008ad8",
+      "name": "Remember sent steps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only, so test sends can be repeated. Keys older than 3 days are dropped.\nconst store = $getWorkflowStaticData('global');\nconst sent = store.sent || {};\nfor (const r of $('Write each reminder').all()) sent[r.json.key] = Date.now();\nfor (const [k, t] of Object.entries(sent)) if (Date.now() - t > 3 * 864e5) delete sent[k];\nstore.sent = sent;\nreturn [{ json: { remembered: Object.keys(sent).length } }];\n"
+      },
+      "position": [
+        2336,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Calendar connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch interview events",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch interview events": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample events": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine event sources": {
+      "main": [
+        [
+          {
+            "node": "Pick reminders due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick reminders due": {
+      "main": [
+        [
+          {
+            "node": "Write each reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each reminder": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the reminder": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember sent steps",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - steps not recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,652 @@
+{
+  "name": "Send monthly client invoices from Google Sheets timesheets with Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send monthly client invoices from Google Sheets timesheets with Gmail\n\n**Who's it for**\nConsultants and small agencies that log hours in a shared Google Sheet and build invoices from it by hand each month. The invoices go out at 08:00 on the 1st with the same numbering and rounding every time.\n\n**How it works**\n1. On the 1st at 08:00 it reads the Timesheet and Invoices tabs, or sample rows until a sheet is connected.\n2. Last month's billable entries are rounded up to 15 minutes each, then grouped by client, project and rate. A Rate column on a row overrides the rate set in `CLIENTS`.\n3. Each client gets its minimum fee, tax rate and payment terms from `CLIENTS`. Clients already invoiced for the month, and hours for unknown clients, are held back with a reason.\n4. Invoice numbers continue from the highest number on the Invoices tab. Each invoice is emailed as an HTML table and, on a live run, appended to the Invoices tab.\n\n**How to set up**\n1. Run it once as imported. It builds three sample invoices and stops at `STOP: preview - nothing sent`.\n2. Connect Google Sheets, put the spreadsheet id in `TIMESHEET_SHEET_ID`, and add your clients to `CLIENTS` with the exact names used on the Timesheet tab.\n3. Connect Gmail on `Email the invoice`.\n4. Put your address in `TEST_EMAIL` to receive every invoice yourself. Set `TEST_RUN = false` to send to clients and log the numbers.\n\n**Requirements**\n- A Google Sheet with Timesheet and Invoices tabs\n- A Gmail account\n\n**How to customize**\n- `ROUND_TO_MINUTES` and `ROUND_MODE` set the rounding of each entry.\n- `CLIENTS` holds each rate, currency, minimum fee, tax rate and payment terms.\n- `INVOICE_PREFIX` and `PAYMENT_DETAILS` change the numbering and the footer.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "a3a07816-5717-4c4e-9a00-a3a0781613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 08:00 on the 1st, so the whole previous month is closed. Client rates, minimum fees, tax and terms live in `CLIENTS` inside `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "218c1a1b-5717-4c4e-9a00-218c1a1b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read hours and past invoices\n\nThe Invoices tab is read after the timesheet is collected into one item, so it is fetched once. `Load sample timesheet` returns the same pair until `TIMESHEET_SHEET_ID` is set.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "208c1888-5717-4c4e-9a00-208c18881001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Price and write invoices\n\n`Build invoices per client` rounds each entry before grouping, tops up to the minimum fee, and skips clients already on the log for the month, so a second run in the same month sends nothing new.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "238c1d41-5717-4c4e-9a00-238c1d411002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and log\n\nA test send goes to `TEST_EMAIL` and leaves the Invoices tab alone, so numbers are only used by invoices that really went to clients.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "228c1bae-5717-4c4e-9a00-228c1bae1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "fb1eab88-e97f-4108-a755-77551a3bfb1e",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND MONTHLY CLIENT INVOICES FROM GOOGLE SHEETS TIMESHEETS WITH GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// TIMESHEET_SHEET_ID blank -> SAMPLE timesheet rows and invoice log.\n// Invoices are logged to the Invoices tab only on a live run, so test runs never use up numbers.\n\n// Google Sheets id with Timesheet (Date, Client, Project, Person, Hours, Billable, Rate) and Invoices tabs\nconst TIMESHEET_SHEET_ID = '';\n// one entry per client; name must match a Client column value exactly (case ignored)\nconst CLIENTS = [\n  {\n    name: \"Harbour Dental\",\n    email: \"ap@harbour-dental.example\",\n    rate: 120,\n    currency: \"USD\",\n    minimum_fee: 500,\n    tax_rate: 0,\n    terms_days: 14\n  },\n  {\n    name: \"Northfield Studio\",\n    email: \"billing@northfield.example\",\n    rate: 95,\n    currency: \"GBP\",\n    minimum_fee: 0,\n    tax_rate: 0.2,\n    terms_days: 30\n  },\n  {\n    name: \"Lumen Physio\",\n    email: \"admin@lumenphysio.example\",\n    rate: 110,\n    currency: \"USD\",\n    minimum_fee: 1000,\n    tax_rate: 0,\n    terms_days: 14\n  },\n  {\n    name: \"Orchard Lane Cafe\",\n    email: \"owner@orchardlane.example\",\n    rate: 90,\n    currency: \"USD\",\n    minimum_fee: 0,\n    tax_rate: 0,\n    terms_days: 14\n  }\n];\n// each entry is rounded to this many minutes\nconst ROUND_TO_MINUTES = 15;\n// 'up' or 'nearest'\nconst ROUND_MODE = 'up';\n// numbers look like INV-2026-0042\nconst INVOICE_PREFIX = 'INV';\n// shown at the top of every invoice\nconst BUSINESS_NAME = 'Fieldnote Consulting';\n// footer line on every invoice\nconst PAYMENT_DETAILS = 'Bank transfer to account 00-11-22 / 12345678, reference the invoice number.';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    timesheet_sheet_id: TIMESHEET_SHEET_ID,\n    clients: CLIENTS,\n    round_to_minutes: ROUND_TO_MINUTES,\n    round_mode: ROUND_MODE,\n    invoice_prefix: INVOICE_PREFIX,\n    business_name: BUSINESS_NAME,\n    payment_details: PAYMENT_DETAILS,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: TIMESHEET_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "057f3dfc-ca69-473c-aea8-3ea8708f057f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "ee1ba757-58e7-4227-ab12-eb12a7aeee1b",
+      "name": "On the 1st at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "a78d5fde-47c1-467e-a06d-706d741da78d",
+      "name": "Use sample timesheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "25fe5ec1-f91f-4c71-af66-8f663b0c25fe",
+              "leftValue": "={{ !$('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "263c9036-5fa3-4b56-af17-9f17bc05263c",
+      "name": "Read the Timesheet tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.timesheet_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Timesheet"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "daa35d09-ecdb-4439-ab1d-9b1d1584daa3",
+      "name": "Collect timesheet rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Many sheet rows -> one item, so the Invoices tab is read once and not once per row.\nreturn [{ json: { entries: $input.all().map(i => i.json) } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "dace1488-0968-4a08-ac17-7c17473bdace",
+      "name": "Read the Invoices tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.timesheet_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "options": {}
+      },
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "a268b22e-727c-4fce-ad70-0d701f2da268",
+      "name": "Collect the invoice log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pairs the timesheet with the invoice log in the same shape the sample path uses.\nreturn [{ json: { entries: $('Collect timesheet rows').first().json.entries, log: $input.all().map(i => i.json).filter(r => r.invoice_number) } }];\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "8e2cf7cc-b30a-400c-a21c-321c731f8e2c",
+      "name": "Load sample timesheet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until TIMESHEET_SHEET_ID is set. Dates fall in last month, plus one row from this month.\nconst now = new Date();\nconst d = n => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, n)).toISOString().slice(0, 10);\nconst thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);\nconst p = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);\nconst e = (date, client, project, person, hours, billable = 'yes', rate = '') => ({ Date: date, Client: client, Project: project, Person: person, Hours: hours, Billable: billable, Rate: rate });\nreturn [{ json: {\n  entries: [\n    e(d(3), 'Harbour Dental', 'Website rebuild', 'Ana', 2.1), e(d(4), 'Harbour Dental', 'Website rebuild', 'Ana', 3),\n    e(d(10), 'harbour dental', 'Website rebuild', 'Ben', '1.5'), e(d(11), 'Harbour Dental', 'Strategy session', 'Cara', 1.2, 'yes', 150),\n    e(d(12), 'Harbour Dental', 'Internal review', 'Ana', 2, 'no'), e(thisMonth, 'Harbour Dental', 'Website rebuild', 'Ana', 4),\n    e(d(5), 'Northfield Studio', 'Brand refresh', 'Ben', 4), e(d(18), 'Northfield Studio', 'Brand refresh', 'Ben', 2.4),\n    e(d(7), 'Lumen Physio', 'Booking flow', 'Cara', 3.1),\n    e(d(8), 'Orchard Lane Cafe', 'Menu site', 'Ana', 2),\n    e(d(9), 'Pine and Co', 'Logo', 'Ben', 1),\n  ],\n  log: [\n    { invoice_number: 'INV-' + p.slice(0, 4) + '-0040', client: 'Harbour Dental', period: '2000-01', total: 900 },\n    { invoice_number: 'INV-' + p.slice(0, 4) + '-0041', client: 'Orchard Lane Cafe', period: p, total: 180 },\n  ],\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "18b4a77d-99ec-426d-a177-017723d818b4",
+      "name": "Combine timesheet sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "1fc2dfe4-e38b-40a4-abba-7bba70471fc2",
+      "name": "Build invoices per client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Last calendar month only. Each entry is rounded first (so rounding is visible per\n// line), then grouped by client, project and rate. Minimum fee tops up the subtotal.\nconst cfg = $('config').first().json;\nconst { entries, log } = $input.first().json;\nconst now = new Date();\nconst start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));\nconst end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));\nconst period = start.toISOString().slice(0, 7);\nconst step = cfg.round_to_minutes / 60;\nconst round = h => (cfg.round_mode === 'nearest' ? Math.round(h / step) : Math.ceil(h / step - 1e-9)) * step;\nconst r2 = n => Math.round(n * 100) / 100;\nconst clients = Object.fromEntries(cfg.clients.map(c => [c.name.toLowerCase(), c]));\nconst invoiced = new Set(log.filter(l => l.period === period).map(l => String(l.client).toLowerCase()));\nconst groups = {}, held = [];\nlet skippedRows = 0;\nfor (const e of entries) {\n  const date = new Date(String(e.Date).slice(0, 10));\n  const hours = Number(String(e.Hours).replace(',', '.'));\n  const billable = !/^(no|n|false|0)$/i.test(String(e.Billable || 'yes').trim());\n  if (!(date >= start && date < end) || !billable || !(hours > 0)) { skippedRows++; continue; }\n  const key = String(e.Client || '').trim().toLowerCase();\n  const c = clients[key];\n  if (!c) { held.push({ client: e.Client, reason: 'not in CLIENTS, ' + hours + 'h not billed' }); continue; }\n  if (invoiced.has(key)) { if (!held.some(h => h.client === c.name)) held.push({ client: c.name, reason: 'already invoiced for ' + period }); continue; }\n  const rate = Number(e.Rate) > 0 ? Number(e.Rate) : c.rate;\n  const g = (groups[c.name] ||= { client: c, lines: {} });\n  const lk = e.Project + '|' + rate;\n  const line = (g.lines[lk] ||= { description: e.Project, rate, hours: 0, entries: 0 });\n  line.hours += round(hours); line.entries++;\n}\nconst year = period.slice(0, 4);\nlet next = Math.max(0, ...log.map(l => Number(String(l.invoice_number).split('-').pop()) || 0)) + 1;\nconst issued = now.toISOString().slice(0, 10);\nconst invoices = Object.values(groups).sort((a, b) => a.client.name.localeCompare(b.client.name)).map(g => {\n  const lines = Object.values(g.lines).map(l => ({ ...l, hours: r2(l.hours), amount: r2(l.hours * l.rate) }));\n  let subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));\n  if (subtotal < g.client.minimum_fee) {\n    lines.push({ description: 'Minimum monthly fee adjustment', rate: '', hours: '', entries: 0, amount: r2(g.client.minimum_fee - subtotal) });\n    subtotal = g.client.minimum_fee;\n  }\n  const tax = r2(subtotal * g.client.tax_rate);\n  const due = new Date(now.getTime() + g.client.terms_days * 864e5).toISOString().slice(0, 10);\n  return { invoice_number: cfg.invoice_prefix + '-' + year + '-' + String(next++).padStart(4, '0'), client: g.client.name, email: g.client.email,\n    currency: g.client.currency, period, issued, due, lines, hours: r2(lines.reduce((s, l) => s + (Number(l.hours) || 0), 0)),\n    subtotal, tax, tax_rate: g.client.tax_rate, total: r2(subtotal + tax) };\n});\nreturn [{ json: { period, invoices, held, skipped_rows: skippedRows } }];\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "8c33c09d-ad8d-418d-a6e9-f6e9c0b88c33",
+      "name": "Write each invoice email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain HTML table; inline styles only because most mail clients drop <style> blocks.\nconst cfg = $('config').first().json;\nconst { invoices } = $input.first().json;\nconst td = 'style=\"padding:6px 10px;border-bottom:1px solid #ddd\"';\nreturn invoices.map(inv => {\n  const m = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: inv.currency }).format(n);\n  const rows = inv.lines.map(l => '<tr><td ' + td + '>' + l.description + '</td><td ' + td + '>' + (l.hours === '' ? '' : l.hours + ' h') + '</td><td ' + td + '>' + (l.rate === '' ? '' : m(l.rate)) + '</td><td ' + td + ' align=\"right\">' + m(l.amount) + '</td></tr>').join('');\n  const html = '<div style=\"font-family:Arial,sans-serif;font-size:14px\">'\n    + '<h2>' + cfg.business_name + '</h2><p>Invoice <b>' + inv.invoice_number + '</b><br>Period: ' + inv.period + '<br>Issued: ' + inv.issued + '<br>Due: ' + inv.due + '</p>'\n    + '<p>Bill to: ' + inv.client + '</p><table style=\"border-collapse:collapse\"><tr><th align=\"left\">Item</th><th align=\"left\">Hours</th><th align=\"left\">Rate</th><th align=\"right\">Amount</th></tr>' + rows\n    + '<tr><td colspan=\"3\" align=\"right\">Subtotal</td><td align=\"right\">' + m(inv.subtotal) + '</td></tr>'\n    + (inv.tax ? '<tr><td colspan=\"3\" align=\"right\">Tax ' + Math.round(inv.tax_rate * 100) + '%</td><td align=\"right\">' + m(inv.tax) + '</td></tr>' : '')\n    + '<tr><td colspan=\"3\" align=\"right\"><b>Total</b></td><td align=\"right\"><b>' + m(inv.total) + '</b></td></tr></table>'\n    + '<p>' + cfg.payment_details + '</p></div>';\n  return { json: { ...inv, html, subject: 'Invoice ' + inv.invoice_number + ' from ' + cfg.business_name + ' (' + inv.period + ')',\n    send_to: cfg.mode === 'test' ? cfg.test_email : inv.email } };\n});\n"
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "70e4d79b-346e-452b-a4bc-24bcf90270e4",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "290650cc-9d62-490c-a0bd-d0bdc01f2906",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "1d1de6de-e17d-4d7e-a747-2747931d1d1d",
+      "name": "Email the invoice",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "9d132a9a-dc79-4e7a-a83b-e83b2a399d13",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        208
+      ]
+    },
+    {
+      "id": "ac4aa383-6208-4893-aa16-0a167ebaac4a",
+      "name": "STOP: test send - invoice log untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        384
+      ]
+    },
+    {
+      "id": "3697822d-18f3-461d-a09c-f09cb4883697",
+      "name": "Shape the invoice log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// One flat row per sent invoice for the Invoices tab; the next run numbers from these.\nconst inv = $('Write each invoice email').item.json;\nreturn { json: { invoice_number: inv.invoice_number, client: inv.client, period: inv.period, issued: inv.issued, due: inv.due,\n  hours: inv.hours, subtotal: inv.subtotal, tax: inv.tax, total: inv.total, currency: inv.currency, sent_to: inv.email, status: 'sent' } };\n"
+      },
+      "position": [
+        2976,
+        208
+      ]
+    },
+    {
+      "id": "3121ce05-4bd2-4e75-a203-32035ff03121",
+      "name": "Log to the Invoices tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.timesheet_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On the 1st at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample timesheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample timesheet?": {
+      "main": [
+        [
+          {
+            "node": "Load sample timesheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the Timesheet tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Timesheet tab": {
+      "main": [
+        [
+          {
+            "node": "Collect timesheet rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect timesheet rows": {
+      "main": [
+        [
+          {
+            "node": "Read the Invoices tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Invoices tab": {
+      "main": [
+        [
+          {
+            "node": "Collect the invoice log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample timesheet": {
+      "main": [
+        [
+          {
+            "node": "Combine timesheet sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect the invoice log": {
+      "main": [
+        [
+          {
+            "node": "Combine timesheet sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine timesheet sources": {
+      "main": [
+        [
+          {
+            "node": "Build invoices per client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build invoices per client": {
+      "main": [
+        [
+          {
+            "node": "Write each invoice email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each invoice email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the invoice": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Shape the invoice log row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - invoice log untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the invoice log row": {
+      "main": [
+        [
+          {
+            "node": "Log to the Invoices tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

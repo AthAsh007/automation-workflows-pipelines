@@ -1,0 +1,684 @@
+{
+  "name": "Remind writers in Slack about Notion content calendar deadlines",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Remind writers in Slack about Notion content calendar deadlines\n\n**Who's it for**\nContent leads who run an editorial calendar in Notion and spend Monday mornings chasing writers about drafts. Writers get a nudge before the deadline, and overdue pieces reach the editor.\n\n**How it works**\n1. Every weekday at 09:00 it queries your Notion database for pieces that are not published and due within 3 days or already overdue, or uses sample pages until Notion is connected.\n2. Each piece gets the next reminder step: 3 days out, 1 day out, then overdue at 1, 3 and 7 days late. A step missed over a weekend is caught up on Monday.\n3. A step is sent once per due date. Moving the due date in Notion starts the ladder again.\n4. One Slack message groups the reminders by writer and mentions them. Pieces with no writer, or a writer with no Slack id, are listed for the editor.\n\n**How to set up**\n1. Run it once as imported. It works through the sample calendar and stops at `STOP: preview - nothing posted`.\n2. Share the database with your Notion integration, add the credential to `Query the content calendar`, set `NOTION_DATABASE_ID` and the property names in `PROPS`, then set `USE_NOTION = true`.\n3. Fill `WRITER_SLACK_IDS` (Notion email or name to Slack member id), connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post with a [TEST] prefix and no real mentions. Set `TEST_RUN = false` to go live.\n\n**Requirements**\n- A Notion database with a title, status (or select), date and person property\n- A Slack workspace\n\n**How to customize**\n- `REMINDER_DAYS` and `OVERDUE_DAYS` set the ladder.\n- `DONE_STATUSES` lists statuses that end reminders, such as Published or Cancelled.\n- `EDITOR_SLACK_ID` gets mentioned for unassigned and overdue pieces.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "bc83fe02-5717-4c4e-9a00-bc83fe0213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 09:00 or by hand. Property names, the ladder and the writer to Slack mapping all live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "233f5457-5717-4c4e-9a00-233f54571000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the calendar\n\nThe Notion query is a POST that only reads, filtered server side to pieces due within the longest reminder window. `Load sample calendar` covers every ladder step and both kinds of missing writer.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "223f52c4-5717-4c4e-9a00-223f52c41001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Work out the reminder step\n\nSteps are chosen by range rather than exact day, so a weekend never swallows a reminder. The sent key includes the due date, which lets a rescheduled piece get its reminders again.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "253f577d-5717-4c4e-9a00-253f577d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and record\n\nPreview posts nothing; a test post strips real mentions so writers are not pinged. Steps are recorded only after a live post, so testing never uses up a reminder.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "243f55ea-5717-4c4e-9a00-243f55ea1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "788711b9-2982-41e9-a4da-44da79747887",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REMIND WRITERS IN SLACK ABOUT NOTION CONTENT CALENDAR DEADLINES - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_NOTION false -> SAMPLE calendar pages.\n// SLACK_CHANNEL_ID blank -> reminders are built but not posted.\n\n// set true after adding the Notion credential and sharing the database with it\nconst USE_NOTION = false;\n// id from the database URL (32 characters)\nconst NOTION_DATABASE_ID = '';\n// property names in your database\nconst PROPS = {\n  title: \"Name\",\n  status: \"Status\",\n  due: \"Due date\",\n  writer: \"Writer\"\n};\n// statuses that need no reminder\nconst DONE_STATUSES = [\n  \"Published\",\n  \"Scheduled\",\n  \"Cancelled\"\n];\n// days before the due date that get a reminder\nconst REMINDER_DAYS = [\n  3,\n  1\n];\n// days late that get an overdue reminder\nconst OVERDUE_DAYS = [\n  1,\n  3,\n  7\n];\n// Notion person email or name -> Slack member id\nconst WRITER_SLACK_IDS = {\n  \"maya@yourcompany.example\": \"U01MAYA00\",\n  \"Tom Reyes\": \"U01TOMR00\"\n};\n// Slack member id mentioned on overdue and unassigned pieces\nconst EDITOR_SLACK_ID = 'U01EDIT00';\n// channel for reminders; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_notion: USE_NOTION,\n    notion_database_id: NOTION_DATABASE_ID,\n    props: PROPS,\n    done_statuses: DONE_STATUSES,\n    reminder_days: REMINDER_DAYS,\n    overdue_days: OVERDUE_DAYS,\n    writer_slack_ids: WRITER_SLACK_IDS,\n    editor_slack_id: EDITOR_SLACK_ID,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "10937cc9-0923-47f9-a37c-437cdec41093",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "957c1036-ce0a-4b56-a773-c7733c05957c",
+      "name": "Every weekday at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "292297f6-4498-4716-aa51-fa5141452922",
+      "name": "Notion connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "59449ebc-49dc-4bfc-ada7-cda7e7cf5944",
+              "leftValue": "={{ $('config').first().json.use_notion }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "b4289fd3-53f6-4be3-a597-85979d0ab428",
+      "name": "Query the content calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.notion.com/v1/databases/' + $('config').first().json.notion_database_id + '/query' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ page_size: 100, filter: { and: [ { property: $('config').first().json.props.due, date: { on_or_before: new Date(Date.now() + Math.max(...$('config').first().json.reminder_days) * 864e5).toISOString().slice(0, 10) } } ] }, sorts: [{ property: $('config').first().json.props.due, direction: 'ascending' }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "12aa4bbf-8d94-460f-a7a5-17a5c30612aa",
+      "name": "Read calendar pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Notion query results -> flat pieces. Status can be a status or a select\n// property, writer a people property; both are read either way.\nconst P = $('config').first().json.props;\nconst text = p => (p?.title || p?.rich_text || []).map(t => t.plain_text).join('');\nconst pieces = $input.all().flatMap(i => i.json.results || []).map(pg => {\n  const pr = pg.properties || {};\n  const people = pr[P.writer]?.people || [];\n  return { id: pg.id, url: pg.url, title: text(pr[P.title]) || 'Untitled',\n    status: pr[P.status]?.status?.name || pr[P.status]?.select?.name || '',\n    due: pr[P.due]?.date?.start?.slice(0, 10) || '',\n    writers: people.map(w => ({ name: w.name || '', email: w.person?.email || '' })) };\n});\nreturn [{ json: { pieces } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "20c14a4b-41de-40db-a5b6-b5b638b220c1",
+      "name": "Load sample calendar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_NOTION is true. Already flattened, as Read calendar pages returns.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\nconst w = (name, email) => [{ name, email }];\nreturn [{ json: { pieces: [\n  { id: 'pg-01', url: 'https://www.notion.so/pg01', title: 'Guide: onboarding emails that get read', status: 'Drafting', due: day(3), writers: w('Maya Lin', 'maya@yourcompany.example') },\n  { id: 'pg-02', url: 'https://www.notion.so/pg02', title: 'Case study: Harbour Dental', status: 'In review', due: day(1), writers: w('Tom Reyes', 'tom@yourcompany.example') },\n  { id: 'pg-03', url: 'https://www.notion.so/pg03', title: 'Pricing page teardown', status: 'Drafting', due: day(-2), writers: w('Maya Lin', 'maya@yourcompany.example') },\n  { id: 'pg-04', url: 'https://www.notion.so/pg04', title: 'Q1 webinar recap', status: 'Idea', due: day(10), writers: w('Tom Reyes', 'tom@yourcompany.example') },\n  { id: 'pg-05', url: 'https://www.notion.so/pg05', title: 'September changelog', status: 'Published', due: day(-1), writers: w('Maya Lin', 'maya@yourcompany.example') },\n  { id: 'pg-06', url: 'https://www.notion.so/pg06', title: 'Interview with a support lead', status: 'Drafting', due: day(2), writers: [] },\n  { id: 'pg-07', url: 'https://www.notion.so/pg07', title: 'Agency pricing survey', status: 'Drafting', due: day(0), writers: w('Ana Silva', 'ana@freelance.example') },\n] } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "ff8da3d0-350b-42d0-a5aa-45aa8ad3ff8d",
+      "name": "Combine calendar sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "d64a3a6a-37b4-4d4a-a951-9951edc9d64a",
+      "name": "Pick reminders due today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Ladder per piece. Before the deadline the step is the smallest REMINDER_DAYS\n// value >= days left (so Monday catches a step that fell on Sunday). After it,\n// the largest OVERDUE_DAYS value <= days late. A step is sent once per due date.\nconst cfg = $('config').first().json;\nconst sent = new Set($getWorkflowStaticData('global').sent || []);\nconst before = [...cfg.reminder_days].sort((a, b) => a - b);\nconst after = [...cfg.overdue_days].sort((a, b) => a - b);\nconst done = new Set(cfg.done_statuses.map(s => s.toLowerCase()));\nconst today = new Date(new Date().toISOString().slice(0, 10));\nconst slackId = w => cfg.writer_slack_ids[w.email] || cfg.writer_slack_ids[w.name] || '';\nconst reminders = [], skipped = [];\nfor (const p of $input.first().json.pieces) {\n  if (done.has(p.status.toLowerCase())) { skipped.push({ title: p.title, reason: 'status ' + p.status }); continue; }\n  if (!p.due) { skipped.push({ title: p.title, reason: 'no due date' }); continue; }\n  const left = Math.round((new Date(p.due) - today) / 864e5);\n  let step = null;\n  if (left >= 0) { const s = before.find(d => d >= left); if (s !== undefined) step = left === 0 ? 'due today' : s === 1 ? 'due tomorrow' : 'due in ' + left + ' days'; }\n  else { const s = [...after].reverse().find(d => d <= -left); if (s !== undefined) step = 'overdue ' + s; }\n  if (!step) { skipped.push({ title: p.title, reason: left > 0 ? 'not due for a reminder yet' : 'overdue, between steps' }); continue; }\n  const stepKey = step.startsWith('overdue') ? step : (left === 0 ? 'due 0' : 'due ' + before.find(d => d >= left));\n  const key = p.id + '|' + p.due + '|' + stepKey;\n  if (sent.has(key)) { skipped.push({ title: p.title, reason: 'step already sent' }); continue; }\n  const writer = p.writers[0];\n  reminders.push({ key, title: p.title, url: p.url, due: p.due, status: p.status, step, days_left: left,\n    writer: writer?.name || '', slack_id: writer ? slackId(writer) : '', overdue: left < 0 });\n}\nreturn [{ json: { reminders, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "434a57a5-5446-4615-a8d7-68d77c50434a",
+      "name": "Write the Slack reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Grouped by writer. In test mode mentions become plain names so nobody is pinged.\nconst cfg = $('config').first().json;\nconst { reminders } = $input.first().json;\nconst mention = (id, name) => id ? (cfg.mode === 'test' ? '@' + (name || id) : '<@' + id + '>') : (name || 'Unassigned');\nconst groups = {};\nfor (const r of reminders) (groups[r.writer + '|' + r.slack_id] ||= []).push(r);\nconst blocks = Object.entries(groups).map(([k, list]) => {\n  const [name, id] = k.split('|');\n  return mention(id, name) + (name && !id ? ' (no Slack id in WRITER_SLACK_IDS)' : '') + '\\n' +\n    list.map(r => '   - <' + r.url + '|' + r.title + '>: ' + r.step + ' (' + r.due + ', ' + r.status + ')').join('\\n');\n});\nconst needsEditor = reminders.some(r => r.overdue || !r.writer || !r.slack_id);\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*Content calendar reminders*', ...blocks,\n  needsEditor && cfg.editor_slack_id ? 'cc ' + mention(cfg.editor_slack_id, 'editor') + ' for overdue or unassigned pieces' : ''].filter(Boolean).join('\\n\\n');\nreturn [{ json: { text, count: reminders.length, keys: reminders.map(r => r.key) } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "e585ea7a-a9a0-485a-ae7a-be7a5a59e585",
+      "name": "Any reminders today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "af8c27f0-5358-4cf0-a589-6589adb3af8c",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "6a1f8140-889f-4d40-a80b-180bfbc36a1f",
+      "name": "STOP: nothing due",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "888f36f6-bed9-4616-a741-f7411845888f",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "84af8654-67e5-4414-ad23-0d23207784af",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "f212cf6f-55e5-42bf-aafb-eafbabb6f212",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "d155f019-5e45-4249-aa25-4a25e514d155",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "a5639a2b-16f8-4abb-abc6-dbc621d2a563",
+      "name": "Post reminders to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "49a90f09-9eed-4639-a64d-964dd38449a9",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "5c6fb1a0-9d8e-4fa0-a455-2455a9635c6f",
+      "name": "STOP: test post - steps not recorded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "ce5d2007-e607-43d7-a5a7-05a76a5ece5d",
+      "name": "Record sent steps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only. Keys hold the due date, so a moved deadline starts a fresh ladder.\nconst store = $getWorkflowStaticData('global');\nconst keys = $('Write the Slack reminder').first().json.keys;\nstore.sent = [...keys, ...(store.sent || [])].slice(0, 2000);\nreturn [{ json: { recorded: keys.length } }];\n"
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Notion connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion connected?": {
+      "main": [
+        [
+          {
+            "node": "Query the content calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query the content calendar": {
+      "main": [
+        [
+          {
+            "node": "Read calendar pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read calendar pages": {
+      "main": [
+        [
+          {
+            "node": "Combine calendar sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample calendar": {
+      "main": [
+        [
+          {
+            "node": "Combine calendar sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine calendar sources": {
+      "main": [
+        [
+          {
+            "node": "Pick reminders due today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick reminders due today": {
+      "main": [
+        [
+          {
+            "node": "Write the Slack reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack reminder": {
+      "main": [
+        [
+          {
+            "node": "Any reminders today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any reminders today?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post reminders to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post reminders to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record sent steps",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - steps not recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,446 @@
+{
+  "name": "Summarise PagerDuty incidents weekly to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Summarise PagerDuty incidents weekly to Slack\n\n**Who's it for**\nEngineering managers and on-call leads at teams of 5 to 60 who review on-call load once a week and currently copy numbers out of PagerDuty by hand. The Monday message shows whether last week was worse, and which service caused it.\n\n**How it works**\n1. Every Monday at 08:00 it reads raw incident analytics for the last two calendar weeks from PagerDuty, or sample incidents until PagerDuty is connected.\n2. Last week (Monday to Sunday, UTC) is compared with the week before. MTTA averages time to first acknowledgement over acknowledged incidents; MTTR averages time to resolve, with the median alongside.\n3. Pages outside `BUSINESS_HOURS` in `TIMEZONE`, or on a weekend, count as after-hours. Incidents resolved within `FLAP_SECONDS` count as flapping alerts.\n4. The top `TOP_SERVICES` services by count are listed with high-urgency and flapping counts, and one message goes to Slack.\n\n**How to set up**\n1. Run it once as imported. It summarises sample incidents and stops at `STOP: dry run - nothing posted`.\n2. Add a PagerDuty credential (a read-only API key) to `Fetch incident analytics` and set `USE_PAGERDUTY = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`. Set `TIMEZONE` and `BUSINESS_HOURS` to your team's working day.\n4. Read the numbers on `Compute the weekly numbers`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A PagerDuty account with access to the Analytics API\n- A Slack workspace\n\n**How to customize**\n- `TEAM_IDS` limits the report to some PagerDuty teams.\n- `FLAP_SECONDS` sets how short an incident must be to count as a flapping alert.\n- `TOP_SERVICES` sets how many services are listed.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "dcfa4de0-5717-4c4e-9a00-dcfa4de013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 08:00, after the week has closed. Time zone, business hours and the flap window live in `config`, because \"after hours\" only means something in your team's local time.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "adb57795-5717-4c4e-9a00-adb577951000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read two weeks of incidents\n\nThe raw analytics endpoint returns time to first acknowledgement and time to resolve per incident, so no log entries need fetching. Two weeks come back in one call to give the comparison.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "acb57602-5717-4c4e-9a00-acb576021001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Compute and post\n\nMTTA only averages acknowledged incidents and reports the unacknowledged ones separately, so silent auto-resolves do not flatter the number. `Post to Slack?` needs a live run and a channel.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "abb5746f-5717-4c4e-9a00-abb5746f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "id": "16eda270-3224-4f70-aecb-cecba43316ed",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SUMMARISE PAGERDUTY INCIDENTS WEEKLY TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_PAGERDUTY false -> SAMPLE incidents. SLACK_CHANNEL_ID blank -> nothing is posted.\n// DRY_RUN true -> the summary is built and shown, not posted.\n\n// set true after adding the PagerDuty credential\nconst USE_PAGERDUTY = false;\n// PagerDuty team ids to include; empty means every team\nconst TEAM_IDS = [];\n// time zone for business hours\nconst TIMEZONE = 'Europe/London';\n// local hours counted as working time, Monday to Friday\nconst BUSINESS_HOURS = {\n  start: 9,\n  end: 18\n};\n// incidents resolved faster than this count as flapping\nconst FLAP_SECONDS = 300;\n// services listed in the noisiest block\nconst TOP_SERVICES = 3;\n// channel for the weekly summary; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_pagerduty: USE_PAGERDUTY,\n    team_ids: TEAM_IDS,\n    timezone: TIMEZONE,\n    business_hours: BUSINESS_HOURS,\n    flap_seconds: FLAP_SECONDS,\n    top_services: TOP_SERVICES,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "d77d8134-2a03-48f4-a19d-a19dd897d77d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "a1745152-b079-4bb2-a1a5-21a584c1a174",
+      "name": "Every Monday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "86928c03-3e25-4913-a22d-222d673a8692",
+      "name": "PagerDuty connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fdb5a3f8-8f5e-4678-a57b-a57b436bfdb5",
+              "leftValue": "={{ $('config').first().json.use_pagerduty }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "21cbc670-70bf-4370-a52f-652fa03321cb",
+      "name": "Fetch incident analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.pagerduty.com/analytics/raw/incidents",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "pagerDutyApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.pagerduty+json;version=2"
+            },
+            {
+              "name": "X-EARLY-ACCESS",
+              "value": "analytics-v2"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify((() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const t = $('config').first().json.team_ids; return { filters: { created_at_start: new Date(d.getTime() - 14 * 864e5).toISOString(), created_at_end: d.toISOString(), ...(t.length ? { team_ids: t } : {}) }, limit: 1000, order: 'asc', order_by: 'created_at' }; })()) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "304a5cbf-5849-470f-a843-3843d806304a",
+      "name": "Load sample incidents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_PAGERDUTY is true. Analytics rows placed on fixed weekdays of last week\n// (and 6 from the week before), so the numbers are the same whenever it runs.\nconst monday = new Date(); monday.setUTCHours(0, 0, 0, 0); monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));\nconst at = (day, hh, mm = 0) => new Date(monday.getTime() + (day - 7) * 864e5 + (hh * 60 + mm) * 60000).toISOString();\nconst row = (n, svc, urgency, created, ack, resolve, extra = {}) => ({ id: 'PINC' + n, incident_number: n, service_name: svc, urgency, created_at: created,\n  seconds_to_first_ack: ack, seconds_to_resolve: resolve, resolved_at: new Date(new Date(created).getTime() + resolve * 1000).toISOString(), major: false, ...extra });\nreturn [{ json: { data: [\n  row(101, 'Checkout API', 'high', at(0, 2, 10), 300, 2400),\n  row(102, 'Checkout API', 'high', at(0, 11), 120, 1800),\n  row(103, 'Checkout API', 'low', at(1, 13), 600, 120),\n  row(104, 'Checkout API', 'high', at(2, 21), 900, 5400),\n  row(105, 'Search', 'low', at(2, 10, 30), null, 240),\n  row(106, 'Search', 'low', at(3, 10, 40), null, 200),\n  row(107, 'Search', 'low', at(3, 15), 60, 600),\n  row(108, 'Payments worker', 'high', at(5, 12), 240, 3600, { major: true }),\n  row(109, 'Payments worker', 'high', at(6, 2), 420, 7200),\n  row(110, 'Marketing site', 'low', at(4, 14), 1800, 3600),\n  ...[0, 1, 2, 3, 4, 5].map(i => row(90 + i, i % 2 ? 'Search' : 'Checkout API', 'low', at(i - 7, 11), 200, 900)),\n] } }];\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "27e2f255-5eb6-49c5-aa1b-3a1b764027e2",
+      "name": "Combine incident sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "67bc09bd-5738-40ad-abf3-cbf3d89867bc",
+      "name": "Compute the weekly numbers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Last week = the 7 days before this Monday 00:00 UTC; the 7 before that are the baseline.\n// Local hour and weekday come from TIMEZONE, so \"after hours\" means your team's evening.\nconst cfg = $('config').first().json;\nconst rows = $input.all().flatMap(i => i.json.data || []);\nconst monday = new Date(); monday.setUTCHours(0, 0, 0, 0); monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));\nconst start = new Date(monday.getTime() - 7 * 864e5), prevStart = new Date(monday.getTime() - 14 * 864e5);\nconst week = rows.filter(r => new Date(r.created_at) >= start && new Date(r.created_at) < monday);\nconst prev = rows.filter(r => new Date(r.created_at) >= prevStart && new Date(r.created_at) < start);\nconst fmt = new Intl.DateTimeFormat('en-GB', { timeZone: cfg.timezone, hour: 'numeric', hourCycle: 'h23', weekday: 'short' });\nconst afterHours = r => {\n  const parts = Object.fromEntries(fmt.formatToParts(new Date(r.created_at)).map(p => [p.type, p.value]));\n  const h = Number(parts.hour);\n  return ['Sat', 'Sun'].includes(parts.weekday) || h < cfg.business_hours.start || h >= cfg.business_hours.end;\n};\nconst mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;\nconst median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };\nconst mins = s => s === null ? null : Math.round(s / 60);\nconst acks = week.map(r => r.seconds_to_first_ack).filter(x => typeof x === 'number');\nconst res = week.map(r => r.seconds_to_resolve).filter(x => typeof x === 'number');\nconst flapping = r => typeof r.seconds_to_resolve === 'number' && r.seconds_to_resolve < cfg.flap_seconds;\nconst svc = {};\nfor (const r of week) {\n  const s = (svc[r.service_name || 'unknown'] ||= { service: r.service_name || 'unknown', count: 0, high: 0, flapping: 0, after_hours: 0 });\n  s.count++; if (r.urgency === 'high') s.high++; if (flapping(r)) s.flapping++; if (afterHours(r)) s.after_hours++;\n}\nreturn [{ json: {\n  from: start.toISOString().slice(0, 10), to: new Date(monday.getTime() - 864e5).toISOString().slice(0, 10),\n  total: week.length, previous: prev.length, high: week.filter(r => r.urgency === 'high').length, low: week.filter(r => r.urgency !== 'high').length,\n  major: week.filter(r => r.major).length, after_hours: week.filter(afterHours).length, unacknowledged: week.length - acks.length,\n  mtta_min: mins(mean(acks)), mttr_min: mins(mean(res)), mttr_median_min: mins(median(res)), flapping: week.filter(flapping).length,\n  services: Object.values(svc).sort((a, b) => b.count - a.count || b.high - a.high).slice(0, cfg.top_services),\n} }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "71a94e5e-764b-4cfe-a77b-977b569d71a9",
+      "name": "Write the summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Short enough to read in the channel; the deltas say whether the week got better.\nconst s = $input.first().json;\nconst delta = s.previous ? Math.round((s.total - s.previous) / s.previous * 100) : null;\nconst t = m => m === null ? 'n/a' : m >= 120 ? (m / 60).toFixed(1) + ' h' : m + ' min';\nconst lines = [\n  '*On-call week ' + s.from + ' to ' + s.to + '*',\n  s.total + ' incidents' + (delta === null ? '' : ' (' + (delta >= 0 ? '+' : '') + delta + '% vs ' + s.previous + ' the week before)') + ': ' + s.high + ' high, ' + s.low + ' low urgency' + (s.major ? ', ' + s.major + ' major' : '') + '.',\n  'MTTA ' + t(s.mtta_min) + ', MTTR ' + t(s.mttr_min) + ' (median ' + t(s.mttr_median_min) + ').',\n  s.after_hours + ' pages outside business hours. ' + s.unacknowledged + ' never acknowledged. ' + s.flapping + ' resolved within the flap window.',\n  ...(s.services.length ? ['', '*Noisiest services*', ...s.services.map((v, i) => (i + 1) + '. ' + v.service + ': ' + v.count + ' (' + v.high + ' high, ' + v.after_hours + ' after hours' + (v.flapping ? ', ' + v.flapping + ' flapping' : '') + ')')] : []),\n];\nreturn [{ json: { text: lines.join('\\n') } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "820b3556-bf6f-4676-a245-e245c7e5820b",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1fd7b828-3ac9-4ba8-a3ce-83ce359b1fd7",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "bc94d6c1-fde0-4471-acf6-6cf6730cbc94",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "de20cf1c-dd97-4e5c-ac97-9c97d56fde20",
+      "name": "Post the summary to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        1872,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "PagerDuty connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PagerDuty connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch incident analytics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch incident analytics": {
+      "main": [
+        [
+          {
+            "node": "Combine incident sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample incidents": {
+      "main": [
+        [
+          {
+            "node": "Combine incident sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine incident sources": {
+      "main": [
+        [
+          {
+            "node": "Compute the weekly numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute the weekly numbers": {
+      "main": [
+        [
+          {
+            "node": "Write the summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the summary": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post the summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

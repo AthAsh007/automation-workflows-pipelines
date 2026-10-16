@@ -43,6 +43,8 @@ docs/          the conventions every template follows
 | You want to | Read |
 | --- | --- |
 | Import a workflow and watch it run | [`n8n/README.md`](n8n/README.md) |
+| Browse 100 single-workflow templates by category | [`n8n/library/README.md`](n8n/library/README.md) |
+| See the templates live on n8n.io | [n8n.io/creators/athash007](https://n8n.io/creators/athash007/) |
 | Find the workflow that proves a mechanism | [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) |
 | Understand why nothing reads `$env` | [`docs/CONFIG-NODE.md`](docs/CONFIG-NODE.md) |
 | Run an agent on a schedule | [`agents/README.md`](agents/README.md) |
@@ -53,6 +55,8 @@ docs/          the conventions every template follows
 | Receive a webhook without processing it five times | [`integrations/README.md`](integrations/README.md) |
 | See which of the eight mechanisms your problem is | [`docs/PATTERNS.md`](docs/PATTERNS.md) |
 | Know what is safe to publish | [`docs/SANITIZATION.md`](docs/SANITIZATION.md) |
+| Report a bug or request a template | [Open an issue](https://github.com/AthAsh007/automation-workflows-pipelines/issues/new/choose) |
+| Contribute a template | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## The three rules every template follows
 
@@ -78,6 +82,10 @@ in `sample/` with no network access at all. Edit the `.js` file, rebuild, import
 
 ## n8n workflows
 
+Seventeen of these are live in the [n8n template library](https://n8n.io/creators/athash007/).
+A folder name ending in `-published` is live; `-can-publish` passes the submission linter and is
+ready to submit. [`n8n/README.md`](n8n/README.md) has the full list with template ids.
+
 | Workflow | What it does | Trigger |
 | --- | --- | --- |
 | [lead-enrichment-and-verification-published](n8n/lead-enrichment-and-verification-published/) | Raw organisation list, segmented, decision makers found, every address verified, scored, deduplicated, loaded into an email campaign. Records everyone held back and why. | Weekdays 07:00 and manual |
@@ -92,6 +100,40 @@ in `sample/` with no network access at all. Edit the `.js` file, rebuild, import
 | [pipedrive-referral-network-can-publish](n8n/pipedrive-referral-network-can-publish/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. Overdue deals escalate rather than stack. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
 | [voice-avatar-reply-engine-can-publish](n8n/voice-avatar-reply-engine-can-publish/) | An enquiry triaged into a written reply, a voice note or an avatar video. Rendering has to be earned, low confidence drops back to text, and complaints get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
 | [trello-sms-notifier-can-publish](n8n/trello-sms-notifier-can-publish/) | A card on a watched list, its fields read from the card name, the description or a custom field, composed into an SMS and sent. The smallest complete example of the conventions. | Trello webhook |
+| [support-email-rag-responder-published](n8n/support-email-rag-responder-published/) | A Gmail support inbox answered from a Pinecone knowledge base. Low confidence, a refund or legal intent, a weak match or a draft that cites nothing goes to a person instead. Two workflows. | Gmail trigger and manual |
+| [whatsapp-device-booking-agent](n8n/whatsapp-device-booking-agent/) | Teachers book shared school iPads over WhatsApp. An AI agent calls four tool workflows, confirms before it changes anything, and replies exactly once per message. Five workflows. | Kapso webhook |
+
+### The template library
+
+[`n8n/library/`](n8n/library/) holds 100 single-workflow templates, each one importable on its
+own and each one built to the n8n template submission rules:
+
+| Category | Templates | Examples |
+| --- | --- | --- |
+| Marketing and content | 15 | Hacker News and Reddit mention alerts, sitemap broken-link report, PageSpeed trend alerts |
+| Productivity and operations | 13 | Async standup digest, metric anomaly alerts, nightly Airtable backup |
+| Finance and billing | 11 | Stripe overdue invoice ladder, payout reconciliation, duplicate bill check in Xero |
+| Sales and CRM | 11 | HubSpot round-robin assignment, stalled deal tasks, Calendly prep briefs |
+| E-commerce | 11 | Shopify risky order hold, low-stock purchase orders, WooCommerce cart recovery |
+| DevOps and engineering | 10 | Uptime checks with failure streaks, SSL and domain expiry, Sentry errors to Jira |
+| Customer support | 9 | Zendesk urgent triage, Intercom SLA escalation, Freshdesk CSAT survey |
+| Local business and services | 8 | Appointment SMS reminders, waitlist backfill, tenant maintenance routing |
+| HR and people | 7 | BambooHR onboarding, time-off approval with signed links, knockout screening |
+| Project management | 5 | Linear roadmap sync, ClickUp due-tomorrow reminders, Trello done-card archiver |
+
+None of them is hand-edited JSON. Each is a short spec that a toolkit turns into the workflow
+file, the description page and a README, after four gates:
+
+1. **Assemble** from node builders whose parameter shapes come from workflows already imported into n8n.
+2. **Annotate** the way n8n's own template 13868 does: one section sticky around its nodes with
+   room for the heading, the yellow description to the left, nothing overlapping.
+3. **Lint** with the submission rules: title shape, descriptive node names, the five description
+   headings, no connection drawn through a node, no secrets, no em dashes.
+4. **Simulate** every scenario with no n8n and no network. The shipped config must reach no
+   credentialed node and send nothing; another scenario must exercise the live path.
+
+A spec that fails any gate writes nothing. [`n8n/library/README.md`](n8n/library/README.md) lists
+all 100 and explains how to build one.
 
 [`n8n/starters/`](n8n/starters/) holds six single-file workflows: an RSS digest, B2B
 sourcing, cold email with reply triage, a Mailchimp signup, an applicant sync and a
@@ -133,6 +175,17 @@ account. In short:
 - Outbound email and SMS are regulated. `docs/COMPLIANCE.md` covers consent,
   suppression lists, unsubscribe handling and per-mailbox sending caps. None of
   it is legal advice.
+
+## Contributing and support
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) says what belongs here and how to add a template.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies to issues, pull requests and reviews.
+- [Issue forms](https://github.com/AthAsh007/automation-workflows-pipelines/issues/new/choose) cover
+  a template that does not import or run, a template request, and a documentation fix.
+- Anything that could reach a real person goes through a private
+  [security advisory](https://github.com/AthAsh007/automation-workflows-pipelines/security/advisories/new),
+  not an issue. See [`SECURITY.md`](SECURITY.md).
+- If these templates save you time, you can [sponsor the work](https://github.com/sponsors/AthAsh007).
 
 ## Attribution and licence
 

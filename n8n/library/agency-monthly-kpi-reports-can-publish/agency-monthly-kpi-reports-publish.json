@@ -1,0 +1,594 @@
+{
+  "name": "Email monthly client KPI reports from Google Sheets with month-over-month change",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Email monthly client KPI reports from Google Sheets with month-over-month change\n\n**Who's it for**\nMarketing and SEO agencies that keep client numbers in one spreadsheet and spend the first week of every month pasting them into report emails. Clients get a one-table report on the 2nd and the team sees which accounts need a call.\n\n**How it works**\n1. On the 2nd of each month at 08:00 it reads the KPIs tab (Client, Month, Metric, Value, Target) and the Clients tab, or sample data until a sheet is set.\n2. For each client it takes last month and the month before, and works out the change for every metric.\n3. Each metric gets a flag. With a target: green when met, amber when within `RED_MARGIN_PCT`, red beyond it. Without one: red when it moved the wrong way by more than `RED_DROP_PCT`. `METRICS` says which way is good, so a lower cost per lead counts as better.\n4. Each client contact gets an HTML table with this month, last month, change, target and flag. Clients with no data for the month or no contact email are held back.\n5. The agency gets one internal email listing every client with its red and amber counts, worst first.\n\n**How to set up**\n1. Run it once as imported. It builds reports from sample data and stops at `STOP: preview - nothing sent` and `STOP: internal summary not sent`.\n2. Create KPIs and Clients (Client, Contact name, Contact email, Account manager) tabs, connect Google Sheets and set `KPI_SHEET_ID`.\n3. Connect Gmail and set `AGENCY_NAME` and `INTERNAL_EMAIL`. Check `METRICS` lists your metric names and formats.\n4. Put your address in `TEST_EMAIL` to receive every report yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet with KPIs and Clients tabs\n- A Gmail account\n\n**How to customize**\n- `METRICS` sets the direction (up, down or neutral) and format of each metric.\n- `RED_MARGIN_PCT` and `RED_DROP_PCT` set how strict the flags are.\n- `CURRENCY` formats money metrics.",
+        "height": 1104,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "fda47054-5717-4c4e-9a00-fda4705413e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns on the 2nd of each month at 08:00, giving ad platforms a day to settle last month. Metric directions, flag thresholds and the currency live in `config`.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1b94f999-5717-4c4e-9a00-1b94f9991000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read KPIs and clients\n\nKPIs and contacts are read in parallel and told apart by their columns. `Load sample KPIs and clients` dates its rows to last month, so a preview always has a report month.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "1a94f806-5717-4c4e-9a00-1a94f8061001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Compare, flag and summarise\n\nFlags read the target first and fall back to the change, and `METRICS` says which way is good, so a falling cost per lead is green. The internal summary sorts accounts by red count so the worst is read first.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "1994f673-5717-4c4e-9a00-1994f6731002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Email the clients\n\nNothing is sent while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every report goes to you, with the real recipient in the subject, so the table can be checked in a real inbox.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "1894f4e0-5717-4c4e-9a00-1894f4e01003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "187f28cd-543f-4abd-a5df-65dfd9e8187f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EMAIL MONTHLY CLIENT KPI REPORTS FROM GOOGLE SHEETS WITH MONTH-OVER-MONTH CHANGE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// KPI_SHEET_ID blank -> SAMPLE KPIs and clients so the run works before any credential exists.\n// Nothing is written anywhere; the only actions are the emails.\n\n// Google Sheets id with KPIs and Clients tabs; blank uses sample data\nconst KPI_SHEET_ID = '';\n// sign-off and report header\nconst AGENCY_NAME = 'Northwind Growth';\n// gets the internal summary\nconst INTERNAL_EMAIL = 'team@northwind-growth.example';\n// metric name -> which direction is good and how to format it; others default to up/number\nconst METRICS = {\n  Sessions: {\n    direction: \"up\",\n    format: \"number\"\n  },\n  Leads: {\n    direction: \"up\",\n    format: \"number\"\n  },\n  \"Conversion rate\": {\n    direction: \"up\",\n    format: \"percent\"\n  },\n  \"Cost per lead\": {\n    direction: \"down\",\n    format: \"money\"\n  },\n  \"Ad spend\": {\n    direction: \"neutral\",\n    format: \"money\"\n  }\n};\n// a missed target by more than this percent is red, less is amber\nconst RED_MARGIN_PCT = 10;\n// without a target, a move the wrong way by more than this percent is red\nconst RED_DROP_PCT = 15;\n// currency for money metrics\nconst CURRENCY = 'USD';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    kpi_sheet_id: KPI_SHEET_ID,\n    agency_name: AGENCY_NAME,\n    internal_email: INTERNAL_EMAIL,\n    metrics: METRICS,\n    red_margin_pct: RED_MARGIN_PCT,\n    red_drop_pct: RED_DROP_PCT,\n    currency: CURRENCY,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: KPI_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "7d6a2b35-e336-4ca5-a475-347590607d6a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "1e23f360-5e83-4560-a3a7-73a700a31e23",
+      "name": "On the 2nd of each month at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 2 * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "04fbc7f5-9f3b-4d65-aaaf-7aaf36a004fb",
+      "name": "KPI sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5aeb0e79-c05b-42a9-aecb-9ecb7bb45aeb",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "97e33c94-c78a-4654-ae62-3e62613797e3",
+      "name": "Read the KPIs tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.kpi_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "KPIs"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "6ccd05c3-b85f-46d3-a113-b113da7a6ccd",
+      "name": "Read the Clients tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.kpi_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Clients"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "6bc1f25f-e110-4aaf-a49c-449ca4666bc1",
+      "name": "Load sample KPIs and clients",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until KPI_SHEET_ID is set. Months are last month and the one before, so the\n// sample always matches the report month.\nconst now = new Date();\nconst ym = back => { const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)); return d.toISOString().slice(0, 7); };\nconst cur = ym(1), prev = ym(2);\nconst K = (Client, Month, Metric, Value, Target = '') => ({ Client, Month, Metric, Value, Target });\nconst C = (Client, name, email, am) => ({ Client, 'Contact name': name, 'Contact email': email, 'Account manager': am });\nreturn [\n  K('Harbour Dental', prev, 'Sessions', 8200), K('Harbour Dental', cur, 'Sessions', 9100, 9000),\n  K('Harbour Dental', prev, 'Leads', 61), K('Harbour Dental', cur, 'Leads', 74, 70),\n  K('Harbour Dental', prev, 'Cost per lead', 42.5), K('Harbour Dental', cur, 'Cost per lead', 38.2, 40),\n  K('Northfield Studio', prev, 'Sessions', 15400), K('Northfield Studio', cur, 'Sessions', 12100),\n  K('Northfield Studio', prev, 'Leads', 120), K('Northfield Studio', cur, 'Leads', 102, 125),\n  K('Northfield Studio', prev, 'Cost per lead', 31), K('Northfield Studio', cur, 'Cost per lead', 33.5, 32),\n  K('Northfield Studio', prev, 'Conversion rate', 0.78), K('Northfield Studio', cur, 'Conversion rate', 0.84),\n  K('Northfield Studio', prev, 'Ad spend', 3720), K('Northfield Studio', cur, 'Ad spend', 3417),\n  K('Lumen Physio', cur, 'Sessions', 2300), K('Lumen Physio', cur, 'Leads', 19, 15),\n  K('Orchard Lane Cafe', prev, 'Sessions', 4100),\n  K('Pine & Co', cur, 'Sessions', 5000),\n  C('Harbour Dental', 'Priya Natarajan', 'priya@harbour-dental.example', 'Ana'),\n  C('Northfield Studio', 'Marco Lindqvist', 'marco@northfield.example', 'Tom'),\n  C('Lumen Physio', 'Dana Okafor', 'dana@lumenphysio.example', 'Ana'),\n  C('Orchard Lane Cafe', 'Lee Chen', 'lee@orchardlane.example', 'Tom'),\n  C('Pine & Co', 'Sam Patel', '', 'Ana'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        544
+      ]
+    },
+    {
+      "id": "8e67bba4-05a5-4064-a0e5-70e5e6878e67",
+      "name": "Combine KPI sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 3
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "f4ebf5e1-8fb3-4991-a30b-830bb4ecf4eb",
+      "name": "Compare months per client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Report month = last calendar month. Flags:\n//   target set:   met -> green, missed by <= RED_MARGIN_PCT -> amber, else red\n//   no target:    wrong way by > RED_DROP_PCT -> red, better -> green, else amber\n//   neutral metrics (spend) are shown without a flag; a first month shows 'new'.\nconst cfg = $('config').first().json;\nconst rows = $input.all().map(i => i.json);\nconst kpis = rows.filter(r => r.Metric && r.Month);\nconst clients = rows.filter(r => 'Contact email' in r);\nconst now = new Date();\nconst ym = back => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)).toISOString().slice(0, 7);\nconst cur = ym(1), prev = ym(2);\nconst num = v => v === '' || v === null || v === undefined ? null : Number(String(v).replace(/[^\\d.-]/g, ''));\nconst reports = [], held = [];\nfor (const c of clients) {\n  const mine = kpis.filter(k => String(k.Client).trim() === String(c.Client).trim());\n  const now_ = mine.filter(k => String(k.Month).slice(0, 7) === cur);\n  if (!now_.length) { held.push({ client: c.Client, reason: 'no data for ' + cur }); continue; }\n  if (!String(c['Contact email'] || '').includes('@')) { held.push({ client: c.Client, reason: 'no contact email' }); continue; }\n  const metrics = now_.map(k => {\n    const m = cfg.metrics[k.Metric] || { direction: 'up', format: 'number' };\n    const value = num(k.Value), target = num(k.Target);\n    const before = mine.find(p => String(p.Month).slice(0, 7) === prev && p.Metric === k.Metric);\n    const last = before ? num(before.Value) : null;\n    const change = last ? (value - last) / Math.abs(last) * 100 : null;\n    let flag;\n    if (m.direction === 'neutral') flag = 'info';\n    else if (target !== null && !Number.isNaN(target)) {\n      const met = m.direction === 'down' ? value <= target : value >= target;\n      flag = met ? 'green' : Math.abs(value - target) / Math.abs(target) * 100 <= cfg.red_margin_pct ? 'amber' : 'red';\n    } else if (change === null) flag = 'new';\n    else {\n      const signed = m.direction === 'down' ? -change : change;\n      flag = signed < -cfg.red_drop_pct ? 'red' : signed >= 0 ? 'green' : 'amber';\n    }\n    return { metric: k.Metric, value, last, change: change === null ? null : Math.round(change * 10) / 10, target, flag, format: m.format };\n  });\n  const order = Object.keys(cfg.metrics);\n  metrics.sort((a, b) => (order.indexOf(a.metric) + 1 || 99) - (order.indexOf(b.metric) + 1 || 99));\n  reports.push({ client: c.Client, contact: c['Contact name'] || '', email: String(c['Contact email']).trim(), manager: c['Account manager'] || '',\n    month: cur, metrics, red: metrics.filter(m => m.flag === 'red').length, amber: metrics.filter(m => m.flag === 'amber').length });\n}\nreturn [{ json: { month: cur, reports, held } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "d4afa94c-5bcc-498c-a025-c025dc9fd4af",
+      "name": "Write each client report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// HTML table per client. Colours are inline because most mail clients drop <style>.\nconst cfg = $('config').first().json;\nconst { month, reports } = $input.first().json;\nconst label = new Date(month + '-01T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });\nconst fmt = (v, f) => v === null || Number.isNaN(v) ? '-' : f === 'money' ? new Intl.NumberFormat('en-US', { style: 'currency', currency: cfg.currency }).format(v)\n  : f === 'percent' ? v.toFixed(2) + '%' : Math.round(v).toLocaleString('en-US');\nconst colour = { green: '#1e7b34', amber: '#a86400', red: '#b3261e', info: '#555555', new: '#555555' };\nconst word = { green: 'On track', amber: 'Watch', red: 'Needs attention', info: '', new: 'First month' };\nconst td = s => '<td style=\"padding:6px 10px;border-bottom:1px solid #ddd\">' + s + '</td>';\nreturn reports.map(r => {\n  const rows = r.metrics.map(m => '<tr>' + td(m.metric) + td(fmt(m.value, m.format)) + td(fmt(m.last, m.format)) +\n    td(m.change === null ? '-' : (m.change > 0 ? '+' : '') + m.change + '%') + td(fmt(m.target, m.format)) +\n    td('<span style=\"color:' + colour[m.flag] + ';font-weight:bold\">' + word[m.flag] + '</span>') + '</tr>').join('');\n  const html = '<p>Hi ' + (r.contact.split(' ')[0] || 'there') + ',</p><p>Here are your numbers for ' + label + ', compared with the month before.</p>' +\n    '<table style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px\"><tr style=\"background:#f3f3f3\">' +\n    ['Metric', 'This month', 'Last month', 'Change', 'Target', 'Status'].map(h => '<th style=\"padding:6px 10px;text-align:left\">' + h + '</th>').join('') + '</tr>' + rows + '</table>' +\n    (r.red ? '<p>We will be in touch this week about the items marked Needs attention.</p>' : '<p>Everything is on track. Reply if you want to go through any of it.</p>') +\n    '<p>' + cfg.agency_name + '</p>';\n  return { json: { client: r.client, email: r.email, red: r.red, subject: r.client + ': ' + label + ' report', html, send_to: cfg.mode === 'test' ? cfg.test_email : r.email } };\n});\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "d58cee96-196f-4bb6-a050-00505ba5d58c",
+      "name": "Write the internal summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One email for the team, worst accounts first, with everything held back.\nconst cfg = $('config').first().json;\nconst { month, reports, held } = $input.first().json;\nconst sorted = [...reports].sort((a, b) => b.red - a.red || b.amber - a.amber);\nconst lines = [\n  'KPI reports for ' + month + ' (' + cfg.mode + '): ' + reports.length + ' client reports.', '',\n  ...sorted.map(r => '- ' + r.client + ' (' + (r.manager || 'no AM') + '): ' + r.red + ' red, ' + r.amber + ' amber' +\n    (r.red ? ': ' + r.metrics.filter(m => m.flag === 'red').map(m => m.metric).join(', ') : '')),\n  ...(held.length ? ['', 'Not sent:', ...held.map(h => '- ' + h.client + ': ' + h.reason)] : []),\n];\nreturn [{ json: { subject: 'Client KPI reports ' + month + ': ' + sorted.filter(r => r.red).length + ' need attention', body: lines.join('\\n'),\n  send_to: cfg.mode === 'test' ? cfg.test_email : cfg.internal_email } }];\n"
+      },
+      "position": [
+        1424,
+        384
+      ]
+    },
+    {
+      "id": "5e617164-6473-4a24-a755-375599c75e61",
+      "name": "Send the internal summary?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "edea7006-1354-4a26-af96-ef96b895edea",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "a32737bd-f710-4ead-aa26-da266a98a327",
+      "name": "STOP: internal summary not sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        544
+      ]
+    },
+    {
+      "id": "b7afff4f-cc54-4c9f-a131-a13174d6b7af",
+      "name": "Email the internal summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "24d6dbfa-953d-41da-abac-bbac57d924d6",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "f3a7d699-5458-40c9-ac50-2c50f394f3a7",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "6d34fc25-8ec2-4295-ae9a-2e9a48d06d34",
+      "name": "Email each client report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2336,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On the 2nd of each month at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "KPI sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KPI sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the KPIs tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read the Clients tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample KPIs and clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the KPIs tab": {
+      "main": [
+        [
+          {
+            "node": "Combine KPI sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Clients tab": {
+      "main": [
+        [
+          {
+            "node": "Combine KPI sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Load sample KPIs and clients": {
+      "main": [
+        [
+          {
+            "node": "Combine KPI sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Combine KPI sources": {
+      "main": [
+        [
+          {
+            "node": "Compare months per client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare months per client": {
+      "main": [
+        [
+          {
+            "node": "Write each client report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the internal summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the internal summary": {
+      "main": [
+        [
+          {
+            "node": "Send the internal summary?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the internal summary?": {
+      "main": [
+        [
+          {
+            "node": "Email the internal summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: internal summary not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each client report": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email each client report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

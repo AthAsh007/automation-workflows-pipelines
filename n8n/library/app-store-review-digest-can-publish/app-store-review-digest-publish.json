@@ -1,0 +1,655 @@
+{
+  "name": "Summarise new App Store reviews from Apple's RSS feed into Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Summarise new App Store reviews from Apple's RSS feed into Slack\n\n**Who's it for**\nMobile product and support teams who ship an iOS app in more than one country and check reviews in App Store Connect when they remember to. No Apple credentials are needed.\n\n**How it works**\n1. Every morning at 09:00 it reads Apple's public review feed (newest 50 per country) for each country in `COUNTRIES`, or 12 sample reviews until `APP_ID` is set.\n2. Reviews already posted on an earlier run are dropped; on the very first run only the last 7 days count.\n3. It counts reviews per star and the average per country, and tags 1 and 2 star reviews with topics such as crash, login or pricing.\n4. If most low ratings come from one app version, the digest says so, which usually points at a regression.\n\n**How to set up**\n1. Run it once as imported. It builds a digest from the sample reviews and stops at `STOP: no Slack channel`.\n2. Put your numeric App Store id (from the app URL, after `id`) in `APP_ID` and pick `COUNTRIES`.\n3. Add a Slack credential to `Post the digest to Slack` and set `SLACK_CHANNEL_ID`.\n4. Set `DRY_RUN = false` and activate the workflow. Posted review ids are kept in static data, which n8n saves on activated runs.\n\n**Requirements**\n- An app on the App Store\n- A Slack workspace\n\n**How to customize**\n- `COMPLAINT_TOPICS` maps each topic to the words that mark it; add words in your users' languages.\n- `LOW_STARS` sets which ratings are flagged.\n- `VERSION_ALERT_SHARE` sets the share of low ratings on one version that triggers the regression line.",
+        "height": 944,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "51336fdd-5717-4c4e-9a00-51336fdd13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every morning at 09:00. The app id, storefronts and complaint word lists live in `config`; a blank `APP_ID` is what keeps the first run on sample data.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "736178a0-5717-4c4e-9a00-736178a01000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the review feeds\n\nApple's feed is public JSON, one URL per storefront, so there is no credential to set up. `Read feed entries` handles the single-review case, where Apple returns an object instead of a list.",
+        "height": 576,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "74617a33-5717-4c4e-9a00-74617a331001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find new reviews and count\n\nThe feed always returns the newest 50, so `Keep reviews not posted before` drops ids already sent. The version check needs at least 3 low ratings, so one angry review does not cry regression.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "75617bc6-5717-4c4e-9a00-75617bc61002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nA quiet day, a blank channel and a dry run each end on their own STOP. Ids are remembered only after `Post the digest to Slack` succeeds, so a failed post is repeated tomorrow, not lost.",
+        "height": 576,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        0
+      ],
+      "id": "76617d59-5717-4c4e-9a00-76617d591003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "140257e6-c794-4c06-a608-d608e4b51402",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SUMMARISE NEW APP STORE REVIEWS FROM APPLE'S RSS FEED INTO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// APP_ID blank -> SAMPLE reviews. The feed is public, so no credential is needed to read it.\n// SLACK_CHANNEL_ID blank -> nothing is posted. DRY_RUN true -> nothing is posted or remembered.\n\n// numeric App Store id, e.g. 284882215; blank uses sample reviews\nconst APP_ID = '';\n// two-letter storefront codes to read\nconst COUNTRIES = [\n  \"us\",\n  \"gb\",\n  \"de\",\n  \"au\"\n];\n// on the first run, only reviews from this many days are included\nconst FIRST_RUN_DAYS = 7;\n// reviews at or below this rating are flagged\nconst LOW_STARS = 2;\n// topic -> word fragments (lower case) that tag a low review\nconst COMPLAINT_TOPICS = {\n  crash: [\n    \"crash\",\n    \"closes\",\n    \"freez\",\n    \"stuck\",\n    \"abstürz\",\n    \"stürzt\"\n  ],\n  login: [\n    \"login\",\n    \"log in\",\n    \"sign in\",\n    \"password\",\n    \"anmeld\"\n  ],\n  pricing: [\n    \"price\",\n    \"subscription\",\n    \"expensive\",\n    \"charged\",\n    \"refund\",\n    \"abo\"\n  ],\n  sync: [\n    \"sync\",\n    \"lost\",\n    \"missing\",\n    \"disappeared\"\n  ],\n  ads: [\n    \" ads\",\n    \"advert\",\n    \"werbung\"\n  ]\n};\n// percent of low ratings on one version that adds a regression line\nconst VERSION_ALERT_SHARE = 60;\n// review text length shown in Slack\nconst EXCERPT_CHARS = 160;\n// channel for the digest; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    app_id: APP_ID,\n    countries: COUNTRIES,\n    first_run_days: FIRST_RUN_DAYS,\n    low_stars: LOW_STARS,\n    complaint_topics: COMPLAINT_TOPICS,\n    version_alert_share: VERSION_ALERT_SHARE,\n    excerpt_chars: EXCERPT_CHARS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    feed_enabled: APP_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        240
+      ]
+    },
+    {
+      "id": "b6f48cb2-2bd3-4912-a776-0776cd61b6f4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        240
+      ]
+    },
+    {
+      "id": "c8549a95-ab92-4e05-aea5-0ea5b500c854",
+      "name": "Every day at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        416
+      ]
+    },
+    {
+      "id": "d059302e-f352-4dce-a0c8-70c8312dd059",
+      "name": "Sample mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b0b4d85-0807-45f5-a03b-203b1f705b0b",
+              "leftValue": "={{ !$('config').first().json.feed_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        240
+      ]
+    },
+    {
+      "id": "3d93de2b-bc7b-4ebb-a6a1-d6a13dd23d93",
+      "name": "Load sample reviews",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until APP_ID is set. Twelve reviews over three storefronts; the 1-2 star\n// ones cluster on version 3.2.0, and one review is older than FIRST_RUN_DAYS.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [\n  { country: 'us', id: 'r101', author: 'mkdaly', rating: 5, version: '3.2.0', title: 'Best budget app', text: 'Clean and fast. The new charts are great.', updated: ago(0.5) },\n  { country: 'us', id: 'r102', author: 'jenpk', rating: 1, version: '3.2.0', title: 'Crashes on launch', text: 'Since the update it crashes every time I open it. iPhone 13.', updated: ago(0.8) },\n  { country: 'us', id: 'r103', author: 'trailrun22', rating: 2, version: '3.2.0', title: 'Lost my data', text: 'After updating, two months of entries are missing. Sync did nothing.', updated: ago(1.2) },\n  { country: 'us', id: 'r104', author: 'ccole', rating: 4, version: '3.1.4', title: 'Good', text: 'Does what I need. Would like widgets.', updated: ago(2) },\n  { country: 'us', id: 'r105', author: 'pricewatch', rating: 1, version: '3.1.4', title: 'Too expensive now', text: 'Subscription price doubled with no warning.', updated: ago(3) },\n  { country: 'gb', id: 'r201', author: 'Hollie B', rating: 5, version: '3.2.0', title: 'Lovely', text: 'Use it every day.', updated: ago(0.3) },\n  { country: 'gb', id: 'r202', author: 'dsmith', rating: 1, version: '3.2.0', title: 'Freezes', text: 'App freezes on the budget screen and then closes.', updated: ago(1.5) },\n  { country: 'gb', id: 'r203', author: 'pm_uk', rating: 3, version: '3.2.0', title: 'OK', text: 'Fine but the login takes ages.', updated: ago(4) },\n  { country: 'de', id: 'r301', author: 'Lena K.', rating: 2, version: '3.2.0', title: 'Abstürze', text: 'Die App stürzt seit dem Update ständig ab.', updated: ago(0.9) },\n  { country: 'de', id: 'r302', author: 'Tobi', rating: 5, version: '3.2.0', title: 'Super', text: 'Sehr übersichtlich.', updated: ago(2.5) },\n  { country: 'de', id: 'r303', author: 'Jonas', rating: 4, version: '3.1.4', title: 'Gut', text: 'Gute App, ein paar Kleinigkeiten fehlen.', updated: ago(5) },\n  { country: 'de', id: 'r304', author: 'alt', rating: 1, version: '3.0.9', title: 'Alt', text: 'Old complaint about sign in.', updated: ago(10) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        240
+      ]
+    },
+    {
+      "id": "54c02328-a70e-46a8-a7f3-37f3349b54c0",
+      "name": "Build one request per country",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One feed URL per storefront; Apple returns the newest 50 reviews per page.\nconst cfg = $('config').first().json;\nreturn cfg.countries.map(country => ({ json: { country,\n  url: 'https://itunes.apple.com/' + country + '/rss/customerreviews/id=' + cfg.app_id + '/sortby=mostrecent/json' } }));\n"
+      },
+      "position": [
+        736,
+        416
+      ]
+    },
+    {
+      "id": "4ae60083-7569-4593-a4de-34dea7ba4ae6",
+      "name": "Fetch the review feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        416
+      ]
+    },
+    {
+      "id": "2224e380-eb88-4b80-afde-6fde20832224",
+      "name": "Read feed entries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Feed JSON uses { label } wrappers. A feed with one review returns entry as an\n// object, not an array; an entry without a rating is the app itself and is skipped.\nconst reqs = $('Build one request per country').all();\nconst out = [];\n$input.all().forEach((page, i) => {\n  const country = reqs[i]?.json.country || '';\n  let entries = page.json.feed?.entry || [];\n  if (!Array.isArray(entries)) entries = [entries];\n  for (const e of entries) {\n    if (!e['im:rating']) continue;\n    out.push({ json: { country, id: e.id?.label, author: e.author?.name?.label || '', rating: Number(e['im:rating'].label),\n      version: e['im:version']?.label || '', title: e.title?.label || '', text: e.content?.label || '', updated: e.updated?.label || '' } });\n  }\n});\nreturn out;\n"
+      },
+      "position": [
+        1168,
+        416
+      ]
+    },
+    {
+      "id": "dd439ebd-b263-45ad-af02-4f024998dd43",
+      "name": "Combine review sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1392,
+        240
+      ]
+    },
+    {
+      "id": "ce1114ff-7185-4b4f-a8dd-48ddddc6ce11",
+      "name": "Keep reviews not posted before",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Static memory holds ids already posted, per country. With no memory yet (first\n// run), only reviews from the last FIRST_RUN_DAYS count, so the first digest is not 200 lines.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.posted || {};\nconst firstRun = Object.keys(seen).length === 0;\nconst cutoff = Date.now() - cfg.first_run_days * 864e5;\nconst fresh = [], dropped = { already_posted: 0, too_old: 0 };\nfor (const { json: r } of $input.all()) {\n  if ((seen[r.country] || []).includes(r.id)) { dropped.already_posted++; continue; }\n  if (firstRun && new Date(r.updated).getTime() < cutoff) { dropped.too_old++; continue; }\n  fresh.push(r);\n}\nreturn [{ json: { reviews: fresh, dropped, first_run: firstRun } }];\n"
+      },
+      "position": [
+        1632,
+        240
+      ]
+    },
+    {
+      "id": "2d655973-7c0f-4383-a5ff-05fff56a2d65",
+      "name": "Count stars and tag complaints",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Star breakdown and average per country; low reviews get topic tags from\n// COMPLAINT_TOPICS. If one version holds VERSION_ALERT_SHARE of low ratings, say so.\nconst cfg = $('config').first().json;\nconst { reviews, dropped } = $input.first().json;\nconst per = {};\nfor (const r of reviews) {\n  const c = per[r.country] ||= { country: r.country, n: 0, sum: 0, stars: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } };\n  c.n++; c.sum += r.rating; c.stars[r.rating]++;\n}\nconst countries = Object.values(per).map(c => ({ ...c, avg: Math.round(c.sum / c.n * 10) / 10 })).sort((a, b) => b.n - a.n);\nconst low = reviews.filter(r => r.rating <= cfg.low_stars).map(r => {\n  const text = (' ' + r.title + ' ' + r.text).toLowerCase();\n  const topics = Object.entries(cfg.complaint_topics).filter(([, words]) => words.some(w => text.includes(w))).map(([t]) => t);\n  return { ...r, topics: topics.length ? topics : ['other'] };\n}).sort((a, b) => a.rating - b.rating || b.updated.localeCompare(a.updated));\nconst byVersion = {};\nfor (const r of low) byVersion[r.version] = (byVersion[r.version] || 0) + 1;\nconst topVersion = Object.entries(byVersion).sort((a, b) => b[1] - a[1])[0];\nconst share = topVersion ? Math.round(topVersion[1] / low.length * 100) : 0;\nconst topicCounts = {};\nfor (const r of low) for (const t of r.topics) topicCounts[t] = (topicCounts[t] || 0) + 1;\nreturn [{ json: {\n  total: reviews.length, countries, low, topic_counts: topicCounts, dropped,\n  version_alert: topVersion && low.length >= 3 && share >= cfg.version_alert_share ? { version: topVersion[0], count: topVersion[1], share } : null,\n  ids: reviews.map(r => ({ country: r.country, id: r.id })),\n} }];\n"
+      },
+      "position": [
+        1856,
+        240
+      ]
+    },
+    {
+      "id": "297c3360-acc7-4560-a07d-f07d40a3297c",
+      "name": "Write the review digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Slack mrkdwn: one line per country, then the flagged reviews with their topics.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);\nconst cut = s => s.length > cfg.excerpt_chars ? s.slice(0, cfg.excerpt_chars - 1) + '…' : s;\nconst lines = [\n  '*App Store reviews* - ' + d.total + ' new' + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  ...d.countries.map(c => '• ' + c.country.toUpperCase() + ': ' + c.n + ' reviews, avg ' + c.avg + ' (5★ ' + c.stars[5] + ' / 4★ ' + c.stars[4] + ' / 3★ ' + c.stars[3] + ' / 2★ ' + c.stars[2] + ' / 1★ ' + c.stars[1] + ')'),\n];\nif (d.version_alert) lines.push('', ':warning: ' + d.version_alert.count + ' of ' + d.low.length + ' low ratings (' + d.version_alert.share + '%) are on version ' + d.version_alert.version + '.');\nif (d.low.length) {\n  lines.push('', '*' + d.low.length + ' low reviews* (' + Object.entries(d.topic_counts).map(([t, n]) => t + ' ' + n).join(', ') + ')');\n  for (const r of d.low) lines.push(stars(r.rating) + ' ' + r.country.toUpperCase() + ' v' + r.version + ' [' + r.topics.join(', ') + '] *' + r.title + '*: ' + cut(r.text));\n}\nreturn [{ json: { text: lines.join('\\n'), total: d.total } }];\n"
+      },
+      "position": [
+        2096,
+        240
+      ]
+    },
+    {
+      "id": "c81bd3bd-a5ec-4aad-a057-90572e98c81b",
+      "name": "Anything new?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f745d63e-44de-4ede-a325-932537bdf745",
+              "leftValue": "={{ $json.total > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        240
+      ]
+    },
+    {
+      "id": "daa7704a-1dbd-4d2a-a372-0372b0e9daa7",
+      "name": "STOP: no new reviews",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        416
+      ]
+    },
+    {
+      "id": "bcb7ca80-db49-4280-a098-c0987f83bcb7",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        240
+      ]
+    },
+    {
+      "id": "47fd90ae-1915-464e-a060-806075ad47fd",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2752,
+        416
+      ]
+    },
+    {
+      "id": "31321e38-c1f7-4cb8-a9d6-a9d6fc2b3132",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        240
+      ]
+    },
+    {
+      "id": "3ab45723-2664-4a33-a890-b8904d1a3ab4",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        416
+      ]
+    },
+    {
+      "id": "0fb21f8c-3a24-4bcc-a35d-d35d4d5f0fb2",
+      "name": "Post the digest to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2976,
+        240
+      ]
+    },
+    {
+      "id": "b7454073-450c-4a83-a4cc-94cc746ab745",
+      "name": "Remember posted reviews",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only after a live post. Keeps the newest 500 ids per country.\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.posted || {};\nfor (const { country, id } of $('Count stars and tag complaints').first().json.ids) {\n  seen[country] = [id, ...(seen[country] || []).filter(x => x !== id)].slice(0, 500);\n}\nmemory.posted = seen;\nreturn [{ json: { remembered: Object.values(seen).reduce((n, a) => n + a.length, 0) } }];\n"
+      },
+      "position": [
+        3200,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sample mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample mode?": {
+      "main": [
+        [
+          {
+            "node": "Load sample reviews",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build one request per country",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build one request per country": {
+      "main": [
+        [
+          {
+            "node": "Fetch the review feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch the review feed": {
+      "main": [
+        [
+          {
+            "node": "Read feed entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample reviews": {
+      "main": [
+        [
+          {
+            "node": "Combine review sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read feed entries": {
+      "main": [
+        [
+          {
+            "node": "Combine review sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine review sources": {
+      "main": [
+        [
+          {
+            "node": "Keep reviews not posted before",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep reviews not posted before": {
+      "main": [
+        [
+          {
+            "node": "Count stars and tag complaints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count stars and tag complaints": {
+      "main": [
+        [
+          {
+            "node": "Write the review digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the review digest": {
+      "main": [
+        [
+          {
+            "node": "Anything new?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Post the digest to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the digest to Slack": {
+      "main": [
+        [
+          {
+            "node": "Remember posted reviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

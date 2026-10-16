@@ -2,14 +2,94 @@
   "name": "Send follow-up touches to quiet leads in GoHighLevel",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Send follow-up touches to quiet leads in GoHighLevel\n\n**Who's it for**\nAgencies and sales teams on GoHighLevel who lose deals to silence rather than to a no, and want the chasing done by a rule instead of a reminder.\n\n**How it works**\n1. Every weekday at 08:00 it reads the open opportunities, or six demo leads until GoHighLevel is connected.\n2. `Plan who is due a touch` files each lead as due, waiting or stopped. A reply, a stage outside `OPEN_STAGES` or reaching `MAX_TOUCHES` ends the sequence, and the reason is recorded.\n3. Each due lead gets one touch per run from the `SEQUENCE` ladder. `Write the next touch` builds the message and the exact request.\n4. Touches go out only when the credential is added and `DRY_RUN` is false. Every outcome ends on its own STOP node, so the execution log reads as a report.\n\n**How to set up**\n1. Run it once as imported. Six demo leads exercise every decision and stop at `STOP: preview - touches not sent`.\n2. In `config`, set the location id, the pipeline and stage ids, and the three `SEQ_*_FIELD_ID` custom fields.\n3. Create a Header Auth credential (Name `Authorization`, Value `Bearer <Private Integration token>`), select it on both GoHighLevel nodes, and set `GHL_CREDENTIAL_ADDED = true`.\n4. Set `DRY_RUN = false` once the previews read the way you want.\n\n**Requirements**\n- A GoHighLevel sub-account\n- A Private Integration token with `contacts.write` and `conversations.write`\n- Pairs with the intake and routing template, which shares the same `config`\n\n**How to customize**\n- `SEQUENCE` sets the wording and the wait before each touch.\n- `OPEN_STAGES` and `MAX_TOUCHES` decide when chasing stops.",
+        "height": 944,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "50582be7-5717-4c4e-9a00-50582be713e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Trigger and settings\n\n`Run the sequence now` and `Every weekday at 08:00` both feed `config`, the only node you edit. It holds the ids, the `SEQUENCE` ladder and the `DRY_RUN` switch, and a blank id skips its step instead of failing the run.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0bd3753a-5717-4c4e-9a00-0bd3753a1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the pipeline\n\nOnce connected, `Search opportunities in GoHighLevel` reads the real pipeline; before that, `Load the demo pipeline` stands in. A failed read stops at `STOP: could not read the pipeline` and never falls back to demo leads, so invented people are never chased on a real account.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0cd376cd-5717-4c4e-9a00-0cd376cd1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Decide who is due\n\n`Plan who is due a touch` weighs the last touch and the last reply against the ladder and records why each stopped lead stopped. A quiet morning still ends somewhere: `STOP: nothing due today` carries the waiting and stopped lists.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "09d37214-5717-4c4e-9a00-09d372141002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write and send\n\n`Write the next touch` builds the message and the exact request and sends nothing. `Sending switched on?` holds every touch at `STOP: preview - touches not sent` until `DRY_RUN` is false, and a refused send lands on its own STOP node with the response.",
+        "height": 560,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "0ad373a7-5717-4c4e-9a00-0ad373a71003",
+      "name": "Section 4 note"
+    },
+    {
       "parameters": {},
       "id": "19af15d2-6547-422c-b0c2-d4b2d64f05e4",
       "name": "Run the sequence now",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        0,
-        310
+        48,
+        224
       ]
     },
     {
@@ -24,25 +104,25 @@
         }
       },
       "id": "4e62f498-f35f-4855-842c-d1b024c40704",
-      "name": "Every weekday morning, 08:00",
+      "name": "Every weekday at 08:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
-        490
+        48,
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// GOHIGHLEVEL — LEAD INTAKE AND ROUTING — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows (\"01 intake and routing\" and\n// \"02 follow-up sequence\"). Keep the two copies identical and the pair stays in step.\n//\n// A blank id or key means that step is SKIPPED, never that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single GoHighLevel credential exists.\n\n// ---------------------------------------------------------------- The GoHighLevel sub-account\n// Location id: the Location ID on Settings -> Business Profile, or the id in the URL when\n// you are inside the sub-account.\nconst GHL_LOCATION_ID = '';\n\n// A Private Integration token (Settings -> Private Integrations -> create one, scope\n// contacts.write / opportunities.write / conversations.write), or a location API key. Both\n// blank -> the workflows build the exact payload and stop in front of the write, so you can\n// read what they would have sent. Both ship blank on purpose, so the first import is safe.\nconst GHL_API_KEY      = '';\nconst GHL_API_BASE     = 'https://services.leadconnectorhq.com';\nconst GHL_API_VERSION  = '2021-07-28';\n\n// ---------------------------------------------------------------- The pipeline\n// The pipeline a lead is filed into, and the stages it can be filed at. The workflow\n// decides WHICH stage a lead belongs in; the id is what makes that a real stage rather than\n// a label. Pipeline id: Pipelines -> your pipeline -> the id in the URL.\nconst GHL_PIPELINE_ID = '';\nconst STAGES = [\n  { stage: 'New lead',        id: '' },\n  { stage: 'Quote requested', id: '' },\n  { stage: 'Support',         id: '' }\n];\n\n// ---------------------------------------------------------------- Custom fields and tags\n// Custom field name -> its GoHighLevel field id (Settings -> Custom Fields). The value is\n// read off the lead by `from`. A blank id is skipped rather than written as an empty field,\n// so a half-mapped account still writes a clean contact.\nconst CUSTOM_FIELDS = [\n  { name: 'Lead source',  id: '', from: 'source'  },\n  { name: 'Enquiry type', id: '', from: 'wants'   },\n  { name: 'Summary',      id: '', from: 'summary' }\n];\n\n// On every contact this workflow writes. The routing rule adds its own.\nconst BASE_TAGS = ['automation-intake'];\n\n// ---------------------------------------------------------------- Who gets what\n// The rule table. First match wins. A rule may match on the intake source, on what the\n// person wants, on both — and the last rule matches nothing on purpose, so a lead that fits\n// no rule still lands somewhere rather than nowhere.\nconst OWNERS = [\n  { owner: 'Ada',  user_id: '' },\n  { owner: 'Ben',  user_id: '' },\n  { owner: 'Cara', user_id: '' }\n];\nconst ROUTING_RULES = [\n  { match: { wants: 'support' },  owner: 'Cara', stage: 'Support',         tags: ['support'] },\n  { match: { wants: 'quote' },    owner: 'Ben',  stage: 'Quote requested', tags: ['quote'] },\n  { match: { wants: 'demo' },     owner: 'Ben',  stage: 'New lead',        tags: ['demo'] },\n  { match: { source: 'phone' },   owner: 'Ben',  stage: 'New lead',        tags: ['phone'] },\n  { match: { source: 'email' },   owner: 'Ada',  stage: 'New lead',        tags: ['email'] },\n  { match: { source: 'website' }, owner: 'Ada',  stage: 'New lead',        tags: ['website'] },\n  { match: {},                    owner: 'Ada',  stage: 'New lead',        tags: ['unrouted'] }\n];\n\n// ---------------------------------------------------------------- Follow-up sequence\n// The ordered touches a lead receives if nobody has answered it. A lead gets touch 1 after\n// `after_hours` with no movement, then touch 2, then touch 3 — and stops the moment anyone\n// replies or the stage moves. The counter is `touches_sent` on the contact; the sequence is\n// only ever advanced by one per run, so a lead cannot be double-touched.\nconst SEQUENCE = [\n  { touch: 1, after_hours: 24, channel: 'email', label: 'check-in',\n    subject: 'Quick check-in on your enquiry',\n    line: 'Just making sure your message reached us and got a reply. Happy to pick this up whenever suits you.' },\n  { touch: 2, after_hours: 72, channel: 'email', label: 'value nudge',\n    subject: 'Something that might help',\n    line: 'I have put a short summary together covering what you asked about. Want me to send it over?' },\n  { touch: 3, after_hours: 120, channel: 'sms', label: 'last check-in',\n    line: 'Last one from me — shall I close this off, or keep it open for later?' }\n];\n\n// The hard stop, enforced in code rather than implied. A lead at this many touches is never\n// sent another, whatever the timings say.\nconst MAX_TOUCHES = 3;\n\n// The stages a lead can still be sequenced in. A lead that has left them is finished, and\n// the sequence stops rather than chasing a won or lost job.\nconst OPEN_STAGES = ['New lead', 'Quote requested', 'Support'];\nconst STOP_ON_STAGE_MOVE = true;\n\n// Signed on the end of each email. Blank -> no signature line.\nconst FROM_NAME = '';\n\n// Where the sequence's state lives on the contact. GoHighLevel's opportunities carry the stage,\n// but not how many touches have gone out or when the last one was — those live in custom fields,\n// and these are their ids (Settings -> Custom Fields). Point them at wherever you keep them and\n// the read is complete; leave them blank and the counter reads 0, which is honest rather than\n// invented.\nconst SEQ_TOUCHES_FIELD_ID    = '';\nconst SEQ_LAST_TOUCH_FIELD_ID = '';\nconst SEQ_LAST_REPLY_FIELD_ID = '';\n\n// How many opportunities one read pulls. GoHighLevel caps a page at 100. If there are more than\n// this, the run says so (see `more_pages` on the plan) rather than pretending it read them all.\nconst PIPELINE_PAGE_LIMIT = 100;\n\n// ---------------------------------------------------------------- What counts as a lead\n// A lead with no way to reach the person is not a lead. Whether a message is also required\n// is a judgement call, so it is a setting rather than an assumption.\nconst REQUIRE_CONTACT = true;    // an email address or a phone number\nconst REQUIRE_MESSAGE = false;   // false: a named contact with no message is still filed\n\n// ---------------------------------------------------------------- Safety switch\n//   DRY_RUN true  (how it ships) -> nothing is written and nothing is sent. The payloads are\n//                                   built in full and shown, so the first run after import\n//                                   is always safe.\n//   DRY_RUN false                -> the contact is created or updated and the touches send.\n// Both also need GHL_LOCATION_ID and GHL_API_KEY above; with either blank the workflows stay\n// in preview whatever this says.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\n// ---------------------------------------------------------------- The demo pipeline\n// The leads \"02 follow-up sequence\" runs against until GoHighLevel is wired up. Every person\n// here is invented. The mix is deliberate — it has to show every decision the sequence makes:\n//   * 30 h quiet, 0 touches                    -> due touch 1\n//   * one touch sent, 80 h quiet                -> due touch 2\n//   * 5 h quiet, 0 touches                      -> not due yet\n//   * replied 10 h ago                          -> STOP: they replied\n//   * stage is 'Won'                            -> STOP: left the sequence\n//   * three touches already sent                -> STOP: sequence finished\nconst DEMO_PIPELINE = [\n  { contact_key: 'rachel@example.com', name: 'Rachel Okonkwo', company: 'Brightpath Dental',\n    email: 'rachel@example.com', phone: '', contact_id: 'demo-1001', owner: 'Ben',\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 30, last_reply_hours_ago: -1 },\n  { contact_key: 'tom@example.com', name: 'Tom Beasley', company: 'Beasley Logistics',\n    email: 'tom@example.com', phone: '', contact_id: 'demo-1002', owner: 'Cara',\n    stage: 'Support', touches_sent: 1, last_touch_hours_ago: 80, last_reply_hours_ago: -1 },\n  { contact_key: '07700900456', name: 'Ravi Menon', company: 'Menon & Co',\n    email: '', phone: '07700 900456', contact_id: 'demo-1003', owner: 'Ben',\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 5, last_reply_hours_ago: -1 },\n  { contact_key: 'elena@example.com', name: 'Elena Rossi', company: '',\n    email: 'elena@example.com', phone: '', contact_id: 'demo-1004', owner: 'Ada',\n    stage: 'Quote requested', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: 10 },\n  { contact_key: 'june@example.com', name: 'June Park', company: '',\n    email: 'june@example.com', phone: '', contact_id: 'demo-1005', owner: 'Ada',\n    stage: 'Won', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: -1 },\n  { contact_key: 'dana@example.com', name: 'Dana Whitfield', company: '',\n    email: 'dana@example.com', phone: '', contact_id: 'demo-1006', owner: 'Ada',\n    stage: 'New lead', touches_sent: 3, last_touch_hours_ago: 200, last_reply_hours_ago: -1 }\n];\n\nconst SETTINGS = {\n  ghl_location_id: GHL_LOCATION_ID.trim(),\n  ghl_api_key:     GHL_API_KEY.trim(),\n  ghl_api_base:    GHL_API_BASE.trim().replace(/\\/+$/, ''),\n  ghl_api_version: GHL_API_VERSION.trim(),\n\n  ghl_pipeline_id: GHL_PIPELINE_ID.trim(),\n  stages:          STAGES,\n\n  custom_fields: CUSTOM_FIELDS,\n  base_tags:     BASE_TAGS,\n\n  owners:        OWNERS,\n  routing_rules: ROUTING_RULES,\n\n  sequence:            SEQUENCE,\n  max_touches:         Number(MAX_TOUCHES) || SEQUENCE.length,\n  open_stages:         OPEN_STAGES,\n  stop_on_stage_move:  STOP_ON_STAGE_MOVE === true,\n  from_name:           FROM_NAME.trim(),\n  demo_pipeline:       DEMO_PIPELINE,\n\n  seq_touches_field_id:    SEQ_TOUCHES_FIELD_ID.trim(),\n  seq_last_touch_field_id: SEQ_LAST_TOUCH_FIELD_ID.trim(),\n  seq_last_reply_field_id: SEQ_LAST_REPLY_FIELD_ID.trim(),\n  pipeline_page_limit:     Number(PIPELINE_PAGE_LIMIT) || 100,\n\n  require_contact: REQUIRE_CONTACT === true,\n  require_message: REQUIRE_MESSAGE === true,\n\n  stage_on_arrival: 'New lead',\n\n  // derived flags — the gates read these, never the raw constants\n  mode:        MODE,\n  dry_run:     MODE !== 'live',\n  ghl_enabled: MODE === 'live'\n    && GHL_LOCATION_ID.trim() !== ''\n    && GHL_API_KEY.trim() !== ''\n};\n\n// config passes the incoming payload through untouched under `lead`, so whichever trigger\n// fired the next node reads the payload from the same place. It runs once per incoming item.\nconst incoming = $input.all().length ? $input.all().map((i) => i.json || {}) : [{}];\nreturn incoming.map((lead) => ({ json: Object.assign({}, SETTINGS, { lead: lead }) }));"
+        "jsCode": "// GOHIGHLEVEL — LEAD INTAKE AND ROUTING — CONFIG\r\n// Everything you might want to change lives in this one node. Nothing else in either\r\n// workflow needs editing.\r\n//\r\n// The same config node ships in BOTH workflows (\"01 intake and routing\" and\r\n// \"02 follow-up sequence\"). build.py regenerates both from this one file, and validate.py\r\n// fails if they drift apart — so you never paste it between them by hand.\r\n//\r\n// A blank id or key means that step is SKIPPED, never that the run fails. That is what lets\r\n// this be demonstrated on a screen-share before a single GoHighLevel credential exists.\r\n\r\n// ---------------------------------------------------------------- The GoHighLevel sub-account\r\n// Location id: the Location ID on Settings -> Business Profile, or the id in the URL when\r\n// you are inside the sub-account.\r\nconst GHL_LOCATION_ID = '';\r\n\r\n// GoHighLevel signs in through an n8n credential, never through a value in this node.\r\n// Create a Header Auth credential: Name \"Authorization\", Value \"Bearer <Private Integration\r\n// token>\" (Settings -> Private Integrations, scopes contacts.write / opportunities.write /\r\n// conversations.write). Select it on every GoHighLevel node, then set this to true. Left\r\n// false, the workflows build the exact request and stop in front of the write.\r\nconst GHL_CREDENTIAL_ADDED = false;\r\nconst GHL_API_BASE     = 'https://services.leadconnectorhq.com';\r\nconst GHL_API_VERSION  = '2021-07-28';\r\n\r\n// ---------------------------------------------------------------- The pipeline\r\n// The pipeline a lead is filed into, and the stages it can be filed at. The workflow\r\n// decides WHICH stage a lead belongs in; the id is what makes that a real stage rather than\r\n// a label. Pipeline id: Pipelines -> your pipeline -> the id in the URL.\r\nconst GHL_PIPELINE_ID = '';\r\nconst STAGES = [\r\n  { stage: 'New lead',        id: '' },\r\n  { stage: 'Quote requested', id: '' },\r\n  { stage: 'Support',         id: '' }\r\n];\r\n\r\n// ---------------------------------------------------------------- Custom fields and tags\r\n// Custom field name -> its GoHighLevel field id (Settings -> Custom Fields). The value is\r\n// read off the lead by `from`. A blank id is skipped rather than written as an empty field,\r\n// so a half-mapped account still writes a clean contact.\r\nconst CUSTOM_FIELDS = [\r\n  { name: 'Lead source',  id: '', from: 'source'  },\r\n  { name: 'Enquiry type', id: '', from: 'wants'   },\r\n  { name: 'Summary',      id: '', from: 'summary' }\r\n];\r\n\r\n// On every contact this workflow writes. The routing rule adds its own.\r\nconst BASE_TAGS = ['automation-intake'];\r\n\r\n// ---------------------------------------------------------------- Who gets what\r\n// The rule table. First match wins. A rule may match on the intake source, on what the\r\n// person wants, on both — and the last rule matches nothing on purpose, so a lead that fits\r\n// no rule still lands somewhere rather than nowhere.\r\nconst OWNERS = [\r\n  { owner: 'Ada',  user_id: '' },\r\n  { owner: 'Ben',  user_id: '' },\r\n  { owner: 'Cara', user_id: '' }\r\n];\r\nconst ROUTING_RULES = [\r\n  { match: { wants: 'support' },  owner: 'Cara', stage: 'Support',         tags: ['support'] },\r\n  { match: { wants: 'quote' },    owner: 'Ben',  stage: 'Quote requested', tags: ['quote'] },\r\n  { match: { wants: 'demo' },     owner: 'Ben',  stage: 'New lead',        tags: ['demo'] },\r\n  { match: { source: 'phone' },   owner: 'Ben',  stage: 'New lead',        tags: ['phone'] },\r\n  { match: { source: 'email' },   owner: 'Ada',  stage: 'New lead',        tags: ['email'] },\r\n  { match: { source: 'website' }, owner: 'Ada',  stage: 'New lead',        tags: ['website'] },\r\n  { match: {},                    owner: 'Ada',  stage: 'New lead',        tags: ['unrouted'] }\r\n];\r\n\r\n// ---------------------------------------------------------------- Follow-up sequence\r\n// The ordered touches a lead receives if nobody has answered it. A lead gets touch 1 after\r\n// `after_hours` with no movement, then touch 2, then touch 3 — and stops the moment anyone\r\n// replies or the stage moves. The counter is `touches_sent` on the contact; the sequence is\r\n// only ever advanced by one per run, so a lead cannot be double-touched.\r\nconst SEQUENCE = [\r\n  { touch: 1, after_hours: 24, channel: 'email', label: 'check-in',\r\n    subject: 'Quick check-in on your enquiry',\r\n    line: 'Just making sure your message reached us and got a reply. Happy to pick this up whenever suits you.' },\r\n  { touch: 2, after_hours: 72, channel: 'email', label: 'value nudge',\r\n    subject: 'Something that might help',\r\n    line: 'I have put a short summary together covering what you asked about. Want me to send it over?' },\r\n  { touch: 3, after_hours: 120, channel: 'sms', label: 'last check-in',\r\n    line: 'Last one from me — shall I close this off, or keep it open for later?' }\r\n];\r\n\r\n// The hard stop, enforced in code rather than implied. A lead at this many touches is never\r\n// sent another, whatever the timings say.\r\nconst MAX_TOUCHES = 3;\r\n\r\n// The stages a lead can still be sequenced in. A lead that has left them is finished, and\r\n// the sequence stops rather than chasing a won or lost job.\r\nconst OPEN_STAGES = ['New lead', 'Quote requested', 'Support'];\r\nconst STOP_ON_STAGE_MOVE = true;\r\n\r\n// Signed on the end of each email. Blank -> no signature line.\r\nconst FROM_NAME = '';\r\n\r\n// Where the sequence's state lives on the contact. GoHighLevel's opportunities carry the stage,\r\n// but not how many touches have gone out or when the last one was — those live in custom fields,\r\n// and these are their ids (Settings -> Custom Fields). Point them at wherever you keep them and\r\n// the read is complete; leave them blank and the counter reads 0, which is honest rather than\r\n// invented.\r\nconst SEQ_TOUCHES_FIELD_ID    = '';\r\nconst SEQ_LAST_TOUCH_FIELD_ID = '';\r\nconst SEQ_LAST_REPLY_FIELD_ID = '';\r\n\r\n// How many opportunities one read pulls. GoHighLevel caps a page at 100. If there are more than\r\n// this, the run says so (see `more_pages` on the plan) rather than pretending it read them all.\r\nconst PIPELINE_PAGE_LIMIT = 100;\r\n\r\n// ---------------------------------------------------------------- What counts as a lead\r\n// A lead with no way to reach the person is not a lead. Whether a message is also required\r\n// is a judgement call, so it is a setting rather than an assumption.\r\nconst REQUIRE_CONTACT = true;    // an email address or a phone number\r\nconst REQUIRE_MESSAGE = false;   // false: a named contact with no message is still filed\r\n\r\n// ---------------------------------------------------------------- Safety switch\r\n//   DRY_RUN true  (how it ships) -> nothing is written and nothing is sent. The payloads are\r\n//                                   built in full and shown, so the first run after import\r\n//                                   is always safe.\r\n//   DRY_RUN false                -> the contact is created or updated and the touches send.\r\n// Both also need GHL_LOCATION_ID and GHL_CREDENTIAL_ADDED above; without them the workflows stay\r\n// in preview whatever this says.\r\nconst DRY_RUN = true;\r\n\r\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\r\n\r\n// ---------------------------------------------------------------- The demo pipeline\r\n// The leads \"02 follow-up sequence\" runs against until GoHighLevel is wired up. Every person\r\n// here is invented. The mix is deliberate — it has to show every decision the sequence makes:\r\n//   * 30 h quiet, 0 touches                    -> due touch 1\r\n//   * one touch sent, 80 h quiet                -> due touch 2\r\n//   * 5 h quiet, 0 touches                      -> not due yet\r\n//   * replied 10 h ago                          -> STOP: they replied\r\n//   * stage is 'Won'                            -> STOP: left the sequence\r\n//   * three touches already sent                -> STOP: sequence finished\r\nconst DEMO_PIPELINE = [\r\n  { contact_key: 'rachel@brightpath-dental.example', name: 'Rachel Okonkwo', company: 'Brightpath Dental',\r\n    email: 'rachel@brightpath-dental.example', phone: '', contact_id: 'demo-1001', owner: 'Ben',\r\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 30, last_reply_hours_ago: -1 },\r\n  { contact_key: 'tom@beasleylogistics.example', name: 'Tom Beasley', company: 'Beasley Logistics',\r\n    email: 'tom@beasleylogistics.example', phone: '', contact_id: 'demo-1002', owner: 'Cara',\r\n    stage: 'Support', touches_sent: 1, last_touch_hours_ago: 80, last_reply_hours_ago: -1 },\r\n  { contact_key: '07700900456', name: 'Ravi Menon', company: 'Menon & Co',\r\n    email: '', phone: '07700 900456', contact_id: 'demo-1003', owner: 'Ben',\r\n    stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 5, last_reply_hours_ago: -1 },\r\n  { contact_key: 'elena@example.com', name: 'Elena Rossi', company: '',\r\n    email: 'elena@example.com', phone: '', contact_id: 'demo-1004', owner: 'Ada',\r\n    stage: 'Quote requested', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: 10 },\r\n  { contact_key: 'june@example.com', name: 'June Park', company: '',\r\n    email: 'june@example.com', phone: '', contact_id: 'demo-1005', owner: 'Ada',\r\n    stage: 'Won', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: -1 },\r\n  { contact_key: 'dana@example.com', name: 'Dana Whitfield', company: '',\r\n    email: 'dana@example.com', phone: '', contact_id: 'demo-1006', owner: 'Ada',\r\n    stage: 'New lead', touches_sent: 3, last_touch_hours_ago: 200, last_reply_hours_ago: -1 }\r\n];\r\n\r\nconst SETTINGS = {\r\n  ghl_location_id: GHL_LOCATION_ID.trim(),\r\n  ghl_credential_added: GHL_CREDENTIAL_ADDED === true,\r\n  ghl_api_base:    GHL_API_BASE.trim().replace(/\\/+$/, ''),\r\n  ghl_api_version: GHL_API_VERSION.trim(),\r\n\r\n  ghl_pipeline_id: GHL_PIPELINE_ID.trim(),\r\n  stages:          STAGES,\r\n\r\n  custom_fields: CUSTOM_FIELDS,\r\n  base_tags:     BASE_TAGS,\r\n\r\n  owners:        OWNERS,\r\n  routing_rules: ROUTING_RULES,\r\n\r\n  sequence:            SEQUENCE,\r\n  max_touches:         Number(MAX_TOUCHES) || SEQUENCE.length,\r\n  open_stages:         OPEN_STAGES,\r\n  stop_on_stage_move:  STOP_ON_STAGE_MOVE === true,\r\n  from_name:           FROM_NAME.trim(),\r\n  demo_pipeline:       DEMO_PIPELINE,\r\n\r\n  seq_touches_field_id:    SEQ_TOUCHES_FIELD_ID.trim(),\r\n  seq_last_touch_field_id: SEQ_LAST_TOUCH_FIELD_ID.trim(),\r\n  seq_last_reply_field_id: SEQ_LAST_REPLY_FIELD_ID.trim(),\r\n  pipeline_page_limit:     Number(PIPELINE_PAGE_LIMIT) || 100,\r\n\r\n  require_contact: REQUIRE_CONTACT === true,\r\n  require_message: REQUIRE_MESSAGE === true,\r\n\r\n  stage_on_arrival: 'New lead',\r\n\r\n  // derived flags — the gates read these, never the raw constants\r\n  mode:        MODE,\r\n  dry_run:     MODE !== 'live',\r\n  ghl_enabled: MODE === 'live'\r\n    && GHL_LOCATION_ID.trim() !== ''\r\n    && GHL_CREDENTIAL_ADDED === true\r\n};\r\n\r\n// config passes the incoming payload through untouched under `lead`, so whichever trigger\r\n// fired the next node reads the payload from the same place. It runs once per incoming item.\r\nconst incoming = $input.all().length ? $input.all().map((i) => i.json || {}) : [{}];\r\nreturn incoming.map((lead) => ({ json: Object.assign({}, SETTINGS, { lead: lead }) }));"
       },
       "id": "0725cb3b-bdce-42cd-a7e3-12c1c7345ee5",
       "name": "config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        220,
-        400
+        272,
+        224
       ]
     },
     {
@@ -72,17 +152,19 @@
         "options": {}
       },
       "id": "55612e09-2cad-4028-97ec-478eae3a57eb",
-      "name": "GoHighLevel connected?",
+      "name": "Read the live pipeline?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
-        400
+        512,
+        224
       ]
     },
     {
       "parameters": {
         "url": "={{ $('config').first().json.ghl_api_base + '/opportunities/search' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -100,10 +182,6 @@
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $('config').first().json.ghl_api_key }}"
-            },
-            {
               "name": "Version",
               "value": "={{ $('config').first().json.ghl_api_version }}"
             },
@@ -118,66 +196,65 @@
         }
       },
       "id": "164f60f4-b1c9-41c2-95c2-421173c09773",
-      "name": "[cred] GoHighLevel - read the pipeline",
+      "name": "Search opportunities in GoHighLevel",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
-        220
+        736,
+        224
       ],
-      "onError": "continueErrorOutput",
-      "notes": "Opportunities search, one page of PIPELINE_PAGE_LIMIT. The key comes from the config node; a blank key means this node never executes, and the demo pipeline stands in. Anything past the first page is reported, not dropped."
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "// The pipeline \"02 follow-up sequence\" runs against until GoHighLevel is wired up: the demo\n// leads from the config node, with their last-touch and last-reply times turned into real\n// timestamps so \"quiet for 30 hours\" means something relative to now. Every person is\n// invented, and the mix is chosen so every decision the sequence makes is visible in one run.\nconst cfg = $('config').first().json;\nconst now = Date.now();\nconst at = (h) => (h === null || h === undefined || Number(h) < 0)\n  ? '' : new Date(now - Number(h) * 3600000).toISOString().slice(0, 16).replace('T', ' ');\n\nreturn (cfg.demo_pipeline || []).map((r) => ({\n  json: {\n    contact_key:  r.contact_key,\n    name:         r.name,\n    company:      r.company || '',\n    email:        r.email || '',\n    phone:        r.phone || '',\n    contact_id:   r.contact_id || '',\n    owner:        r.owner || '',\n    stage:        r.stage || '',\n    touches_sent: Number(r.touches_sent) || 0,\n    last_touch:   at(r.last_touch_hours_ago),\n    last_reply:   at(r.last_reply_hours_ago),\n    _demo:        true\n  }\n}));"
+        "jsCode": "// The pipeline \"02 follow-up sequence\" runs against until GoHighLevel is wired up: the demo\r\n// leads from the config node, with their last-touch and last-reply times turned into real\r\n// timestamps so \"quiet for 30 hours\" means something relative to now. Every person is\r\n// invented, and the mix is chosen so every decision the sequence makes is visible in one run.\r\nconst cfg = $('config').first().json;\r\nconst now = Date.now();\r\nconst at = (h) => (h === null || h === undefined || Number(h) < 0)\r\n  ? '' : new Date(now - Number(h) * 3600000).toISOString().slice(0, 16).replace('T', ' ');\r\n\r\nreturn (cfg.demo_pipeline || []).map((r) => ({\r\n  json: {\r\n    contact_key:  r.contact_key,\r\n    name:         r.name,\r\n    company:      r.company || '',\r\n    email:        r.email || '',\r\n    phone:        r.phone || '',\r\n    contact_id:   r.contact_id || '',\r\n    owner:        r.owner || '',\r\n    stage:        r.stage || '',\r\n    touches_sent: Number(r.touches_sent) || 0,\r\n    last_touch:   at(r.last_touch_hours_ago),\r\n    last_reply:   at(r.last_reply_hours_ago),\r\n    _demo:        true\r\n  }\r\n}));"
       },
       "id": "c4b41fad-87c4-4c2e-9987-df1430460b85",
-      "name": "use the demo pipeline",
+      "name": "Load the demo pipeline",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
-        580
+        736,
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// GoHighLevel is configured but the read failed. The run STOPS here rather than falling back to\n// the demo pipeline — a fabricated lead must never be sequenced against a real account. This\n// node's output carries the reason, so the failure is a visible step rather than a quiet morning.\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const err = j.error || j;\n  const detail = (err && (err.message || err.description || err.error)) || j;\n  return {\n    json: {\n      _outcome: 'read failed',\n      _reason: 'could not read the pipeline from GoHighLevel — nothing was sequenced',\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\n    }\n  };\n});"
+        "jsCode": "// GoHighLevel is configured but the read failed. The run STOPS here rather than falling back to\r\n// the demo pipeline — a fabricated lead must never be sequenced against a real account. This\r\n// node's output carries the reason, so the failure is a visible step rather than a quiet morning.\r\nreturn $input.all().map((i) => {\r\n  const j = i.json || {};\r\n  const err = j.error || j;\r\n  const detail = (err && (err.message || err.description || err.error)) || j;\r\n  return {\r\n    json: {\r\n      _outcome: 'read failed',\r\n      _reason: 'could not read the pipeline from GoHighLevel — nothing was sequenced',\r\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\r\n    }\r\n  };\r\n});"
       },
       "id": "017f2f38-fb8b-4d35-82f9-6718866fbd94",
       "name": "STOP: could not read the pipeline",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        0
+        960,
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Maps the pipeline into the ONE row shape the sequence decides on, whether it came from\n// GoHighLevel or from the built-in demo pipeline. Everything downstream is identical either way.\n//\n// GoHighLevel's /opportunities/search returns opportunities, not the contact facts the sequence\n// wants — how many touches have gone out, when the last one was. Those live in custom fields, so\n// their ids are settings (`SEQ_*_FIELD_ID`); a blank id reads as 0 rather than being invented.\n// The stage arrives as a pipelineStageId, which is turned back into the name `OPEN_STAGES` uses.\n//\n// If the account has more opportunities than one page, that is REPORTED (`more_pages`), never\n// silently dropped.\nconst cfg = $('config').first().json;\n\nconst stageById = {};\nfor (const s of cfg.stages || []) if (s.id) stageById[s.id] = s.stage;\n\nfunction fromOpportunity(o) {\n  const cf = {};\n  for (const f of (o.customFields || [])) cf[f.id] = f.value;\n  const c = o.contact || {};\n  return {\n    contact_key:  c.email || c.phone || o.contactId || o.id || '',\n    name:         c.name || c.contactName || o.name || '',\n    company:      c.companyName || '',\n    email:        c.email || '',\n    phone:        c.phone || '',\n    contact_id:   o.contactId || c.id || '',\n    owner:        o.assignedTo || '',\n    stage:        stageById[o.pipelineStageId] || o.pipelineStageName || 'unknown',\n    touches_sent: Number(cf[cfg.seq_touches_field_id]) || 0,\n    last_touch:   cfg.seq_last_touch_field_id ? (cf[cfg.seq_last_touch_field_id] || '') : '',\n    last_reply:   cfg.seq_last_reply_field_id ? (cf[cfg.seq_last_reply_field_id] || '') : ''\n  };\n}\n\nconst rows = [];\nlet more = false;\nlet total = null;\nlet from = '';\n\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  if (Array.isArray(j.opportunities)) {\n    for (const o of j.opportunities) rows.push(fromOpportunity(o));\n    const meta = j.meta || {};\n    total = (meta.total === undefined || meta.total === null) ? null : Number(meta.total);\n    more = !!(meta.nextPageUrl || meta.nextPage || meta.startAfterId);\n    from = 'GoHighLevel';\n  } else if (j.contact_key || j.email || j.contact_id || j.stage) {\n    // The demo pipeline already emits the row shape.\n    rows.push(j);\n    if (!from) from = 'the demo pipeline';\n  }\n}\n\nreturn [{\n  json: {\n    rows: rows,\n    rows_read: rows.length,\n    more_pages: more,\n    total_available: total,\n    _from: from || 'an empty pipeline'\n  }\n}];"
+        "jsCode": "// Maps the pipeline into the ONE row shape the sequence decides on, whether it came from\r\n// GoHighLevel or from the built-in demo pipeline. Everything downstream is identical either way.\r\n//\r\n// GoHighLevel's /opportunities/search returns opportunities, not the contact facts the sequence\r\n// wants — how many touches have gone out, when the last one was. Those live in custom fields, so\r\n// their ids are settings (`SEQ_*_FIELD_ID`); a blank id reads as 0 rather than being invented.\r\n// The stage arrives as a pipelineStageId, which is turned back into the name `OPEN_STAGES` uses.\r\n//\r\n// If the account has more opportunities than one page, that is REPORTED (`more_pages`), never\r\n// silently dropped.\r\nconst cfg = $('config').first().json;\r\n\r\nconst stageById = {};\r\nfor (const s of cfg.stages || []) if (s.id) stageById[s.id] = s.stage;\r\n\r\nfunction fromOpportunity(o) {\r\n  const cf = {};\r\n  for (const f of (o.customFields || [])) cf[f.id] = f.value;\r\n  const c = o.contact || {};\r\n  return {\r\n    contact_key:  c.email || c.phone || o.contactId || o.id || '',\r\n    name:         c.name || c.contactName || o.name || '',\r\n    company:      c.companyName || '',\r\n    email:        c.email || '',\r\n    phone:        c.phone || '',\r\n    contact_id:   o.contactId || c.id || '',\r\n    owner:        o.assignedTo || '',\r\n    stage:        stageById[o.pipelineStageId] || o.pipelineStageName || 'unknown',\r\n    touches_sent: Number(cf[cfg.seq_touches_field_id]) || 0,\r\n    last_touch:   cfg.seq_last_touch_field_id ? (cf[cfg.seq_last_touch_field_id] || '') : '',\r\n    last_reply:   cfg.seq_last_reply_field_id ? (cf[cfg.seq_last_reply_field_id] || '') : ''\r\n  };\r\n}\r\n\r\nconst rows = [];\r\nlet more = false;\r\nlet total = null;\r\nlet from = '';\r\n\r\nfor (const item of $input.all()) {\r\n  const j = item.json || {};\r\n  if (Array.isArray(j.opportunities)) {\r\n    for (const o of j.opportunities) rows.push(fromOpportunity(o));\r\n    const meta = j.meta || {};\r\n    total = (meta.total === undefined || meta.total === null) ? null : Number(meta.total);\r\n    more = !!(meta.nextPageUrl || meta.nextPage || meta.startAfterId);\r\n    from = 'GoHighLevel';\r\n  } else if (j.contact_key || j.email || j.contact_id || j.stage) {\r\n    // The demo pipeline already emits the row shape.\r\n    rows.push(j);\r\n    if (!from) from = 'the demo pipeline';\r\n  }\r\n}\r\n\r\nreturn [{\r\n  json: {\r\n    rows: rows,\r\n    rows_read: rows.length,\r\n    more_pages: more,\r\n    total_available: total,\r\n    _from: from || 'an empty pipeline'\r\n  }\r\n}];"
       },
       "id": "3c22f0fe-59ba-49c1-992c-8b079cd5d8d8",
-      "name": "read the pipeline",
+      "name": "Map leads into one shape",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        400
+        960,
+        224
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Decides, for every lead in the pipeline, whether it is DUE the next touch, WAITING for its\n// time, or STOPPED — and for a stopped one, why. One item out, carrying all three lists, so a\n// single run reads as a report rather than as N separate decisions.\n//\n// The stop checks run in order and a lead leaves at the first one that applies: leaving an\n// open stage beats replying, and both beat the counter.\nconst cfg = $('config').first().json;\nconst source = $input.first().json || {};\nconst rows = source.rows || [];\nconst seq = cfg.sequence || [];\nconst open = cfg.open_stages || [];\nconst maxTouches = Number(cfg.max_touches) || seq.length;\nconst now = Date.now();\n\n// A timestamp the way the pipeline wrote it, tolerating the shapes a CRM or a sheet hands\n// back. An unreadable date is treated as absent, never as \"now\" — a lead we cannot date is\n// not chased on a guess.\nfunction ms(v) {\n  const s = String(v || '').trim();\n  if (!s) return null;\n  let t = Date.parse(s);\n  if (isNaN(t)) t = Date.parse(s.replace(' ', 'T'));\n  if (isNaN(t)) t = Date.parse(s.replace(' ', 'T') + 'Z');\n  return isNaN(t) ? null : t;\n}\n\nconst due = [], waiting = [], stopped = [], board = {};\n\nfor (const r of rows) {\n  board[r.stage] = (board[r.stage] || 0) + 1;\n\n  const base = {\n    contact_key: r.contact_key, name: r.name, company: r.company, owner: r.owner,\n    stage: r.stage, email: r.email, phone: r.phone, contact_id: r.contact_id,\n    touches_sent: Number(r.touches_sent) || 0\n  };\n\n  const lastTouch = ms(r.last_touch);\n  const lastReply = ms(r.last_reply);\n\n  if (cfg.stop_on_stage_move && open.indexOf(r.stage) < 0) {\n    stopped.push(Object.assign({}, base, {\n      reason: 'left the sequence — stage is ' + (r.stage || 'blank') }));\n    continue;\n  }\n  if (lastReply !== null && (lastTouch === null || lastReply >= lastTouch)) {\n    stopped.push(Object.assign({}, base, {\n      reason: 'they replied — a person takes it from here' }));\n    continue;\n  }\n  if (base.touches_sent >= maxTouches) {\n    stopped.push(Object.assign({}, base, {\n      reason: 'the sequence is finished (' + base.touches_sent + ' touches)' }));\n    continue;\n  }\n\n  const next = seq[base.touches_sent];\n  if (!next) {\n    stopped.push(Object.assign({}, base, { reason: 'no touch left in the sequence' }));\n    continue;\n  }\n\n  const age = lastTouch === null ? null : (now - lastTouch) / 3600000;\n  if (age === null || age >= Number(next.after_hours)) {\n    due.push(Object.assign({}, base, {\n      touch: next.touch, channel: next.channel, label: next.label,\n      quiet_hours: age === null ? null : Math.round(age)\n    }));\n  } else {\n    waiting.push(Object.assign({}, base, {\n      reason: 'not due yet — touch ' + next.touch + ' in ' +\n        Math.max(0, Math.round(Number(next.after_hours) - age)) + ' h'\n    }));\n  }\n}\n\nreturn [{\n  json: {\n    rows_read: rows.length,\n    source: source._from || 'the pipeline',\n    more_pages: source.more_pages === true,\n    total_available: (source.total_available === undefined) ? null : source.total_available,\n    due: due,\n    waiting: waiting,\n    stopped: stopped,\n    board: board,\n    due_count: due.length,\n    _has_due: due.length > 0\n  }\n}];"
+        "jsCode": "// Decides, for every lead in the pipeline, whether it is DUE the next touch, WAITING for its\r\n// time, or STOPPED — and for a stopped one, why. One item out, carrying all three lists, so a\r\n// single run reads as a report rather than as N separate decisions.\r\n//\r\n// The stop checks run in order and a lead leaves at the first one that applies: leaving an\r\n// open stage beats replying, and both beat the counter.\r\nconst cfg = $('config').first().json;\r\nconst source = $input.first().json || {};\r\nconst rows = source.rows || [];\r\nconst seq = cfg.sequence || [];\r\nconst open = cfg.open_stages || [];\r\nconst maxTouches = Number(cfg.max_touches) || seq.length;\r\nconst now = Date.now();\r\n\r\n// A timestamp the way the pipeline wrote it, tolerating the shapes a CRM or a sheet hands\r\n// back. An unreadable date is treated as absent, never as \"now\" — a lead we cannot date is\r\n// not chased on a guess.\r\nfunction ms(v) {\r\n  const s = String(v || '').trim();\r\n  if (!s) return null;\r\n  let t = Date.parse(s);\r\n  if (isNaN(t)) t = Date.parse(s.replace(' ', 'T'));\r\n  if (isNaN(t)) t = Date.parse(s.replace(' ', 'T') + 'Z');\r\n  return isNaN(t) ? null : t;\r\n}\r\n\r\nconst due = [], waiting = [], stopped = [], board = {};\r\n\r\nfor (const r of rows) {\r\n  board[r.stage] = (board[r.stage] || 0) + 1;\r\n\r\n  const base = {\r\n    contact_key: r.contact_key, name: r.name, company: r.company, owner: r.owner,\r\n    stage: r.stage, email: r.email, phone: r.phone, contact_id: r.contact_id,\r\n    touches_sent: Number(r.touches_sent) || 0\r\n  };\r\n\r\n  const lastTouch = ms(r.last_touch);\r\n  const lastReply = ms(r.last_reply);\r\n\r\n  if (cfg.stop_on_stage_move && open.indexOf(r.stage) < 0) {\r\n    stopped.push(Object.assign({}, base, {\r\n      reason: 'left the sequence — stage is ' + (r.stage || 'blank') }));\r\n    continue;\r\n  }\r\n  if (lastReply !== null && (lastTouch === null || lastReply >= lastTouch)) {\r\n    stopped.push(Object.assign({}, base, {\r\n      reason: 'they replied — a person takes it from here' }));\r\n    continue;\r\n  }\r\n  if (base.touches_sent >= maxTouches) {\r\n    stopped.push(Object.assign({}, base, {\r\n      reason: 'the sequence is finished (' + base.touches_sent + ' touches)' }));\r\n    continue;\r\n  }\r\n\r\n  const next = seq[base.touches_sent];\r\n  if (!next) {\r\n    stopped.push(Object.assign({}, base, { reason: 'no touch left in the sequence' }));\r\n    continue;\r\n  }\r\n\r\n  const age = lastTouch === null ? null : (now - lastTouch) / 3600000;\r\n  if (age === null || age >= Number(next.after_hours)) {\r\n    due.push(Object.assign({}, base, {\r\n      touch: next.touch, channel: next.channel, label: next.label,\r\n      quiet_hours: age === null ? null : Math.round(age)\r\n    }));\r\n  } else {\r\n    waiting.push(Object.assign({}, base, {\r\n      reason: 'not due yet — touch ' + next.touch + ' in ' +\r\n        Math.max(0, Math.round(Number(next.after_hours) - age)) + ' h'\r\n    }));\r\n  }\r\n}\r\n\r\nreturn [{\r\n  json: {\r\n    rows_read: rows.length,\r\n    source: source._from || 'the pipeline',\r\n    more_pages: source.more_pages === true,\r\n    total_available: (source.total_available === undefined) ? null : source.total_available,\r\n    due: due,\r\n    waiting: waiting,\r\n    stopped: stopped,\r\n    board: board,\r\n    due_count: due.length,\r\n    _has_due: due.length > 0\r\n  }\r\n}];"
       },
       "id": "7f9cf34a-c069-4a6f-b591-e8d5ed44eeff",
-      "name": "plan the sequence",
+      "name": "Plan who is due a touch",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
-        400
+        1200,
+        224
       ]
     },
     {
@@ -207,38 +284,38 @@
         "options": {}
       },
       "id": "a61628f3-2693-40bf-9cab-88a4307ea310",
-      "name": "anything due?",
+      "name": "Anyone due today?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1320,
-        400
+        1424,
+        224
       ]
     },
     {
       "parameters": {
-        "jsCode": "// The sequence ran and nothing was due. This node's output is the run report: what is\n// waiting, and what has been stopped and why — so a quiet day still says something rather\n// than looking like a broken workflow.\nconst p = $input.first().json || {};\nreturn [{\n  json: {\n    _outcome: 'nothing due',\n    _reason: 'no lead is due a touch today',\n    rows_read: p.rows_read,\n    due_count: 0,\n    waiting: p.waiting || [],\n    stopped: p.stopped || [],\n    board: p.board || {}\n  }\n}];"
+        "jsCode": "// The sequence ran and nothing was due. This node's output is the run report: what is\r\n// waiting, and what has been stopped and why — so a quiet day still says something rather\r\n// than looking like a broken workflow.\r\nconst p = $input.first().json || {};\r\nreturn [{\r\n  json: {\r\n    _outcome: 'nothing due',\r\n    _reason: 'no lead is due a touch today',\r\n    rows_read: p.rows_read,\r\n    due_count: 0,\r\n    waiting: p.waiting || [],\r\n    stopped: p.stopped || [],\r\n    board: p.board || {}\r\n  }\r\n}];"
       },
       "id": "9c4cbc92-272b-4cc3-91e7-d81387c24ea4",
       "name": "STOP: nothing due today",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        720
+        1648,
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Writes the words and builds the exact GoHighLevel request for each due touch — one object\n// you can read and review. NOTHING is sent from here; this node is pure, and its output is\n// what the send node below either sends or shows.\n//\n// The message is the sequence's own line with a greeting and a signature; GoHighLevel's\n// conversations endpoint takes an email as {type, contactId, subject, message} and an SMS as\n// {type, contactId, message}. Change the endpoint in one place here if your account differs.\nconst cfg = $('config').first().json;\nconst base = String(cfg.ghl_api_base || '').replace(/\\/+$/, '');\nconst seq = cfg.sequence || [];\n\nreturn $input.all().map((item) => {\n  const d = item.json || {};\n  const t = seq.filter((s) => s.touch === d.touch)[0] || {};\n  const channel = (d.channel || t.channel || 'email').toLowerCase();\n  const first = String(d.name || '').split(' ')[0] || 'there';\n\n  const body = 'Hi ' + first + ',\\n\\n' + (t.line || '') +\n    (cfg.from_name ? '\\n\\n— ' + cfg.from_name : '');\n  const subject = t.subject || 'Following up on your enquiry';\n\n  const ghlBody = channel === 'email'\n    ? { type: 'Email', contactId: d.contact_id, subject: subject,\n        message: '<p>' + body.split('\\n\\n').join('</p><p>').split('\\n').join('<br>') + '</p>' }\n    : { type: 'SMS', contactId: d.contact_id, message: body };\n\n  return {\n    json: Object.assign({}, d, {\n      channel: channel,\n      subject: channel === 'email' ? subject : '',\n      body: body,\n      _ghl: { method: 'POST', url: base + '/conversations/messages', body: ghlBody },\n      _would_send: ghlBody\n    })\n  };\n});"
+        "jsCode": "// Writes the words and builds the exact GoHighLevel request for each due touch — one object\r\n// you can read and review. NOTHING is sent from here; this node is pure, and its output is\r\n// what the send node below either sends or shows.\r\n//\r\n// The message is the sequence's own line with a greeting and a signature; GoHighLevel's\r\n// conversations endpoint takes an email as {type, contactId, subject, message} and an SMS as\r\n// {type, contactId, message}. Change the endpoint in one place here if your account differs.\r\nconst cfg = $('config').first().json;\r\nconst base = String(cfg.ghl_api_base || '').replace(/\\/+$/, '');\r\nconst seq = cfg.sequence || [];\r\n\r\nreturn $input.all().map((item) => {\r\n  const d = item.json || {};\r\n  const t = seq.filter((s) => s.touch === d.touch)[0] || {};\r\n  const channel = (d.channel || t.channel || 'email').toLowerCase();\r\n  const first = String(d.name || '').split(' ')[0] || 'there';\r\n\r\n  const body = 'Hi ' + first + ',\\n\\n' + (t.line || '') +\r\n    (cfg.from_name ? '\\n\\n— ' + cfg.from_name : '');\r\n  const subject = t.subject || 'Following up on your enquiry';\r\n\r\n  const ghlBody = channel === 'email'\r\n    ? { type: 'Email', contactId: d.contact_id, subject: subject,\r\n        message: '<p>' + body.split('\\n\\n').join('</p><p>').split('\\n').join('<br>') + '</p>' }\r\n    : { type: 'SMS', contactId: d.contact_id, message: body };\r\n\r\n  return {\r\n    json: Object.assign({}, d, {\r\n      channel: channel,\r\n      subject: channel === 'email' ? subject : '',\r\n      body: body,\r\n      _ghl: { method: 'POST', url: base + '/conversations/messages', body: ghlBody },\r\n      _would_send: ghlBody\r\n    })\r\n  };\r\n});"
       },
       "id": "c5fccc62-51f7-4cf7-887f-c0f5c5499661",
-      "name": "compose the next touch",
+      "name": "Write the next touch",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
-        400
+        1888,
+        224
       ]
     },
     {
@@ -268,38 +345,36 @@
         "options": {}
       },
       "id": "01aac6ba-4b3a-4e80-843a-44031337c982",
-      "name": "sending the touches?",
+      "name": "Sending switched on?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1760,
-        400
+        2112,
+        224
       ]
     },
     {
       "parameters": {
-        "jsCode": "// GoHighLevel is not configured (DRY_RUN is still true, or the location id / API key is\n// blank). Nothing was sent — and this node's output IS the result: each lead's touch number,\n// channel, recipient and the exact words that would have gone out. Open it to read them.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'preview — not sent',\n    _reason: 'GoHighLevel not configured — nothing was sent',\n    contact_key: i.json.contact_key,\n    touch: i.json.touch,\n    channel: i.json.channel,\n    to: i.json.email || i.json.phone || i.json.contact_id,\n    subject: i.json.subject,\n    body: i.json.body\n  }\n}));"
+        "jsCode": "// GoHighLevel is not configured (DRY_RUN is still true, or the location id / API key is\r\n// blank). Nothing was sent — and this node's output IS the result: each lead's touch number,\r\n// channel, recipient and the exact words that would have gone out. Open it to read them.\r\nreturn $input.all().map((i) => ({\r\n  json: {\r\n    _outcome: 'preview — not sent',\r\n    _reason: 'GoHighLevel not configured — nothing was sent',\r\n    contact_key: i.json.contact_key,\r\n    touch: i.json.touch,\r\n    channel: i.json.channel,\r\n    to: i.json.email || i.json.phone || i.json.contact_id,\r\n    subject: i.json.subject,\r\n    body: i.json.body\r\n  }\r\n}));"
       },
       "id": "a30af93e-94da-4d33-a8c2-9ced3d9d2aed",
       "name": "STOP: preview - touches not sent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        540
+        2336,
+        400
       ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $json._ghl.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{ 'Bearer ' + $('config').first().json.ghl_api_key }}"
-            },
             {
               "name": "Version",
               "value": "={{ $('config').first().json.ghl_api_version }}"
@@ -322,166 +397,43 @@
         }
       },
       "id": "c37b584e-9284-43ca-b458-dece2575c911",
-      "name": "[cred] GoHighLevel - send the touch",
+      "name": "Send the touch through GoHighLevel",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
-        220
+        2336,
+        224
       ],
-      "onError": "continueErrorOutput",
-      "notes": "GoHighLevel conversations: post the touch to the contact. The key comes from the config node; a blank key means this node never executes."
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "// The touch reached GoHighLevel. This node's output is the confirmation: whatever the\n// conversations endpoint returned for the message it queued.\nreturn $input.all().map((i) => ({\n  json: {\n    _outcome: 'sent',\n    _reason: 'the touch was queued through GoHighLevel',\n    ghl_response: i.json\n  }\n}));"
+        "jsCode": "// The touch reached GoHighLevel. This node's output is the confirmation: whatever the\r\n// conversations endpoint returned for the message it queued.\r\nreturn $input.all().map((i) => ({\r\n  json: {\r\n    _outcome: 'sent',\r\n    _reason: 'the touch was queued through GoHighLevel',\r\n    ghl_response: i.json\r\n  }\r\n}));"
       },
       "id": "3deacc80-8a11-4814-8b6d-9c834037bfb4",
       "name": "STOP: touches sent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        180
+        2560,
+        224
       ]
     },
     {
       "parameters": {
-        "jsCode": "// GoHighLevel refused the touch. Its own node, so a send that failed is a visible step with\n// the response on it rather than a run that half-succeeded and said nothing. Read\n// `ghl_response` for what it said.\nreturn $input.all().map((i) => {\n  const j = i.json || {};\n  const err = j.error || j;\n  const detail = (err && (err.message || err.description || err.error)) || j;\n  return {\n    json: {\n      _outcome: 'send failed',\n      _reason: 'GoHighLevel rejected the touch — nothing was sent for this lead',\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\n    }\n  };\n});"
+        "jsCode": "// GoHighLevel refused the touch. Its own node, so a send that failed is a visible step with\r\n// the response on it rather than a run that half-succeeded and said nothing. Read\r\n// `ghl_response` for what it said.\r\nreturn $input.all().map((i) => {\r\n  const j = i.json || {};\r\n  const err = j.error || j;\r\n  const detail = (err && (err.message || err.description || err.error)) || j;\r\n  return {\r\n    json: {\r\n      _outcome: 'send failed',\r\n      _reason: 'GoHighLevel rejected the touch — nothing was sent for this lead',\r\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\r\n    }\r\n  };\r\n});"
       },
       "id": "eb323838-6e7f-469b-bff0-e86487aa20db",
       "name": "STOP: GoHighLevel rejected the touch",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        360
-      ]
-    },
-    {
-      "parameters": {},
-      "id": "e7d83429-74be-46da-a5aa-008b40ae351c",
-      "name": "Run finished",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        2420,
-        360
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## Send follow-up touches to quiet leads in GoHighLevel\n\n**Who's it for**\nAgencies and sales teams running GoHighLevel who lose deals to silence rather than to a no, and want the chasing handled by a rule instead of a reminder.\n\n**How it works**\nEvery weekday at 08:00 it reads the pipeline, then sorts every lead three ways. **Due**: quiet for longer than the ladder allows, so the next touch is written and sent. **Waiting**: not quiet long enough yet. **Stopped**: they replied, the stage left the open list, or the sequence is finished. One touch per lead per run, `MAX_TOUCHES` in total, and the run reports what it did either way.\n\n**How to set up**\n1. Import it alongside the intake and routing workflow; both share the same `config` node.\n2. Run it once exactly as it ships. Six demo leads exercise every decision and nothing is sent.\n3. Open `config`: set the location id, the pipeline and stage ids, and an API key scoped `conversations.write`.\n4. Point `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID` and `SEQ_LAST_REPLY_FIELD_ID` at your custom fields.\n5. Set `DRY_RUN = false` only once the previews read the way you want them to.\n\n**Requirements**\nA GoHighLevel sub-account and a Private Integration token with `contacts.write` and `conversations.write`. Left blank, the workflow stays in preview instead of failing.\n\n**How to customize**\n`SEQUENCE` sets the wording and the wait before each touch. `OPEN_STAGES` and `MAX_TOUCHES` set the stops.",
-        "height": 700,
-        "width": 700,
-        "color": 4
-      },
-      "id": "7c8234a0-24e7-40bb-a425-544b3ef5fcba",
-      "name": "Sticky Note - Overview",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -760
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## The stops are the point\n\nA follow-up sequence is only as good as the rule that ends it. A lead is dropped the moment it stops being a lead: a reply hands it to a person, a stage move takes it out of `OPEN_STAGES`, and `MAX_TOUCHES` caps the nudging so nobody is chased forever.\n\nA read that fails does **not** fall back to the demo leads. A fabricated lead is never sequenced against a real account.",
-        "height": 400,
-        "width": 540,
-        "color": 3
-      },
-      "id": "581be448-fc77-4358-8a4f-49ef70139dbc",
-      "name": "Sticky Note - The stops",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        760,
-        -760
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 1. Trigger and settings\n\n`Run the sequence now` runs it by hand; `Every weekday morning, 08:00` arms it on a cron. Both land on the same node.\n\n`config` is the only node you edit. It holds the location id, the API key, the pipeline and stage ids, the custom-field ids, the `SEQUENCE` ladder and the `DRY_RUN` switch. A blank id skips that step rather than failing the run.",
-        "height": 320,
-        "width": 500,
-        "color": 7
-      },
-      "id": "c1037b12-1195-4251-9260-ebac017890e8",
-      "name": "Sticky Note - Section 1",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -40,
-        880
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 2. Read the pipeline\n\n`GoHighLevel connected?` checks the location id and the API key. Connected, and `[cred] GoHighLevel - read the pipeline` pulls one page of opportunities. Not connected, and `use the demo pipeline` stands in with six invented leads, so this is demonstrable before a single credential exists.\n\n`read the pipeline` maps either source into one row shape, so everything downstream is identical. A failed read goes to `STOP: could not read the pipeline`.",
-        "height": 380,
-        "width": 520,
-        "color": 7
-      },
-      "id": "68e0254d-a6e5-4a44-9bde-c86b9b5d0202",
-      "name": "Sticky Note - Section 2",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        480,
-        880
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 3. Decide who is due\n\n`plan the sequence` is where the rules live. For each lead it weighs the last touch and the last reply against the `SEQUENCE` ladder and files it as due, waiting or stopped - and for a stopped lead, records why.\n\n`anything due?` splits the run. Nothing due is still a result: `STOP: nothing due today` carries the waiting and stopped lists, so a quiet morning reads as a report.",
-        "height": 340,
-        "width": 460,
-        "color": 7
-      },
-      "id": "5da4be28-23da-4513-b740-c41de91e7ef0",
-      "name": "Sticky Note - Section 3",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1020,
-        880
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 4. Compose and send\n\n`compose the next touch` writes the greeting, the line from `SEQUENCE` and the signature, then builds the exact GoHighLevel request. It sends nothing itself, so the words can be read before anyone else sees them.\n\n`sending the touches?` is the safety gate. While `DRY_RUN` is true or the key is blank, every message stops at `STOP: preview - touches not sent` with its recipient, subject and body attached. Otherwise `[cred] GoHighLevel - send the touch` posts it.",
-        "height": 380,
-        "width": 520,
-        "color": 7
-      },
-      "id": "bcbc9a33-bd60-45f9-82f7-a34a471689ea",
-      "name": "Sticky Note - Section 4",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1500,
-        880
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 5. Every run ends somewhere\n\nEach outcome is its own node, so the execution log says what happened instead of leaving you to guess: `STOP: touches sent`, `STOP: GoHighLevel rejected the touch` with the response attached, `STOP: preview - touches not sent`, `STOP: nothing due today`, and `STOP: could not read the pipeline`.\n\nAll five meet at `Run finished`, the single end of the run.",
-        "height": 320,
-        "width": 580,
-        "color": 7
-      },
-      "id": "0fd0c8b8-b720-4998-99e8-c9329a15ef10",
-      "name": "Sticky Note - Section 5",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2040,
-        880
+        2560,
+        400
       ]
     }
   ],
+  "pinData": {},
   "connections": {
     "Run the sequence now": {
       "main": [
@@ -494,7 +446,7 @@
         ]
       ]
     },
-    "Every weekday morning, 08:00": {
+    "Every weekday at 08:00": {
       "main": [
         [
           {
@@ -509,36 +461,36 @@
       "main": [
         [
           {
-            "node": "GoHighLevel connected?",
+            "node": "Read the live pipeline?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "GoHighLevel connected?": {
+    "Read the live pipeline?": {
       "main": [
         [
           {
-            "node": "[cred] GoHighLevel - read the pipeline",
+            "node": "Search opportunities in GoHighLevel",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "use the demo pipeline",
+            "node": "Load the demo pipeline",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "[cred] GoHighLevel - read the pipeline": {
+    "Search opportunities in GoHighLevel": {
       "main": [
         [
           {
-            "node": "read the pipeline",
+            "node": "Map leads into one shape",
             "type": "main",
             "index": 0
           }
@@ -554,53 +506,47 @@
     },
     "STOP: could not read the pipeline": {
       "main": [
+        []
+      ]
+    },
+    "Load the demo pipeline": {
+      "main": [
         [
           {
-            "node": "Run finished",
+            "node": "Map leads into one shape",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "use the demo pipeline": {
+    "Map leads into one shape": {
       "main": [
         [
           {
-            "node": "read the pipeline",
+            "node": "Plan who is due a touch",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "read the pipeline": {
+    "Plan who is due a touch": {
       "main": [
         [
           {
-            "node": "plan the sequence",
+            "node": "Anyone due today?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "plan the sequence": {
+    "Anyone due today?": {
       "main": [
         [
           {
-            "node": "anything due?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "anything due?": {
-      "main": [
-        [
-          {
-            "node": "compose the next touch",
+            "node": "Write the next touch",
             "type": "main",
             "index": 0
           }
@@ -616,31 +562,25 @@
     },
     "STOP: nothing due today": {
       "main": [
+        []
+      ]
+    },
+    "Write the next touch": {
+      "main": [
         [
           {
-            "node": "Run finished",
+            "node": "Sending switched on?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "compose the next touch": {
+    "Sending switched on?": {
       "main": [
         [
           {
-            "node": "sending the touches?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "sending the touches?": {
-      "main": [
-        [
-          {
-            "node": "[cred] GoHighLevel - send the touch",
+            "node": "Send the touch through GoHighLevel",
             "type": "main",
             "index": 0
           }
@@ -656,16 +596,10 @@
     },
     "STOP: preview - touches not sent": {
       "main": [
-        [
-          {
-            "node": "Run finished",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
-    "[cred] GoHighLevel - send the touch": {
+    "Send the touch through GoHighLevel": {
       "main": [
         [
           {
@@ -685,24 +619,12 @@
     },
     "STOP: touches sent": {
       "main": [
-        [
-          {
-            "node": "Run finished",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "STOP: GoHighLevel rejected the touch": {
       "main": [
-        [
-          {
-            "node": "Run finished",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     }
   },
@@ -710,7 +632,9 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "meta": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
   "nodeGroups": [],
   "tags": []
 }

@@ -1,0 +1,667 @@
+{
+  "name": "Assign new HubSpot contacts to owners by territory round-robin with Slack alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Assign new HubSpot contacts to owners by territory round-robin with Slack alerts\n\n**Who's it for**\nSales managers with two or more reps per region who hand out inbound HubSpot leads by hand. Leads get an owner within 15 minutes and the load stays even.\n\n**How it works**\n1. Every 15 minutes it searches HubSpot for contacts created in the last day that have no owner, or uses sample contacts until HubSpot is connected.\n2. Country and state (full names or codes) pick a territory from the `TERRITORIES` table. Anything unmatched goes to the fallback territory.\n3. Each territory keeps its own rotation pointer in workflow static data. Owners on `AWAY_OWNERS` or at their daily cap are passed over; if nobody is free the lead is held and named in Slack.\n4. On a live run the owner is written to the HubSpot contact. One Slack message tags each rep with their new leads.\n\n**How to set up**\n1. Run it once as imported. It assigns sample contacts and stops at `STOP: preview - nothing posted` and `STOP: not live - HubSpot untouched`.\n2. Create a HubSpot private app with contacts read and write scopes, add it as a credential to both HubSpot nodes, then set `USE_HUBSPOT = true`.\n3. Fill `OWNERS` with HubSpot owner ids, Slack member ids and daily caps, and edit `TERRITORIES`. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel. The test alert lands there with no @mentions. Set `TEST_RUN = false` to write owners and post to `SLACK_CHANNEL_ID`.\n\n**Requirements**\n- A HubSpot account with a private app token\n- A Slack workspace\n\n**How to customize**\n- `TERRITORIES` maps countries and states to owner pools; order matters, first match wins.\n- `OWNERS` holds each rep's daily cap. `AWAY_OWNERS` takes people out of rotation for the day.\n- `LOOKBACK_HOURS` sets how old a contact can be and still get assigned.",
+        "height": 1136,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "661c5695-5717-4c4e-9a00-661c569513e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 15 minutes so a lead never waits long for an owner. Territories, owner caps and the away list are edited in `config` only.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b047cb48-5717-4c4e-9a00-b047cb481000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Find unowned contacts\n\nThe HubSpot search already filters out owned contacts; `Assign by territory` checks again in case an owner was set between the search and the write. Sample contacts stand in until `USE_HUBSPOT` is true.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "b147ccdb-5717-4c4e-9a00-b147ccdb1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick owners and alert\n\nTerritory order is first match wins, so specific state rules sit above whole-country ones. A full or away pool holds the lead and names it in Slack instead of overloading one rep. A test alert goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank.",
+        "height": 688,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "b247ce6e-5717-4c4e-9a00-b247ce6e1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write owners and save the rotation\n\nOnly `Live run?` writes to HubSpot. `Save rotation pointers` runs after the writes, so a preview or test never moves anyone up or down the rotation.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "b347d001-5717-4c4e-9a00-b347d0011003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "810bbef3-c694-4103-a6d9-c6d9baea810b",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ASSIGN NEW HUBSPOT CONTACTS TO OWNERS BY TERRITORY ROUND-ROBIN WITH SLACK ALERTS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_HUBSPOT false -> SAMPLE contacts so the run works before any credential exists.\n// Rotation pointers and daily counts are saved only on a live run.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n\n// set true after adding the HubSpot credential to both HubSpot nodes\nconst USE_HUBSPOT = false;\n// HubSpot owner id -> name, Slack member id, max new leads per day\nconst OWNERS = {\n  \"101\": {\n    name: \"Maya Ortiz\",\n    slack_id: \"U01MAYA\",\n    daily_cap: 5\n  },\n  \"102\": {\n    name: \"Theo Grant\",\n    slack_id: \"U02THEO\",\n    daily_cap: 1\n  },\n  \"111\": {\n    name: \"Ines Park\",\n    slack_id: \"U03INES\",\n    daily_cap: 8\n  },\n  \"201\": {\n    name: \"Owen Blake\",\n    slack_id: \"U04OWEN\",\n    daily_cap: 8\n  },\n  \"301\": {\n    name: \"Lena Fox\",\n    slack_id: \"U05LENA\",\n    daily_cap: 6\n  },\n  \"302\": {\n    name: \"Ravi Shah\",\n    slack_id: \"U06RAVI\",\n    daily_cap: 6\n  },\n  \"401\": {\n    name: \"Sara Lind\",\n    slack_id: \"U07SARA\",\n    daily_cap: 10\n  }\n};\n// first match wins; empty states = whole country; * = everything else\nconst TERRITORIES = [\n  {\n    name: \"US West\",\n    countries: [\n      \"US\"\n    ],\n    states: [\n      \"CA\",\n      \"OR\",\n      \"WA\",\n      \"NV\",\n      \"AZ\",\n      \"UT\",\n      \"CO\",\n      \"ID\",\n      \"MT\",\n      \"WY\",\n      \"NM\",\n      \"AK\",\n      \"HI\"\n    ],\n    owners: [\n      \"101\",\n      \"102\"\n    ]\n  },\n  {\n    name: \"US East\",\n    countries: [\n      \"US\"\n    ],\n    states: [],\n    owners: [\n      \"111\"\n    ]\n  },\n  {\n    name: \"UK and Ireland\",\n    countries: [\n      \"GB\",\n      \"IE\"\n    ],\n    states: [],\n    owners: [\n      \"201\"\n    ]\n  },\n  {\n    name: \"DACH\",\n    countries: [\n      \"DE\",\n      \"AT\",\n      \"CH\"\n    ],\n    states: [],\n    owners: [\n      \"301\",\n      \"302\"\n    ]\n  },\n  {\n    name: \"Rest of world\",\n    countries: [\n      \"*\"\n    ],\n    states: [],\n    owners: [\n      \"401\"\n    ]\n  }\n];\n// owner ids skipped today (holiday, sick, full pipeline)\nconst AWAY_OWNERS = [\n  \"401\"\n];\n// contacts created within this window are considered\nconst LOOKBACK_HOURS = 24;\n// channel for assignment alerts; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_hubspot: USE_HUBSPOT,\n    owners: OWNERS,\n    territories: TERRITORIES,\n    away_owners: AWAY_OWNERS,\n    lookback_hours: LOOKBACK_HOURS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "13d8897b-851f-410b-a3d6-43d6b72213d8",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "44f475a3-18a4-40b3-a77d-e77de39a44f4",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "1d847188-5673-4708-a045-f045943b1d84",
+      "name": "Use sample contacts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5d460764-e565-4024-a01d-301d13c75d46",
+              "leftValue": "={{ !$('config').first().json.use_hubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "ae952eee-3175-408e-a4e4-24e4c56dae95",
+      "name": "Load sample contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_HUBSPOT is true. Mixed name and code formats, one owned, one for an away rep.\nconst c = (id, firstname, lastname, country, state, owner = '') => ({ id, firstname, lastname, email: firstname.toLowerCase() + '@' + lastname.toLowerCase() + '.example', country, state, company: lastname + ' Ltd', owner_id: owner,\n  created: new Date(Date.now() - (100 - Number(id.slice(-2))) * 60e3).toISOString() });\nreturn [\n  c('9001', 'Ava', 'Reed', 'US', 'CA'), c('9002', 'Ben', 'Cole', 'United States', 'Washington'), c('9003', 'Cleo', 'Hart', 'USA', 'NY'),\n  c('9004', 'Dan', 'Fry', 'United Kingdom', ''), c('9005', 'Eva', 'Lang', 'Germany', 'Bavaria'), c('9006', 'Finn', 'Moss', 'US', 'OR'),\n  c('9007', 'Gus', 'Hale', 'us', 'Nevada'), c('9008', 'Hana', 'Ito', 'Japan', ''), c('9009', 'Ivy', 'Shaw', 'Ireland', '', '201'),\n].reverse().map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "7e7235e4-b46c-46a4-a842-38421a477e72",
+      "name": "Search new unowned contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [\n        { propertyName: 'createdate', operator: 'GTE', value: String(Date.now() - $('config').first().json.lookback_hours * 3600e3) },\n        { propertyName: 'hubspot_owner_id', operator: 'NOT_HAS_PROPERTY' } ] }],\n        properties: ['email', 'firstname', 'lastname', 'country', 'state', 'company', 'hubspot_owner_id', 'createdate'],\n        sorts: [{ propertyName: 'createdate', direction: 'ASCENDING' }], limit: 100 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "fc6f2667-e421-4c37-ae56-ce5608fefc6f",
+      "name": "Read HubSpot contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search response -> one item per contact in the sample shape.\nconst out = [];\nfor (const page of $input.all()) for (const r of page.json.results || []) {\n  const p = r.properties || {};\n  out.push({ json: { id: r.id, firstname: p.firstname || '', lastname: p.lastname || '', email: p.email || '', country: p.country || '', state: p.state || '',\n    company: p.company || '', owner_id: p.hubspot_owner_id || '', created: p.createdate || r.createdAt } });\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "5b64c008-0124-4d88-a69a-f69ad6bb5b64",
+      "name": "Combine contact sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "c36a2db7-1056-4a87-a364-b3641f4ec36a",
+      "name": "Assign by territory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Oldest contact first. Each territory rotates through its own owner list; an owner\n// who is away or at today's cap is passed over. Pointers and counts are worked on a\n// copy and only saved after a live write, so previews never shift the rotation.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst today = new Date().toISOString().slice(0, 10);\nconst rr = { ...(store.rr || {}) };\nconst load = store.load?.date === today ? { ...store.load.counts } : {};\nconst COUNTRY = { 'united states': 'US', usa: 'US', 'u.s.': 'US', america: 'US', 'united kingdom': 'GB', uk: 'GB', england: 'GB', scotland: 'GB', wales: 'GB',\n  ireland: 'IE', germany: 'DE', deutschland: 'DE', austria: 'AT', switzerland: 'CH', japan: 'JP', canada: 'CA', france: 'FR' };\nconst STATES = 'AL:alabama,AK:alaska,AZ:arizona,AR:arkansas,CA:california,CO:colorado,CT:connecticut,DE:delaware,FL:florida,GA:georgia,HI:hawaii,ID:idaho,IL:illinois,IN:indiana,IA:iowa,KS:kansas,KY:kentucky,LA:louisiana,ME:maine,MD:maryland,MA:massachusetts,MI:michigan,MN:minnesota,MS:mississippi,MO:missouri,MT:montana,NE:nebraska,NV:nevada,NH:new hampshire,NJ:new jersey,NM:new mexico,NY:new york,NC:north carolina,ND:north dakota,OH:ohio,OK:oklahoma,OR:oregon,PA:pennsylvania,RI:rhode island,SC:south carolina,SD:south dakota,TN:tennessee,TX:texas,UT:utah,VT:vermont,VA:virginia,WA:washington,WV:west virginia,WI:wisconsin,WY:wyoming,DC:district of columbia'\n  .split(',').reduce((m, p) => { const [code, name] = p.split(':'); m[name] = code; m[code.toLowerCase()] = code; return m; }, {});\nconst country = s => { const t = String(s || '').trim(); return COUNTRY[t.toLowerCase()] || t.toUpperCase(); };\nconst state = s => STATES[String(s || '').trim().toLowerCase()] || String(s || '').trim().toUpperCase();\nconst assigned = [], held = [], skipped = [];\nconst contacts = $input.all().map(i => i.json).sort((a, b) => String(a.created).localeCompare(String(b.created)));\nfor (const c of contacts) {\n  if (c.owner_id) { skipped.push({ id: c.id, name: c.firstname + ' ' + c.lastname, reason: 'already owned by ' + c.owner_id }); continue; }\n  const cc = country(c.country), st = state(c.state);\n  const t = cfg.territories.find(t => (t.countries.includes(cc) && (!t.states.length || t.states.includes(st))) || t.countries.includes('*'));\n  const pool = t.owners;\n  let start = rr[t.name] || 0, pick = null;\n  for (let k = 0; k < pool.length; k++) {\n    const id = pool[(start + k) % pool.length];\n    const o = cfg.owners[id];\n    if (!o || cfg.away_owners.includes(id) || (load[id] || 0) >= o.daily_cap) continue;\n    pick = id; rr[t.name] = (start + k + 1) % pool.length; break;\n  }\n  const who = { id: c.id, name: (c.firstname + ' ' + c.lastname).trim(), email: c.email, company: c.company, territory: t.name, country: cc, state: st };\n  if (!pick) { held.push({ ...who, reason: 'no owner free in ' + t.name + ' (away or at daily cap)' }); continue; }\n  load[pick] = (load[pick] || 0) + 1;\n  assigned.push({ ...who, owner_id: pick, owner_name: cfg.owners[pick].name, owner_slack: cfg.owners[pick].slack_id });\n}\nreturn [{ json: { assigned, held, skipped, state: { rr, load: { date: today, counts: load } } } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "011705b6-30b7-48d6-a67a-467a55850117",
+      "name": "Split into one item per assignment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per contact for the HubSpot update.\nreturn $input.first().json.assigned.map(a => ({ json: a }));\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "dea5b3b5-9464-4d25-ab9f-7b9f1ce0dea5",
+      "name": "Write the Slack alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message for the run, grouped by rep. Test mode names reps instead of tagging them.\nconst cfg = $('config').first().json;\nconst { assigned, held } = $input.first().json;\nconst byOwner = {};\nfor (const a of assigned) (byOwner[a.owner_id] ||= []).push(a);\nconst tag = id => cfg.mode === 'live' ? '<@' + cfg.owners[id].slack_id + '>' : cfg.owners[id].name;\nconst lines = Object.entries(byOwner).map(([id, list]) => tag(id) + ' (' + list.length + '): ' + list.map(a => a.name + (a.company ? ', ' + a.company : '') + ' [' + a.territory + ']').join('; '));\nconst text = [\n  (cfg.mode === 'test' ? '[TEST] ' : '') + '*New leads assigned*: ' + assigned.length + (held.length ? ', ' + held.length + ' waiting for an owner' : ''),\n  ...lines,\n  ...(held.length ? ['', '*Not assigned*', ...held.map(h => '- ' + h.name + ': ' + h.reason)] : []),\n].join('\\n');\nreturn [{ json: { text, send_to: cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id, post: assigned.length + held.length > 0 } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "30f7a1b4-bc50-4174-a5bd-a5bddd1730f7",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $json.post && $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "90a5aff2-7bb6-4852-a96e-796eb22190a5",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2080,
+        512
+      ]
+    },
+    {
+      "id": "fcc61713-14f2-4f23-a53e-b53e62cafcc6",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "d8639269-ef9a-4b99-a3de-73de2b24d863",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2304,
+        512
+      ]
+    },
+    {
+      "id": "72ca8b56-1d5f-4c76-abd6-bbd691e572ca",
+      "name": "Post assignments to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2304,
+        352
+      ]
+    },
+    {
+      "id": "043b7ddb-3fab-476b-a2ee-62ee00c2043b",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "491f96fd-138f-49ed-acff-7cff8f58491f",
+      "name": "STOP: not live - HubSpot untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "f772e2f1-e379-41a1-a80f-b80f2a7cf772",
+      "name": "Set the contact owner in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.hubapi.com/crm/v3/objects/contacts/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { hubspot_owner_id: $json.owner_id } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "a7ae23bc-f3ae-40fc-ae39-1e39bccfa7ae",
+      "name": "Save rotation pointers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// After the live writes: next run continues each rotation where this one stopped.\nconst store = $getWorkflowStaticData('global');\nconst s = $('Assign by territory').first().json.state;\nstore.rr = s.rr; store.load = s.load;\nreturn [{ json: { saved: true, pointers: s.rr, today: s.load.counts } }];\n"
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample contacts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample contacts?": {
+      "main": [
+        [
+          {
+            "node": "Load sample contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search new unowned contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search new unowned contacts": {
+      "main": [
+        [
+          {
+            "node": "Read HubSpot contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read HubSpot contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine contact sources": {
+      "main": [
+        [
+          {
+            "node": "Assign by territory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assign by territory": {
+      "main": [
+        [
+          {
+            "node": "Split into one item per assignment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the Slack alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack alert": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post assignments to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into one item per assignment": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Set the contact owner in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - HubSpot untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set the contact owner in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Save rotation pointers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

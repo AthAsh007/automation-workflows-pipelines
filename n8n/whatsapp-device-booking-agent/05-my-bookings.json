@@ -1,0 +1,212 @@
+{
+  "name": "Tool: My bookings",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## My bookings\nLists the teacher's upcoming bookings (not cancelled, not ended yet) with their IDs, soonest first. Returns `toolResult` with a `reply`.",
+        "height": 128,
+        "width": 560,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "name": "Sticky Note",
+      "id": "ddaf67b5-728b-42f7-8b50-efa5a8b65b56"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "phone"
+            }
+          ]
+        }
+      },
+      "id": "3256d4b4-bd4d-405e-bf87-65a8d6b95a45",
+      "name": "When the chatbot checks bookings",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        188
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "cbda243c-a0a0-4719-a25b-8ed97c5fb909",
+      "name": "Run a demo bookings",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        40,
+        364
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { phone: '12025550167' } };"
+      },
+      "id": "c6d19888-fd02-45b0-9fda-bb80cab680a9",
+      "name": "Demo request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        188
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// School iPad booking - CONFIG (my bookings). Fill in the PUT ... HERE values.\nconst cfg = {\n  SPREADSHEET_ID: 'PUT YOUR GOOGLE SHEET ID HERE',\n  BOOKINGS_TAB: 'Bookings',\n  TIMEZONE: 'Asia/Kolkata', // school time zone (IANA name)\n};\nreturn $input.all().map((i) => ({ json: Object.assign({}, i.json, { _cfg: cfg }) }));"
+      },
+      "id": "47755d31-0260-488a-9943-9fb0be14568e",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        188
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.BOOKINGS_TAB }}"
+        },
+        "options": {}
+      },
+      "id": "8ce9d025-06cb-4009-b9b0-35e7af7a8c62",
+      "name": "Sheets - Bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        760,
+        188
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// MY BOOKINGS. The teacher's upcoming bookings (not cancelled, not ended yet), soonest first.\nconst cfg = $('config').first().json._cfg;\nconst req = $('config').first().json;\nconst bookings = $('Sheets - Bookings').all().map((i) => i.json || {});\n\nconst now = $now.setZone(cfg.TIMEZONE);\nconst today = now.toFormat('yyyy-MM-dd');\nconst nowMin = now.hour * 60 + now.minute;\nconst pad = (n) => String(n).padStart(2, '0');\nconst digits = (v) => String(v == null ? '' : v).replace(/\\D/g, '');\n// 'HH:MM', ISO strings and Sheets time fractions -> minutes since midnight\nfunction toMin(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim();\n  if (/^0?\\.\\d+$/.test(s)) return Math.round(Number(s) * 1440);\n  const m = s.match(/(?:T|^)(\\d{1,2})[:.](\\d{2})/);\n  return m ? Number(m[1]) * 60 + Number(m[2]) : null;\n}\nconst hhmm = (v) => {\n  const m = toMin(v);\n  return m == null ? String(v || '') : pad(Math.floor(m / 60)) + ':' + pad(m % 60);\n};\nfunction toYMD(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim();\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return DateTime.fromISO(s.slice(0, 10)).isValid ? s.slice(0, 10) : null;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return DateTime.fromISO('1899-12-30').plus({ days: Math.floor(Number(s)) }).toFormat('yyyy-MM-dd');\n  return null;\n}\nconst notOver = (b) => {\n  const d = toYMD(b.date);\n  if (!d || d < today) return false;\n  if (d > today) return true;\n  const end = toMin(b.end_time);\n  return end == null || end > nowMin;\n};\n\nconst phone = digits(req.phone);\nconst mine = bookings\n  .filter((b) => phone && digits(b.phone) === phone\n    && String(b.status || '').trim().toLowerCase() === 'booked'\n    && notOver(b))\n  .map((b) => ({\n    booking_id: String(b.booking_id || '').trim(),\n    date: toYMD(b.date),\n    start_time: hhmm(b.start_time),\n    end_time: hhmm(b.end_time),\n    devices: b.devices,\n    device_ids: b.device_ids,\n  }))\n  .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));\n\nconst lines = mine.map((b) => `${b.booking_id}: ${DateTime.fromISO(b.date).toFormat('ccc d LLL')} ${b.start_time}-${b.end_time}, ${b.devices} iPad(s)`);\nconst reply = mine.length === 0\n  ? 'You have no upcoming iPad bookings.'\n  : `Your upcoming booking${mine.length === 1 ? '' : 's'}:\\n${lines.join('\\n')}`;\nreturn [{ json: { count: mine.length, bookings: mine, lines, reply } }];"
+      },
+      "id": "3234177a-fe6b-4124-a90b-fac1efc95551",
+      "name": "List bookings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        188
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('List bookings').first().json;\nreturn [{ json: { toolResult: { action: 'my_bookings', success: true, data: p } } }];"
+      },
+      "id": "c3789bc6-fe84-4986-adbe-6f8a280d3280",
+      "name": "Return result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        188
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When the chatbot checks bookings": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run a demo bookings": {
+      "main": [
+        [
+          {
+            "node": "Demo request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo request": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sheets - Bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - Bookings": {
+      "main": [
+        [
+          {
+            "node": "List bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List bookings": {
+      "main": [
+        [
+          {
+            "node": "Return result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

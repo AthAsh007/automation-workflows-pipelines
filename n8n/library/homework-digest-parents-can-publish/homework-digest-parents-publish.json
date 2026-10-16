@@ -1,0 +1,538 @@
+{
+  "name": "Email weekly homework digests to parents from Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Email weekly homework digests to parents from Google Sheets\n\n**Who's it for**\nSmall schools, tutoring centres and homeschool co-ops that track homework in a spreadsheet. Parents get one email on Sunday evening that covers every child, instead of one per class or none at all.\n\n**How it works**\n1. Every Sunday at 17:00 it reads three tabs: Assignments (class, subject, title, due date), Students (class and parent emails) and Grades (late or missing work). Sample data is used until a sheet is set.\n2. Assignments due Monday to Sunday of next week are matched to each student by class.\n3. Late and missing items from the Grades tab are added per student, with how many days overdue they are.\n4. Students who share a parent email are one family, so siblings in different classes land in one digest sent to both parents.\n5. Families with nothing due and nothing outstanding are skipped, as are students with no parent email.\n\n**How to set up**\n1. Run it once as imported. It builds digests from sample data and stops at `STOP: preview - nothing sent`.\n2. Create Assignments (Class, Subject, Title, Due), Students (Student ID, Student name, Class, Parent email, Second parent email) and Grades (Student ID, Assignment, Status, Due) tabs, connect Google Sheets and set `SCHOOL_SHEET_ID`.\n3. Connect Gmail and set `SCHOOL_NAME` and `REPLY_TO_NAME`.\n4. Put your address in `TEST_EMAIL` to receive every digest yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet with Assignments, Students and Grades tabs\n- A Gmail account\n\n**How to customize**\n- Set `SEND_EMPTY = true` to send a short \"nothing due\" email to every family.\n- `OUTSTANDING_STATUSES` lists the Grades statuses that count as late or missing.\n- `MAX_EMAILS` caps digests per run.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "e47f940b-5717-4c4e-9a00-e47f940b13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Sunday at 17:00 so the digest is in inboxes before the school week. School name, the outstanding statuses and the empty-week rule live in `config`.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f8bb9c0e-5717-4c4e-9a00-f8bb9c0e1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the three tabs\n\nAssignments, Students and Grades are read in parallel into one merge. Rows are told apart by their columns, so `Load sample school data` can stand in for all three with one node.",
+        "height": 880,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "f9bb9da1-5717-4c4e-9a00-f9bb9da11001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Build family digests\n\nGrouping by parent email rather than by student means two siblings produce one email, not two. Outstanding work is listed under each child with days overdue, so parents see what to chase first.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "f6bb98e8-5717-4c4e-9a00-f6bb98e81002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Email parents\n\nNothing is sent while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every digest goes to you with the real parent addresses in the subject.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        0
+      ],
+      "id": "f7bb9a7b-5717-4c4e-9a00-f7bb9a7b1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "2b4c08ae-210e-4e4e-a2ed-a2edcdad2b4c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EMAIL WEEKLY HOMEWORK DIGESTS TO PARENTS FROM GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SCHOOL_SHEET_ID blank -> SAMPLE assignments, students and grades so the run works before any credential exists.\n// Nothing is written anywhere; the only action is the email.\n\n// Google Sheets id with Assignments, Students and Grades tabs; blank uses sample data\nconst SCHOOL_SHEET_ID = '';\n// shown in the subject and sign-off\nconst SCHOOL_NAME = 'Riverside Learning Centre';\n// who parents should reply to\nconst REPLY_TO_NAME = 'Ms Alvarez, homework coordinator';\n// Grades statuses listed as outstanding (case ignored)\nconst OUTSTANDING_STATUSES = [\n  \"missing\",\n  \"late\",\n  \"incomplete\"\n];\n// true sends a short email even when a family has nothing due\nconst SEND_EMPTY = false;\n// hard ceiling on digests per run\nconst MAX_EMAILS = 300;\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    school_sheet_id: SCHOOL_SHEET_ID,\n    school_name: SCHOOL_NAME,\n    reply_to_name: REPLY_TO_NAME,\n    outstanding_statuses: OUTSTANDING_STATUSES,\n    send_empty: SEND_EMPTY,\n    max_emails: MAX_EMAILS,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: SCHOOL_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "ca13360a-93f9-46ea-a6e2-96e22d29ca13",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "4acc96ec-7f7d-452c-a203-e20310ff4acc",
+      "name": "Every Sunday at 17:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 0"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "856a0984-e02b-4844-aea7-cea7a1a7856a",
+      "name": "School sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7223ab6d-e11b-4b5d-a861-886173487223",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "634cfe6a-2142-414a-ae8f-1e8f89c9634c",
+      "name": "Read the Assignments tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.school_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Assignments"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "e7819b5a-3f5f-433a-ac24-1c246c79e781",
+      "name": "Read the Students tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.school_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Students"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "b7b1b5ee-fafe-478e-a1c7-41c7c86db7b1",
+      "name": "Read the Grades tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.school_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Grades"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        544
+      ]
+    },
+    {
+      "id": "b2169d4a-48e0-4a2a-a3fb-53fbbde9b216",
+      "name": "Load sample school data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until SCHOOL_SHEET_ID is set. Dates are built around next Monday so the\n// week window always has work in it. Rows from all three tabs, as the sheet returns them.\nconst now = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');\nconst toMon = (8 - now.getUTCDay()) % 7 || 7;\nconst d = n => new Date(now.getTime() + (toMon + n) * 864e5).toISOString().slice(0, 10);\nconst past = n => new Date(now.getTime() - n * 864e5).toISOString().slice(0, 10);\nconst A = (Class, Subject, Title, Due) => ({ Class, Subject, Title, Due });\nconst S = (id, name, Class, p1, p2 = '') => ({ 'Student ID': id, 'Student name': name, Class, 'Parent email': p1, 'Second parent email': p2, 'Parent name': '' });\nconst G = (id, Assignment, Status, Due) => ({ 'Student ID': id, Assignment, Status, Due });\nreturn [\n  A('7A', 'English', 'Read chapters 4-6 of Holes', d(1)),\n  A('7A', 'Maths', 'Fractions worksheet 3', d(3)),\n  A('9C', 'Science', 'Forces revision quiz', d(0)),\n  A('9C', 'History', 'Essay plan: causes of WW1', d(4)),\n  A('9C', 'Maths', 'Algebra homework 12', d(9)),\n  A('7A', 'Art', 'Sketchbook page', past(3)),\n  S('ST1', 'Ava Brooks', '7A', 'jo.brooks@mail.example', 'sam.brooks@mail.example'),\n  S('ST2', 'Leo Brooks', '9C', 'Jo.Brooks@mail.example'),\n  S('ST3', 'Maya Singh', '7A', 'r.singh@mail.example'),\n  S('ST4', 'Omar Haddad', '8B', 'haddad.family@mail.example'),\n  S('ST5', 'Zoe Clarke', '9C', ''),\n  G('ST2', 'Lab report: pendulums', 'Missing', past(6)),\n  G('ST1', 'Poetry analysis', 'late', past(2)),\n  G('ST3', 'Map skills', 'Submitted', past(4)),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        720
+      ]
+    },
+    {
+      "id": "a50ed49d-b57a-458d-a9a1-89a10cb8a50e",
+      "name": "Combine school data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 4
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "28c72235-603c-43a5-ab92-cb927f6028c7",
+      "name": "Build one digest per family",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Rows are told apart by their columns. Family = the set of parent emails, compared\n// lower-case, so siblings entered with different capitalisation still merge.\nconst cfg = $('config').first().json;\nconst rows = $input.all().map(i => i.json);\nconst assignments = rows.filter(r => r.Title && r.Due && r.Class);\nconst students = rows.filter(r => r['Student ID'] && 'Parent email' in r);\nconst grades = rows.filter(r => r['Student ID'] && r.Status);\nconst today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');\nconst toMon = (8 - today.getUTCDay()) % 7 || 7;\nconst iso = t => new Date(t).toISOString().slice(0, 10);\nconst from = iso(today.getTime() + toMon * 864e5), to = iso(today.getTime() + (toMon + 6) * 864e5);\nconst outstanding = cfg.outstanding_statuses.map(s => s.toLowerCase());\nconst dayName = s => new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });\nconst families = new Map(), held = [];\nfor (const s of students) {\n  const emails = [s['Parent email'], s['Second parent email']].map(e => String(e || '').trim().toLowerCase()).filter(e => e.includes('@'));\n  if (!emails.length) { held.push({ student: s['Student name'], reason: 'no parent email' }); continue; }\n  const key = emails[0];\n  const fam = families.get(key) || { emails: new Set(), children: [] };\n  emails.forEach(e => fam.emails.add(e));\n  const due = assignments.filter(a => String(a.Class).trim() === String(s.Class).trim() && String(a.Due).slice(0, 10) >= from && String(a.Due).slice(0, 10) <= to)\n    .sort((a, b) => String(a.Due).localeCompare(String(b.Due)));\n  const owed = grades.filter(g => g['Student ID'] === s['Student ID'] && outstanding.includes(String(g.Status).trim().toLowerCase()))\n    .map(g => ({ title: g.Assignment, status: String(g.Status).toLowerCase(), days: Math.max(0, Math.floor((today - new Date(String(g.Due).slice(0, 10) + 'T00:00:00Z')) / 864e5)) }));\n  fam.children.push({ name: s['Student name'], first: String(s['Student name']).split(' ')[0], cls: s.Class, due, owed });\n  families.set(key, fam);\n}\nconst digests = [];\nfor (const [key, fam] of families) {\n  const items = fam.children.reduce((n, c) => n + c.due.length + c.owed.length, 0);\n  if (!items && !cfg.send_empty) { held.push({ student: fam.children.map(c => c.name).join(' & '), reason: 'nothing due next week' }); continue; }\n  const lines = ['Hello,', '', 'Here is the homework for ' + fam.children.map(c => c.first).join(' and ') + ' for the week of ' + dayName(from) + '.', ''];\n  for (const c of fam.children) {\n    lines.push(c.name.toUpperCase() + ' (class ' + c.cls + ')');\n    if (!c.due.length) lines.push('- Nothing due next week.');\n    for (const a of c.due) lines.push('- ' + dayName(String(a.Due).slice(0, 10)) + ': ' + a.Subject + ', ' + a.Title);\n    for (const o of c.owed) lines.push('- OUTSTANDING (' + o.status + ', ' + o.days + ' days): ' + o.title);\n    lines.push('');\n  }\n  lines.push('Reply to this email with any questions.', cfg.reply_to_name, cfg.school_name);\n  const to = [...fam.emails];\n  digests.push({ family: key, to: to.join(','), children: fam.children.map(c => c.name), due: fam.children.reduce((n, c) => n + c.due.length, 0),\n    outstanding: fam.children.reduce((n, c) => n + c.owed.length, 0),\n    subject: 'Homework for the week of ' + dayName(from) + ': ' + fam.children.map(c => c.first).join(', '), body: lines.join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : to.join(',') });\n}\nfor (const d of digests.slice(cfg.max_emails)) held.push({ student: d.children.join(' & '), reason: 'over MAX_EMAILS' });\nreturn [{ json: { digests: digests.slice(0, cfg.max_emails), held, week: from + ' to ' + to } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "db64acab-e8f5-453b-a7ae-87ae2452db64",
+      "name": "Split into family emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per family email.\nreturn $input.first().json.digests.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "59cd26ba-2c1b-409a-ac0f-3c0f851959cd",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Execution log: digests built and students held back.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst text = ['Homework digests (' + cfg.mode + ') for ' + r.week + ': ' + r.digests.length + ' families.',\n  ...r.digests.map(d => '- ' + d.children.join(' & ') + ': ' + d.due + ' due, ' + d.outstanding + ' outstanding'),\n  ...r.held.map(h => '- held ' + h.student + ': ' + h.reason)].join('\\n');\nreturn [{ json: { text, families: r.digests.length, held: r.held.length } }];\n"
+      },
+      "position": [
+        1424,
+        384
+      ]
+    },
+    {
+      "id": "150802d5-65a3-4245-a003-70030ac01508",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1664,
+        208
+      ]
+    },
+    {
+      "id": "8fd955de-a58c-4c7e-a216-f216be1d8fd9",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1888,
+        384
+      ]
+    },
+    {
+      "id": "4cac4dcf-ed61-431f-a76d-976ddb564cac",
+      "name": "Email the family digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.to + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1888,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Sunday at 17:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "School sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "School sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Assignments tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read the Students tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read the Grades tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample school data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Assignments tab": {
+      "main": [
+        [
+          {
+            "node": "Combine school data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Students tab": {
+      "main": [
+        [
+          {
+            "node": "Combine school data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Read the Grades tab": {
+      "main": [
+        [
+          {
+            "node": "Combine school data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Load sample school data": {
+      "main": [
+        [
+          {
+            "node": "Combine school data",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Combine school data": {
+      "main": [
+        [
+          {
+            "node": "Build one digest per family",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build one digest per family": {
+      "main": [
+        [
+          {
+            "node": "Split into family emails",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into family emails": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the family digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -91,9 +91,9 @@ running one.
 | --- | --- | --- |
 | [ai-news-digest-can-publish](../n8n/starters/ai-news-digest-can-publish/) | Feeds merged, filtered by one model, and only survivors fetched and summarised by a second. Filtering before fetching is the design. | RSS, Browserless, Google Sheets |
 | [b2b-lead-sourcing-can-publish](../n8n/starters/b2b-lead-sourcing-can-publish/) | A search brief in, companies sourced, addresses found and verified, a first email drafted and written back for review rather than sent. | Apify, Google Sheets |
-| [cold-email-and-reply-triage-can-publish](../n8n/starters/cold-email-and-reply-triage-can-publish/) | A lead list upserted, the first touch sent, replies matched to a lead and classified. Only the prospect's own messages reach the classifier. | Gmail, n8n data tables |
+| [cold-email-and-reply-triage-published](../n8n/starters/cold-email-and-reply-triage-published/) | A lead list upserted, the first touch sent, replies matched to a lead and classified. Only the prospect's own messages reach the classifier. | Gmail, n8n data tables |
 | [newsletter-signup-to-mailchimp-can-publish](../n8n/starters/newsletter-signup-to-mailchimp-can-publish/) | A signup validated before anything else happens, an existing address updated rather than re-added, both outcomes answered explicitly. | Mailchimp, Gmail |
-| [applicant-tracking-sync-can-publish](../n8n/starters/applicant-tracking-sync-can-publish/) | Applicants deduplicated against Notion before insert, and stage emails driven by a stored previous stage because the trigger says a page changed, not what changed. | Notion, Google Sheets, Gmail |
+| [applicant-tracking-sync-published](../n8n/starters/applicant-tracking-sync-published/) | Applicants deduplicated against Notion before insert, and stage emails driven by a stored previous stage because the trigger says a page changed, not what changed. | Notion, Google Sheets, Gmail |
 | [whatsapp-lead-and-reminders-can-publish](../n8n/starters/whatsapp-lead-and-reminders-can-publish/) | Three flows on one number: an enquiry scored against a fixed schema, overdue invoices chased, a new customer welcomed. | Twilio WhatsApp, n8n data tables |
 
 ## Running any of the twelve

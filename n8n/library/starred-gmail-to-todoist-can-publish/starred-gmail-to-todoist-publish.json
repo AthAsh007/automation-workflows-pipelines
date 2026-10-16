@@ -1,0 +1,629 @@
+{
+  "name": "Create Todoist tasks from starred Gmail emails",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Create Todoist tasks from starred Gmail emails\n\n**Who's it for**\nFreelancers, founders and managers who star emails as a to-do list and then lose them under newer mail. Starring stays the habit; the task with a due date and a link back to the email appears in Todoist.\n\n**How it works**\n1. Every 15 minutes it searches Gmail for `GMAIL_QUERY` (starred in the last 7 days), skips message ids it already turned into tasks, and reads the rest. Sample emails are used until Gmail is connected.\n2. The title is the subject without Re:, Fwd:, [EXTERNAL] tags or trailing punctuation. A blank subject uses the first line of the body.\n3. Due dates come from phrases in the subject or body, counted from when the email arrived: today, EOD, tomorrow, by a weekday, next week, end of month or an ISO date. A date already passed becomes today.\n4. Priority is 4 for `VIP_SENDERS` or urgent words, 3 for `IMPORTANT_DOMAINS`, else 1. The task links back to the email.\n\n**How to set up**\n1. Run it once as imported. It turns sample emails into tasks and stops at `STOP: dry run - Todoist untouched`.\n2. Add a Gmail OAuth2 credential to `List starred messages` and `Fetch each message`, then set `USE_GMAIL = true`.\n3. Add a Todoist credential to `Create the Todoist task` and optionally set `TODOIST_PROJECT_ID`.\n4. Check the tasks on `Turn emails into tasks`, then set `DRY_RUN = false` and activate the workflow.\n\n**Requirements**\n- A Gmail account\n- A Todoist account\n\n**How to customize**\n- `VIP_SENDERS`, `IMPORTANT_DOMAINS` and `URGENT_WORDS` decide the priority.\n- `GMAIL_QUERY` can narrow the search, for example to one label.\n- `DEFAULT_DUE` sets the due date when the email names none: blank, today or tomorrow.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "f8e7d9ba-5717-4c4e-9a00-f8e7d9ba13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nA 15-minute search rather than the Gmail trigger, because starring usually happens on mail that is already read and the trigger only sees new arrivals. Sender lists and the search live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "46ba6f1f-5717-4c4e-9a00-46ba6f1f1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read starred emails\n\n`Keep unseen message ids` drops ids that already became tasks before any message is downloaded. `Load sample starred emails` gives the decoded shape, including a reply chain, a VIP, an urgent subject and a blank subject.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "45ba6d8c-5717-4c4e-9a00-45ba6d8c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Build the tasks\n\nDates are counted from when the email arrived, so \"tomorrow\" in yesterday's email means today. A date that already passed becomes today rather than an overdue task nobody sees.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "48ba7245-5717-4c4e-9a00-48ba72451002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Create and remember\n\nOnly a live run creates tasks. `Remember added emails` records a message id only when Todoist returned a task id, so a failed create is retried on the next run.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "47ba70b2-5717-4c4e-9a00-47ba70b21003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "1aa7f26a-5078-454a-a5a7-f5a765c91aa7",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CREATE TODOIST TASKS FROM STARRED GMAIL EMAILS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GMAIL false -> SAMPLE emails, so the run works before any credential exists.\n// DRY_RUN true -> tasks are built and shown, Todoist is not changed.\n\n// set true after adding the Gmail credential to both Gmail nodes\nconst USE_GMAIL = false;\n// Gmail search for emails that should become tasks\nconst GMAIL_QUERY = 'is:starred newer_than:7d';\n// senders whose emails become priority 4\nconst VIP_SENDERS = [\n  \"ceo@northwind.example\",\n  \"board@northwind.example\"\n];\n// sender domains whose emails become priority 3\nconst IMPORTANT_DOMAINS = [\n  \"bigclient.example\"\n];\n// words in the subject that make priority 4\nconst URGENT_WORDS = [\n  \"urgent\",\n  \"asap\",\n  \"action required\"\n];\n// due date when none is found: '', 'today' or 'tomorrow'\nconst DEFAULT_DUE = '';\n// Todoist project for the tasks; blank uses the Inbox\nconst TODOIST_PROJECT_ID = '';\n// labels added to every task\nconst TASK_LABELS = [\n  \"email\"\n];\n// hard ceiling on tasks per run\nconst MAX_PER_RUN = 20;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_gmail: USE_GMAIL,\n    gmail_query: GMAIL_QUERY,\n    vip_senders: VIP_SENDERS,\n    important_domains: IMPORTANT_DOMAINS,\n    urgent_words: URGENT_WORDS,\n    default_due: DEFAULT_DUE,\n    todoist_project_id: TODOIST_PROJECT_ID,\n    task_labels: TASK_LABELS,\n    max_per_run: MAX_PER_RUN,\n    dry_run: DRY_RUN,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "be0a961e-2ab7-48be-aae0-dae030ddbe0a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "bead1472-64d3-44d2-a28f-728f1ea1bead",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "7b295c0c-e2ae-404c-a583-958371df7b29",
+      "name": "Gmail off?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4cb2a0eb-120d-457b-adb0-4db08e124cb2",
+              "leftValue": "={{ !$('config').first().json.use_gmail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "58250c92-43ec-42f2-aef7-fef786815825",
+      "name": "Load sample starred emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GMAIL is true. Already decoded: the same shape Read the messages builds.\nconst ago = h => new Date(Date.now() - h * 36e5).toISOString();\nreturn [\n  { id: '18c1a0000000a001', thread_id: '18c1a0000000a001', from: 'Maria Lopez <maria@bigclient.example>', subject: 'Re: Fwd: [EXTERNAL] Q4 proposal - need your numbers by Friday!!', body: 'Hi, can you send the revised numbers by Friday? Thanks', received_at: ago(3) },\n  { id: '18c1a0000000a002', thread_id: '18c1a0000000a002', from: 'Sam Holt <ceo@northwind.example>', subject: 'Board deck', body: 'Please review the deck today. It goes out tonight.', received_at: ago(1) },\n  { id: '18c1a0000000a003', thread_id: '18c1a0000000a003', from: 'billing@vendor.example', subject: 'ACTION REQUIRED: renew your plan', body: 'Your plan renews at the end of the month.', received_at: ago(30) },\n  { id: '18c1a0000000a004', thread_id: '18c1a0000000a004', from: 'Ola <ola@friend.example>', subject: '', body: 'Book the restaurant for Saturday\\nIt is the place on Harbour Street.', received_at: ago(26) },\n  { id: '18c1a0000000a005', thread_id: '18c1a0000000a005', from: 'dev@northwind.example', subject: 'Re: release checklist', body: 'Can you sign off tomorrow?', received_at: ago(30) },\n  { id: '18c1a0000000a006', thread_id: '18c1a0000000a006', from: 'news@letters.example', subject: 'Weekly reading list', body: 'Ten links for the weekend.', received_at: ago(5) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "8e70d2b9-435a-42e9-a828-6828de748e70",
+      "name": "List starred messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('config').first().json.gmail_query }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "5a3d38de-8fe7-4f7e-a30d-930d411d5a3d",
+      "name": "Keep unseen message ids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only ids that never became a task are fetched, so a run with nothing new costs one call.\nconst cfg = $('config').first().json;\nconst seen = $getWorkflowStaticData('global').done || {};\nreturn ($input.first().json.messages || []).filter(m => !seen[m.id]).slice(0, cfg.max_per_run).map(m => ({ json: { id: m.id } }));\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "88096876-c63a-4f96-a3ae-23ae01c58809",
+      "name": "Fetch each message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "c5fc6ea1-5669-4651-a53a-153a242cc5fc",
+      "name": "Read the messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Headers plus the first text/plain part, base64url-decoded.\nconst dec = d => Buffer.from(String(d || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');\nconst plain = p => {\n  if (!p) return '';\n  if (p.mimeType === 'text/plain' && p.body?.data) return dec(p.body.data);\n  for (const c of p.parts || []) { const t = plain(c); if (t) return t; }\n  return '';\n};\nreturn $input.all().map(({ json: m }) => {\n  const h = Object.fromEntries((m.payload?.headers || []).map(x => [x.name.toLowerCase(), x.value]));\n  return { json: { id: m.id, thread_id: m.threadId, from: h.from || '', subject: h.subject || '', body: (plain(m.payload) || m.snippet || '').slice(0, 4000),\n    received_at: new Date(Number(m.internalDate || Date.now())).toISOString() } };\n});\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "477868db-04dd-426b-a638-c638ebc24778",
+      "name": "Combine email sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "f4b97bf8-921e-4e78-a9d6-39d6bb6bf4b9",
+      "name": "Turn emails into tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Title: subject minus reply/forward prefixes and bracket tags. Due: the first phrase\n// found, counted from the email's arrival. Priority: VIP > urgent words > domain > 1.\nconst cfg = $('config').first().json;\nconst seen = $getWorkflowStaticData('global').done || {};\nconst today = new Date().toISOString().slice(0, 10);\nconst iso = d => d.toISOString().slice(0, 10);\nconst addDays = (d, n) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n));\nconst days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];\nconst dueFrom = (text, ref) => {\n  const t = text.toLowerCase();\n  let m;\n  if ((m = t.match(/\\b(\\d{4}-\\d{2}-\\d{2})\\b/))) return [m[1], m[1]];\n  if (/\\b(today|tonight|eod|end of (the )?day)\\b/.test(t)) return [iso(ref), 'today'];\n  if (/\\btomorrow\\b/.test(t)) return [iso(addDays(ref, 1)), 'tomorrow'];\n  if ((m = t.match(/\\b(?:by|on|before|for|this)\\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b/))) {\n    const want = days.indexOf(m[1]);\n    return [iso(addDays(ref, (want - ref.getUTCDay() + 7) % 7)), m[0]];\n  }\n  if (/\\bnext week\\b/.test(t)) return [iso(addDays(ref, ((8 - ref.getUTCDay()) % 7) || 7)), 'next week'];\n  if (/\\bend of (the )?month\\b/.test(t)) return [iso(new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0))), 'end of month'];\n  return [null, ''];\n};\nconst clean = s => String(s || '').replace(/^\\s*((re|fwd?|fw|aw|tr)\\s*:\\s*|\\[[^\\]]*\\]\\s*)+/i, '').replace(/[!?.\\s]+$/, '').replace(/\\s+/g, ' ').trim();\nconst tasks = [], skipped = [];\nfor (const { json: e } of $input.all()) {\n  if (!e.id) continue;\n  if (seen[e.id]) { skipped.push({ id: e.id, reason: 'task already created' }); continue; }\n  const title = clean(e.subject) || clean(String(e.body || '').split('\\n')[0]).slice(0, 120) || '(no subject)';\n  const ref = new Date(e.received_at);\n  let [due, phrase] = dueFrom(e.subject + '\\n' + e.body, ref);\n  if (!due && cfg.default_due) due = cfg.default_due === 'tomorrow' ? iso(addDays(new Date(), 1)) : today;\n  const late = due && due < today;\n  const addr = ((e.from.match(/<([^>]+)>/) || [])[1] || e.from).toLowerCase().trim();\n  const domain = addr.split('@')[1] || '';\n  const urgent = cfg.urgent_words.some(w => e.subject.toLowerCase().includes(w));\n  const priority = cfg.vip_senders.includes(addr) || urgent ? 4 : cfg.important_domains.includes(domain) ? 3 : 1;\n  tasks.push({ email_id: e.id, title, due: late ? today : due, due_phrase: phrase, was_late: !!late, priority, from: addr,\n    description: 'From ' + e.from + ' on ' + e.received_at.slice(0, 10) + '\\nhttps://mail.google.com/mail/u/0/#all/' + e.thread_id });\n}\nreturn [{ json: { tasks: tasks.slice(0, cfg.max_per_run), skipped } }];\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "1b93818f-e0f2-4adf-aa84-ca8469961b93",
+      "name": "Any tasks to add?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e5d41a28-769a-4da8-afb6-7fb6039be5d4",
+              "leftValue": "={{ $json.tasks.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "7a56f141-a11b-46f1-a559-95592d8c7a56",
+      "name": "STOP: no new starred emails",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2304,
+        384
+      ]
+    },
+    {
+      "id": "eef5fd5b-1561-4eeb-af97-2f979c42eef5",
+      "name": "Shape Todoist tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per task in the Todoist API body shape.\nconst cfg = $('config').first().json;\nreturn $input.first().json.tasks.map(t => ({ json: { email_id: t.email_id, body: {\n  content: t.title, description: t.description, priority: t.priority, labels: cfg.task_labels,\n  ...(t.due ? { due_date: t.due } : {}), ...(cfg.todoist_project_id ? { project_id: cfg.todoist_project_id } : {}),\n} } }));\n"
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "44dd8aec-d48a-492c-a10e-510e0cff44dd",
+      "name": "Create in Todoist?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea9b2a97-e4da-4167-ab6b-3b6b216eea9b",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "9f14da1a-c017-45fa-ac30-fc3055b99f14",
+      "name": "STOP: dry run - Todoist untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "02635b84-be4f-4a44-af4a-8f4abfa70263",
+      "name": "Create the Todoist task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.todoist.com/api/v1/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "todoistApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "d3d0f21e-be59-44be-a73c-e73cb4ddd3d0",
+      "name": "Remember added emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Message id -> task id, kept 60 days, so a starred email never becomes two tasks.\nconst store = $getWorkflowStaticData('global');\nconst done = store.done || {};\nconst shaped = $('Shape Todoist tasks').all();\n$input.all().forEach((it, i) => { if (it.json.id && shaped[i]) done[shaped[i].json.email_id] = { task: it.json.id, at: Date.now() }; });\nfor (const [k, v] of Object.entries(done)) if (Date.now() - v.at > 60 * 864e5) delete done[k];\nstore.done = done;\nreturn [{ json: { remembered: Object.keys(done).length } }];\n"
+      },
+      "position": [
+        3216,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Gmail off?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail off?": {
+      "main": [
+        [
+          {
+            "node": "Load sample starred emails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List starred messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List starred messages": {
+      "main": [
+        [
+          {
+            "node": "Keep unseen message ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep unseen message ids": {
+      "main": [
+        [
+          {
+            "node": "Fetch each message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch each message": {
+      "main": [
+        [
+          {
+            "node": "Read the messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample starred emails": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the messages": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine email sources": {
+      "main": [
+        [
+          {
+            "node": "Turn emails into tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Turn emails into tasks": {
+      "main": [
+        [
+          {
+            "node": "Any tasks to add?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any tasks to add?": {
+      "main": [
+        [
+          {
+            "node": "Shape Todoist tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new starred emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Todoist tasks": {
+      "main": [
+        [
+          {
+            "node": "Create in Todoist?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create in Todoist?": {
+      "main": [
+        [
+          {
+            "node": "Create the Todoist task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Todoist untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create the Todoist task": {
+      "main": [
+        [
+          {
+            "node": "Remember added emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,712 @@
+{
+  "name": "Translate non-English Zendesk tickets with OpenAI and tag the language",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Translate non-English Zendesk tickets with OpenAI and tag the language\n\n**Who's it for**\nSupport teams on Zendesk that answer in one language but receive tickets in several, and lose time pasting each one into a translator before they can even triage it.\n\n**How it works**\n1. Every 10 minutes it searches Zendesk for unsolved tickets from the last 2 hours not yet tagged `lang_checked`, or uses 6 sample tickets until Zendesk is connected.\n2. Language is detected in code: the writing system decides Japanese, Chinese, Korean, Cyrillic, Arabic and others; for Latin text it counts common words in 7 languages and uses accents such as ñ, ã and ß to settle close calls.\n3. Every ticket is tagged `lang_xx` and `lang_checked`; a ticket with too few clues is tagged `lang_unknown` rather than guessed.\n4. With `USE_OPENAI` on, tickets not in `BASE_LANGUAGE` get an internal note with the subject and body translated. With it off, the note names the detected language.\n\n**How to set up**\n1. Run it once as imported. It detects the sample tickets and stops at `STOP: dry run - tickets untouched`.\n2. Add a Zendesk credential to `Search new Zendesk tickets` and `Tag and note the ticket`, fill in `ZENDESK_SUBDOMAIN` and set `USE_ZENDESK = true`.\n3. Optionally add an OpenAI credential to the model under `Translate with OpenAI` and set `USE_OPENAI = true`.\n4. Set `DRY_RUN = false` to start tagging and adding notes.\n\n**Requirements**\n- A Zendesk Support account with API access\n- Optional: an OpenAI API key\n\n**How to customize**\n- `BASE_LANGUAGE` is the language your team answers in.\n- `MIN_WORD_HITS` sets how many clues detection needs before it commits.\n- Use the `lang_xx` tags in Zendesk triggers to route tickets to agents who speak that language.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "64fe1cd7-5717-4c4e-9a00-64fe1cd713e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 10 minutes so a translated note is waiting before an agent opens the ticket. The base language and detection threshold live in `config`.",
+        "height": 656,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "01adcd2a-5717-4c4e-9a00-01adcd2a1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read new tickets\n\nThe search skips tickets already tagged `lang_checked`, so each ticket is handled once even though the 2 hour window overlaps runs. `Load sample tickets` covers five languages until `USE_ZENDESK` is true.",
+        "height": 656,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "02adcebd-5717-4c4e-9a00-02adcebd1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Detect, then translate\n\nDetection is free and runs on every ticket; the model is only called for tickets outside `BASE_LANGUAGE`, and not at all when there are none. A short reply like \"ok gracias\" is tagged unknown instead of guessed.",
+        "height": 656,
+        "width": 1456,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "ffadca04-5717-4c4e-9a00-ffadca041002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Tag and note in Zendesk\n\nTags are added, never replaced, and the note is internal so the customer never sees a machine translation. Nothing is written while `DRY_RUN` is true.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        0
+      ],
+      "id": "00adcb97-5717-4c4e-9a00-00adcb971003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "9416c718-be01-4f98-a286-9286064b9416",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TRANSLATE NON-ENGLISH ZENDESK TICKETS WITH OPENAI AND TAG THE LANGUAGE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_ZENDESK false -> SAMPLE tickets. USE_OPENAI false -> notes name the language, no translation.\n// DRY_RUN true -> nothing is tagged or noted in Zendesk.\n\n// set true after adding the Zendesk credential to both Zendesk nodes\nconst USE_ZENDESK = false;\n// the part before .zendesk.com\nconst ZENDESK_SUBDOMAIN = 'yourcompany';\n// tickets created in this window are checked\nconst LOOKBACK_HOURS = 2;\n// set true after adding an OpenAI credential to the model under Translate with OpenAI\nconst USE_OPENAI = false;\n// language your team answers in; tickets in it are only tagged\nconst BASE_LANGUAGE = 'en';\n// for Latin-script text, the winning language needs at least this many common-word hits\nconst MIN_WORD_HITS = 3;\n// longest ticket body sent for translation\nconst MAX_CHARS = 2000;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_zendesk: USE_ZENDESK,\n    zendesk_subdomain: ZENDESK_SUBDOMAIN,\n    lookback_hours: LOOKBACK_HOURS,\n    use_openai: USE_OPENAI,\n    base_language: BASE_LANGUAGE,\n    min_word_hits: MIN_WORD_HITS,\n    max_chars: MAX_CHARS,\n    dry_run: DRY_RUN,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "e550d0cc-8364-490c-af28-af28401fe550",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "575c181f-3ebc-446f-ad92-4d9210a6575c",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "cf034e8e-35ec-4e2e-ac64-fc6490cdcf03",
+      "name": "Zendesk connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1086fecb-4361-4d5b-a022-f02209321086",
+              "leftValue": "={{ $('config').first().json.use_zendesk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "268ae111-230d-45c1-add0-1dd04c5c268a",
+      "name": "Search new Zendesk tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.zendesk_subdomain + '.zendesk.com/api/v2/search.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ 'type:ticket status<solved -tags:lang_checked created>' + new Date(Date.now() - $('config').first().json.lookback_hours * 36e5).toISOString().slice(0, 19) + 'Z' }}"
+            },
+            {
+              "name": "sort_by",
+              "value": "created_at"
+            },
+            {
+              "name": "sort_order",
+              "value": "asc"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "edb53527-7dca-4ef7-afe1-6fe1463eedb5",
+      "name": "Read Zendesk tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search results -> id, subject, first comment.\nconst out = [];\nfor (const page of $input.all()) for (const t of page.json.results || []) {\n  if (t.result_type && t.result_type !== 'ticket') continue;\n  out.push({ json: { id: t.id, subject: t.subject || '', body: t.description || '', tags: t.tags || [] } });\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "c4b2f045-c81b-4cb5-a838-6838ebb0c4b2",
+      "name": "Load sample tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_ZENDESK is true. Five languages and one ticket too short to call.\nreturn [\n  { id: 501, subject: 'No puedo acceder a mi cuenta', body: 'Hola, desde ayer no puedo acceder a mi cuenta. El código de verificación no llega a mi correo. ¿Me pueden ayudar con esto?', tags: [] },\n  { id: 502, subject: 'Rechnung doppelt bezahlt', body: 'Guten Tag, ich habe die Rechnung für Oktober zweimal bezahlt. Bitte erstatten Sie mir den doppelten Betrag, das ist nicht korrekt. Mit freundlichen Grüßen', tags: [] },\n  { id: 503, subject: 'Export is slow', body: 'Hi, the CSV export takes more than ten minutes and then it times out. Is this a known issue with large accounts?', tags: [] },\n  { id: 504, subject: 'ログインできません', body: 'パスワードをリセットしましたが、まだログインできません。確認していただけますか。', tags: [] },\n  { id: 505, subject: 'Problème avec la facture', body: \"Bonjour, je ne trouve pas la facture de septembre dans mon compte. Est-ce que vous pouvez me l'envoyer par email ?\", tags: [] },\n  { id: 506, subject: 'Re: 4471', body: 'ok gracias', tags: [] },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "dd978577-f269-4647-a054-5054e08edd97",
+      "name": "Combine ticket sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "d8f75778-c623-41f8-a729-17294aebd8f7",
+      "name": "Detect the language",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// No API: writing system first, then common-word counts for Latin text, with\n// accents to separate close pairs (es/pt, fr/it). Too few clues -> unknown.\nconst cfg = $('config').first().json;\nconst SCRIPTS = [\n  ['ja', /[\\u3040-\\u30ff]/g], ['ko', /[\\uac00-\\ud7af]/g], ['zh', /[\\u4e00-\\u9fff]/g], ['uk', /[\\u0454\\u0456\\u0457\\u0491]/g],\n  ['ru', /[\\u0400-\\u04ff]/g], ['ar', /[\\u0600-\\u06ff]/g], ['he', /[\\u0590-\\u05ff]/g], ['el', /[\\u0370-\\u03ff]/g],\n  ['th', /[\\u0e00-\\u0e7f]/g], ['hi', /[\\u0900-\\u097f]/g],\n];\nconst WORDS = {\n  en: 'the and is to you my it not have with this for are can was of in on',\n  es: 'el la los las de que y es no por para con una mi pero esto me desde puedo',\n  fr: 'le la les des est et je pas pour une vous mon avec sur ne dans que ce',\n  de: 'der die das und ist nicht ich ein eine mit für auf mein sie den zu bitte',\n  pt: 'o os as de que e não para com uma meu está você mas um do da',\n  it: 'il lo gli che e non per con una mio sono ma è di della questo',\n  nl: 'de het een en is niet ik met voor op mijn van dat ook',\n};\nconst ACCENTS = { es: /[ñ¿¡]/g, pt: /[ãõ]/g, de: /[ßäöü]/g, fr: /[èêàçœ]/g, it: /[ìò]/g };\nconst sets = Object.fromEntries(Object.entries(WORDS).map(([k, v]) => [k, new Set(v.split(' '))]));\nconst NAMES = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', pt: 'Portuguese', it: 'Italian', nl: 'Dutch', ja: 'Japanese', zh: 'Chinese', ko: 'Korean', ru: 'Russian', uk: 'Ukrainian', ar: 'Arabic', he: 'Hebrew', el: 'Greek', th: 'Thai', hi: 'Hindi' };\nconst tickets = [];\nfor (const { json: t } of $input.all()) {\n  const text = (t.subject + ' ' + t.body).toLowerCase();\n  let lang = null, how = '', hits = 0;\n  for (const [code, re] of SCRIPTS) { const n = (text.match(re) || []).length; if (n >= 2) { lang = code; how = n + ' ' + code + ' characters'; break; } }\n  if (!lang) {\n    const tokens = text.replace(/[^a-zà-ÿœß ]+/g, ' ').split(/\\s+/).filter(Boolean);\n    const score = {};\n    for (const [code, s] of Object.entries(sets)) score[code] = tokens.filter(w => s.has(w)).length + 2 * (text.match(ACCENTS[code] || /$^/g) || []).length;\n    const ranked = Object.entries(score).sort((a, b) => b[1] - a[1]);\n    hits = ranked[0][1];\n    if (hits >= cfg.min_word_hits && hits >= ranked[1][1] * 1.3) { lang = ranked[0][0]; how = hits + ' clues vs ' + ranked[1][1] + ' for ' + ranked[1][0]; }\n    else how = 'too few clues (' + ranked[0][0] + ' ' + hits + ', ' + ranked[1][0] + ' ' + ranked[1][1] + ')';\n  }\n  tickets.push({ ...t, lang: lang || 'unknown', language: NAMES[lang] || 'unknown', how,\n    translate: Boolean(lang) && lang !== cfg.base_language });\n}\nreturn [{ json: { tickets, to_translate: tickets.filter(t => t.translate).length } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "314c1a4c-9c60-4a8c-a46f-646f519f314c",
+      "name": "Skip the model?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c7595af3-94f9-4d03-a017-00177eeac759",
+              "leftValue": "={{ !$('config').first().json.use_openai || $json.to_translate === 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "94c31756-2864-4876-a651-365115e594c3",
+      "name": "Skip translation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// OpenAI is off (or nothing needs translating): no translations, notes name the language.\nreturn [{ json: { translations: {} } }];\n"
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "417ea541-c3a2-4af1-ad14-ed14598c417e",
+      "name": "Prepare translation prompts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Exactly the tickets that need a translation, so model replies pair back by position.\nconst cfg = $('config').first().json;\nreturn $input.first().json.tickets.filter(t => t.translate).map(t => ({ json: { id: t.id, language: t.language,\n  subject: t.subject, body: t.body.slice(0, cfg.max_chars) } }));\n"
+      },
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "21358ce2-062b-4a42-adb1-5db13e912135",
+      "name": "Translate with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Source language: {{ $json.language }}\nSubject: {{ $json.subject }}\nBody:\n{{ $json.body }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Translate the support ticket into plain English for a support agent. Keep names, numbers, product terms and order ids exactly as written. Do not answer the ticket and do not add commentary."
+        }
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "3f6b25d3-d84a-41e3-ae35-ee35170a3f6b",
+      "name": "Translate with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        2096,
+        512
+      ]
+    },
+    {
+      "id": "46f5ee0a-9db2-4eea-af71-7f71c52946f5",
+      "name": "Translate with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"subject\": \"I cannot access my account\",\n  \"body\": \"Hello, since yesterday I cannot access my account.\"\n}"
+      },
+      "position": [
+        2208,
+        512
+      ]
+    },
+    {
+      "id": "b7615dd4-d037-4394-a936-e936d7f7b761",
+      "name": "Attach the translations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pair each model reply with the ticket that produced it.\nconst prompts = $('Prepare translation prompts').all();\nconst translations = {};\n$input.all().forEach((it, i) => { const o = it.json.output || {}; if (prompts[i] && (o.subject || o.body)) translations[prompts[i].json.id] = o; });\nreturn [{ json: { translations } }];\n"
+      },
+      "position": [
+        2464,
+        352
+      ]
+    },
+    {
+      "id": "a2d9ab6e-3328-450e-aa1d-9a1d4deda2d9",
+      "name": "Combine translation results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2688,
+        176
+      ]
+    },
+    {
+      "id": "e7965a88-92f6-4008-a3f3-b3f3613be796",
+      "name": "Build each Zendesk update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every ticket gets lang tags. Tickets outside BASE_LANGUAGE also get an internal\n// note: the translation when there is one, otherwise the detected language.\nconst cfg = $('config').first().json;\nconst { tickets } = $('Detect the language').first().json;\nconst tr = $input.all().reduce((m, i) => ({ ...m, ...(i.json.translations || {}) }), {});\nreturn tickets.map(t => {\n  const x = tr[t.id];\n  const note = !t.translate ? null : x\n    ? 'Auto-translation from ' + t.language + ' (' + t.how + '):\\n\\nSubject: ' + (x.subject || '') + '\\n\\n' + (x.body || '')\n    : 'Detected language: ' + t.language + ' (' + t.how + '). Translation is off; set USE_OPENAI to add one.';\n  const tags = ['lang_' + t.lang, 'lang_checked'];\n  return { json: { id: t.id, lang: t.lang, translated: Boolean(x), tags, note,\n    body: { ticket: { additional_tags: tags, ...(note ? { comment: { body: note, public: false } } : {}) } } } };\n});\n"
+      },
+      "position": [
+        2928,
+        176
+      ]
+    },
+    {
+      "id": "c48e714a-3cee-4e2a-ade3-3de379e9c48e",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3152,
+        176
+      ]
+    },
+    {
+      "id": "f941f1f1-3aba-40a1-ac02-dc02f57cf941",
+      "name": "STOP: dry run - tickets untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3376,
+        352
+      ]
+    },
+    {
+      "id": "f279d93e-2e3f-41de-a12b-412bfebdf279",
+      "name": "Tag and note the ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://' + $('config').first().json.zendesk_subdomain + '.zendesk.com/api/v2/tickets/' + $json.id + '.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3376,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Zendesk connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk connected?": {
+      "main": [
+        [
+          {
+            "node": "Search new Zendesk tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search new Zendesk tickets": {
+      "main": [
+        [
+          {
+            "node": "Read Zendesk tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Zendesk tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine ticket sources": {
+      "main": [
+        [
+          {
+            "node": "Detect the language",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect the language": {
+      "main": [
+        [
+          {
+            "node": "Skip the model?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip the model?": {
+      "main": [
+        [
+          {
+            "node": "Skip translation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare translation prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare translation prompts": {
+      "main": [
+        [
+          {
+            "node": "Translate with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Translate with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Translate with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Translate with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Translate with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Translate with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Attach the translations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip translation": {
+      "main": [
+        [
+          {
+            "node": "Combine translation results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach the translations": {
+      "main": [
+        [
+          {
+            "node": "Combine translation results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine translation results": {
+      "main": [
+        [
+          {
+            "node": "Build each Zendesk update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build each Zendesk update": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Tag and note the ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - tickets untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

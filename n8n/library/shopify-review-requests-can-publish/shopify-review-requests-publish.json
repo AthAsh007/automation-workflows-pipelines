@@ -1,0 +1,585 @@
+{
+  "name": "Request reviews by Gmail for delivered Shopify orders",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Request reviews by Gmail for delivered Shopify orders\n\n**Who's it for**\nShopify stores that want more product reviews but do not want to email the same customer every week or ask someone whose order went wrong.\n\n**How it works**\n1. Every day at 11:00 it reads Shopify orders fulfilled in the last 60 days, or 9 sample orders until Shopify is connected.\n2. Delivery date comes from carrier tracking; without tracking it assumes delivery 5 days after fulfilment.\n3. An order is asked about 7 to 21 days after delivery. Refunded, cancelled and `no-review` orders are skipped, and so is any customer tagged as asked in the last 90 days.\n4. The email names the most expensive item in the order and links to its review page from `REVIEW_LINKS`, or to a page built from `DEFAULT_REVIEW_URL`.\n5. After a live send the customer gets a dated `review-requested-YYYY-MM-DD` tag, which is how the 90 days are counted.\n\n**How to set up**\n1. Run it once as imported. It previews against sample orders and stops at `STOP: preview - nothing sent`.\n2. Add a Shopify access token credential to `Fetch fulfilled orders` and `Tag the customer in Shopify`, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Connect Gmail, fill `REVIEW_LINKS` for your main products and check `STORE_NAME`.\n4. Put your address in `TEST_EMAIL` to receive every request yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_orders and write_customers\n- A Gmail account\n\n**How to customize**\n- `REQUEST_AFTER_DAYS` and `MAX_DAYS_AFTER_DELIVERY` set the window.\n- `COOLDOWN_DAYS` sets how long a customer rests between requests.\n- `DAILY_CAP` limits sends per run.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "49505547-5717-4c4e-9a00-4950554713e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns daily at 11:00, a time when review emails get opened. The asking window, cooldown and product review links all live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "fa1e409a-5717-4c4e-9a00-fa1e409a1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read fulfilled orders\n\n`Read Shopify orders` takes the delivery date from carrier tracking when Shopify has it. Until `USE_SHOPIFY` is true, `Load sample orders` supplies the same shape with one order per skip rule.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "fb1e422d-5717-4c4e-9a00-fb1e422d1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick and write\n\nRefunds and cancellations are checked before timing, so an unhappy customer is never asked. The cooldown is read from a dated customer tag, which survives a re-import of the workflow.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "f81e3d74-5717-4c4e-9a00-f81e3d741002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and tag\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test send leaves Shopify alone, so the real customer can still be asked; only a live send writes the dated tag.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "f91e3f07-5717-4c4e-9a00-f91e3f071003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "8889d87b-fb0d-400b-a6c3-d6c39e228889",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REQUEST REVIEWS BY GMAIL FOR DELIVERED SHOPIFY ORDERS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE orders.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Shopify is only tagged on a live run.\n\n// set true after adding the Shopify credential to both Shopify nodes\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// used in the subject and sign-off\nconst STORE_NAME = 'Fernway Home';\n// days after delivery before asking\nconst REQUEST_AFTER_DAYS = 7;\n// after this many days the order is not asked about\nconst MAX_DAYS_AFTER_DELIVERY = 21;\n// without tracking, delivery is assumed this many days after fulfilment\nconst ASSUME_DELIVERY_DAYS = 5;\n// one request per customer in this many days\nconst COOLDOWN_DAYS = 90;\n// Shopify product id -> review page\nconst REVIEW_LINKS = {\n  \"7001\": \"https://reviews.fernway.example/linen-duvet-set\",\n  \"7003\": \"https://reviews.fernway.example/wool-throw\"\n};\n// used when a product has no entry in REVIEW_LINKS\nconst DEFAULT_REVIEW_URL = 'https://www.fernway.example/pages/review?product={product_id}&order={order}';\n// order or customer tags that are never asked\nconst SKIP_TAGS = [\n  \"no-review\",\n  \"wholesale\"\n];\n// hard ceiling on requests per run\nconst DAILY_CAP = 50;\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    store_name: STORE_NAME,\n    request_after_days: REQUEST_AFTER_DAYS,\n    max_days_after_delivery: MAX_DAYS_AFTER_DELIVERY,\n    assume_delivery_days: ASSUME_DELIVERY_DAYS,\n    cooldown_days: COOLDOWN_DAYS,\n    review_links: REVIEW_LINKS,\n    default_review_url: DEFAULT_REVIEW_URL,\n    skip_tags: SKIP_TAGS,\n    daily_cap: DAILY_CAP,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "f8eb77b3-97d6-4dc3-af33-3f336e2af8eb",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "0fe74d9b-a8e7-4b2b-a0fd-d0fde3020fe7",
+      "name": "Every day at 11:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "2729516f-9be7-44bf-ab9a-5b9a09b62729",
+      "name": "Shopify connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d9ba5c1-e46c-4371-a512-d5123e0c3d9b",
+              "leftValue": "={{ $('config').first().json.use_shopify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "7060d4d1-2e70-4d81-a6e4-c6e4219c7060",
+      "name": "Fetch fulfilled orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/orders.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "any"
+            },
+            {
+              "name": "fulfillment_status",
+              "value": "shipped"
+            },
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "created_at_min",
+              "value": "={{ new Date(Date.now() - 60 * 864e5).toISOString() }}"
+            },
+            {
+              "name": "fields",
+              "value": "id,name,email,customer,financial_status,cancelled_at,tags,fulfillments,line_items"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "ac4afd9c-563c-44dc-a8ae-e8aedbefac4a",
+      "name": "Read Shopify orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Orders -> the fields the picker needs. delivered_at is the newest fulfilment\n// whose carrier status is delivered; fulfilled_at is the fallback.\nconst out = [];\nfor (const page of $input.all()) for (const o of page.json.orders || []) {\n  const fs = o.fulfillments || [];\n  const delivered = fs.filter(f => f.shipment_status === 'delivered').map(f => f.updated_at).sort().pop() || null;\n  out.push({ json: {\n    id: o.id, name: o.name, email: (o.email || o.customer?.email || '').toLowerCase(), first_name: o.customer?.first_name || '',\n    customer_id: o.customer?.id || null, customer_tags: String(o.customer?.tags || ''), order_tags: String(o.tags || ''),\n    financial_status: o.financial_status, cancelled: Boolean(o.cancelled_at), delivered_at: delivered,\n    fulfilled_at: fs.map(f => f.created_at).sort()[0] || null,\n    line_items: (o.line_items || []).map(li => ({ product_id: String(li.product_id), title: li.title, price: Number(li.price), quantity: li.quantity })),\n  } });\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "49e1e98e-ae18-492e-a860-8860afcd49e1",
+      "name": "Load sample orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SHOPIFY is true. Two should be asked; every other one shows a skip rule.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nconst items = (...a) => a.map(([product_id, title, price]) => ({ product_id, title, price, quantity: 1 }));\nreturn [\n  { id: 1, name: '#1041', email: 'ruth@meadowbank.example', first_name: 'Ruth', customer_id: 501, customer_tags: '', order_tags: '', financial_status: 'paid', cancelled: false, delivered_at: ago(8), fulfilled_at: ago(11), line_items: items(['7001', 'Linen duvet set', 189], ['7002', 'Pillowcase pair', 39]) },\n  { id: 2, name: '#1042', email: 'abe@northgate.example', first_name: 'Abe', customer_id: 502, customer_tags: '', order_tags: '', financial_status: 'paid', cancelled: false, delivered_at: ago(3), fulfilled_at: ago(6), line_items: items(['7003', 'Wool throw', 120]) },\n  { id: 3, name: '#1043', email: 'cleo@riverside.example', first_name: 'Cleo', customer_id: 503, customer_tags: '', order_tags: '', financial_status: 'refunded', cancelled: false, delivered_at: ago(9), fulfilled_at: ago(12), line_items: items(['7003', 'Wool throw', 120]) },\n  { id: 4, name: '#1044', email: 'dev@hillcrest.example', first_name: 'Dev', customer_id: 504, customer_tags: '', order_tags: '', financial_status: 'voided', cancelled: true, delivered_at: null, fulfilled_at: ago(10), line_items: items(['7002', 'Pillowcase pair', 39]) },\n  { id: 5, name: '#1045', email: 'eve@stonebridge.example', first_name: 'Eve', customer_id: 505, customer_tags: 'vip, review-requested-' + ago(40).slice(0, 10), order_tags: '', financial_status: 'paid', cancelled: false, delivered_at: ago(10), fulfilled_at: ago(13), line_items: items(['7001', 'Linen duvet set', 189]) },\n  { id: 6, name: '#1046', email: 'finn@oakridge.example', first_name: 'Finn', customer_id: 506, customer_tags: '', order_tags: '', financial_status: 'paid', cancelled: false, delivered_at: null, fulfilled_at: ago(13), line_items: items(['7004', 'Waffle bath towel', 45], ['7005', 'Hand towel', 18]) },\n  { id: 7, name: '#1047', email: 'gus@lakeview.example', first_name: 'Gus', customer_id: 507, customer_tags: '', order_tags: '', financial_status: 'paid', cancelled: false, delivered_at: ago(30), fulfilled_at: ago(33), line_items: items(['7003', 'Wool throw', 120]) },\n  { id: 8, name: '#1048', email: 'hana@elmstead.example', first_name: 'Hana', customer_id: 508, customer_tags: '', order_tags: 'no-review', financial_status: 'paid', cancelled: false, delivered_at: ago(9), fulfilled_at: ago(12), line_items: items(['7002', 'Pillowcase pair', 39]) },\n  { id: 9, name: '#1049', email: 'ruth@meadowbank.example', first_name: 'Ruth', customer_id: 501, customer_tags: '', order_tags: '', financial_status: 'partially_paid', cancelled: false, delivered_at: ago(7.5), fulfilled_at: ago(10), line_items: items(['7003', 'Wool throw', 120]) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "4fb46770-b9af-4470-a003-100309334fb4",
+      "name": "Combine order sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "e291c64a-d369-432a-aa55-6a55eae9e291",
+      "name": "Pick orders to ask about",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One request per customer per COOLDOWN_DAYS, counted from the dated tag left on the\n// customer by an earlier live send. Inside one run the earliest delivery wins.\nconst cfg = $('config').first().json;\nconst now = Date.now();\nconst days = iso => (now - new Date(iso).getTime()) / 864e5;\nconst tagsOf = s => String(s || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);\nconst lastAsked = tags => tags.filter(t => t.startsWith('review-requested-')).map(t => t.slice(17)).sort().pop() || null;\nconst rows = $input.all().map(i => i.json).map(o => ({ ...o,\n  delivered: o.delivered_at || (o.fulfilled_at ? new Date(new Date(o.fulfilled_at).getTime() + cfg.assume_delivery_days * 864e5).toISOString() : null),\n  assumed: !o.delivered_at })).sort((a, b) => String(a.delivered).localeCompare(String(b.delivered)));\nconst picked = [], held = [], asking = {};\nfor (const o of rows) {\n  const tags = [...tagsOf(o.order_tags), ...tagsOf(o.customer_tags)];\n  const asked = lastAsked(tagsOf(o.customer_tags));\n  const since = o.delivered ? days(o.delivered) : null;\n  const reason =\n    !o.email ? 'no email' :\n    o.cancelled ? 'cancelled' :\n    /refunded|voided/.test(o.financial_status) ? o.financial_status :\n    tags.some(t => cfg.skip_tags.includes(t)) ? 'tagged ' + tags.find(t => cfg.skip_tags.includes(t)) :\n    since === null ? 'not delivered' :\n    since < cfg.request_after_days ? 'delivered ' + Math.floor(since) + ' days ago, too soon' :\n    since > cfg.max_days_after_delivery ? 'delivered ' + Math.floor(since) + ' days ago, too late' :\n    asked && days(asked) < cfg.cooldown_days ? 'customer asked ' + Math.floor(days(asked)) + ' days ago' :\n    asking[o.email] ? 'already asking this customer about ' + asking[o.email] : '';\n  if (reason) { held.push({ order: o.name, reason }); continue; }\n  asking[o.email] = o.name;\n  picked.push({ ...o, days_since_delivery: Math.floor(since) });\n}\nfor (const o of picked.slice(cfg.daily_cap)) held.push({ order: o.name, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { requests: picked.slice(0, cfg.daily_cap), held, checked: rows.length } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "fa7e365e-8b28-44fe-a8e8-48e85e9dfa7e",
+      "name": "Write each review request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Ask about one product (the most expensive line) and link straight to its review\n// page. The new customer tag is computed here so the Shopify write needs no lookup.\nconst cfg = $('config').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nreturn $input.first().json.requests.map(o => {\n  const main = [...o.line_items].sort((a, b) => b.price - a.price)[0];\n  const link = cfg.review_links[main.product_id] || cfg.default_review_url.replace('{product_id}', main.product_id).replace('{order}', o.name.replace('#', ''));\n  const others = o.line_items.filter(li => li !== main).map(li => li.title);\n  const body = [\n    'Hi ' + (o.first_name || 'there') + ',', '',\n    'Your ' + main.title + ' arrived about ' + o.days_since_delivery + ' days ago. How is it working out?', '',\n    'A two-line review helps other customers decide, and we read every one:',\n    link, '',\n    ...(others.length ? ['(Also in order ' + o.name + ': ' + others.join(', ') + '.)', ''] : []),\n    'If something is not right, just reply and we will sort it out.', '',\n    cfg.store_name,\n  ].join('\\n');\n  const keep = o.customer_tags.split(',').map(t => t.trim()).filter(t => t && !t.toLowerCase().startsWith('review-requested-'));\n  return { json: { order: o.name, customer_id: o.customer_id, email: o.email, product: main.title, review_url: link,\n    subject: 'How is your ' + main.title + '?', body, send_to: cfg.mode === 'test' ? cfg.test_email : o.email,\n    new_tags: [...keep, 'review-requested-' + today].join(', ') } };\n});\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "473a2d6c-28e5-43ac-aa38-ba38ff7f473a",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "005aaffb-d4ce-4f8b-a064-a06405a2005a",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "b9afb0c5-fd59-4535-a444-a4449030b9af",
+      "name": "Email the review request",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "3c71d703-a4fb-4413-aa0e-2a0e063a3c71",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "f78a503d-69a9-4f2d-a44a-a44a9318f78a",
+      "name": "STOP: test send - Shopify untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        384
+      ]
+    },
+    {
+      "id": "db4f9aa5-5194-4915-ad22-6d225f50db4f",
+      "name": "Tag the customer in Shopify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/customers/' + $('Write each review request').item.json.customer_id + '.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customer: { id: $('Write each review request').item.json.customer_id, tags: $('Write each review request').item.json.new_tags } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 11:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Shopify connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch fulfilled orders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch fulfilled orders": {
+      "main": [
+        [
+          {
+            "node": "Read Shopify orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Shopify orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine order sources": {
+      "main": [
+        [
+          {
+            "node": "Pick orders to ask about",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick orders to ask about": {
+      "main": [
+        [
+          {
+            "node": "Write each review request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each review request": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the review request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the review request": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Tag the customer in Shopify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - Shopify untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

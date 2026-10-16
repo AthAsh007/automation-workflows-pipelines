@@ -1,0 +1,33 @@
+{
+  "title": "Route inbound leads from forms, email and calls into Zoho CRM",
+  "stickies": [
+    {
+      "color": 4, "band": "top", "from": "A lead arrives", "to": "route the lead",
+      "content": "## Route inbound leads from forms, email and calls into Zoho CRM\n\n**Who's it for**\nServices teams running their pipeline in Zoho CRM whose leads arrive three ways (a website form, a forwarded email, a phone note somebody typed up) and who want each one routed and filed without anyone re-typing it.\n\n**How it works**\nA lead posts to the webhook, or the manual trigger loads three demo leads, one per source. `read the lead` turns every shape into the same six fields. A lead with no email and no phone, or one that reads as spam, stops at a named node with the reason. `route the lead` walks a first-match rule table for owner, status and tags; the last rule matches everything. `build the Zoho payload` assembles the whole Leads request before anything is sent, a refresh token is exchanged for a fresh access token, and the lead is written once. The team gets a message saying who owns it.\n\n**How to set up**\n1. In `config`, set `ZOHO_API_BASE` and `ZOHO_ACCOUNTS_BASE` to your data centre.\n2. Create a Self Client at api-console.zoho.com and paste its client id, secret and refresh token.\n3. Fill in `OWNERS`, `LEAD_LAYOUT_ID` and the `CUSTOM_FIELDS` API names.\n4. Set `DRY_RUN = false`.\n\n**Requirements**\nA Zoho CRM org and a Self Client with lead create scope. The demo run needs no credential.\n\n**How to customize**\nEdit `ROUTING_RULES` in `config`, and check every status against your Lead Status picklist. `NOTIFY_WEBHOOK_URL` posts the routing message anywhere that accepts a webhook."
+    },
+    {
+      "color": 7, "band": "above", "from": "A lead arrives", "to": "read the lead",
+      "content": "### 1. Take the lead in and read it\n\n`A lead arrives` is the production entry point. `Run the demo lead` and `load a demo lead` do the same job with three invented leads and no webhook.\n\n`config` passes each incoming item through untouched, so three leads in is three leads out. `read the lead` unwraps a webhook body and pulls the same six fields out of a form post, an email blob or a phone note, so nothing downstream needs to know which source fired."
+    },
+    {
+      "color": 7, "band": "above", "from": "a usable lead?", "to": "route the lead",
+      "content": "### 2. Reject what is not a lead, route what is\n\n`a usable lead?` splits on the parser's verdict. No email and no phone, or spam, lands on `STOP: not a usable lead` with the reason, visible in the execution list instead of vanishing.\n\n`route the lead` walks `ROUTING_RULES` top to bottom, first match wins, and records which rule decided in `_routed_by`, so an oddly filed lead can be explained."
+    },
+    {
+      "color": 7, "band": "above", "from": "build the Zoho payload", "to": "Zoho connected?",
+      "content": "### 3. Build the request, then decide whether to send it\n\n`build the Zoho payload` assembles the full Leads request as one object and sends nothing itself.\n\n`Zoho connected?` is the gate: while `DRY_RUN` is true or the credentials are blank, the lead stops on `STOP: Zoho not configured - payload shown` with the exact body, so the routing can be checked before anything touches a live CRM."
+    },
+    {
+      "color": 7, "band": "above", "from": "[cred] Zoho - get an access token", "to": "STOP: Zoho rejected the write",
+      "content": "### 4. Authenticate, write once, say what happened\n\nAccess tokens last an hour, so every run exchanges the refresh token first. Zoho answers a failed refresh with HTTP 200 and an `error` key, so `read the access token` checks the body and `authenticated?` stops on `STOP: could not authenticate with Zoho` with a hint.\n\n`[cred] Zoho CRM - create the lead` writes it. A 200 can still carry a rejected record, so `STOP: filed in Zoho CRM` reads the per-record code and `STOP: Zoho rejected the write` shows the reason."
+    },
+    {
+      "color": 7, "band": "below", "from": "compose the lead notification", "to": "STOP: notification rejected",
+      "content": "### 5. Tell the team who owns it\n\n`compose the lead notification` writes one message: who the lead is, what they want, and who it was routed to. `notifying?` skips it cleanly when `NOTIFY_WEBHOOK_URL` is blank, and `[cred] Notify - post the message` posts it otherwise. Delivered or refused, the run ends on a named STOP node."
+    },
+    {
+      "color": 3, "band": "below", "from": "build the Zoho payload", "to": "Zoho connected?",
+      "content": "## Nothing is written until you say so\n\nThis ships with `DRY_RUN = true` and no credentials. Every lead is read, routed and built in full, then stops on `STOP: Zoho not configured - payload shown`.\n\n`ZOHO_TRIGGERS` ships empty on purpose: while your existing Zoho rules still route leads, turning it on would route each lead twice."
+    }
+  ]
+}

@@ -1,0 +1,645 @@
+{
+  "name": "Create offboarding checklists in Asana from a leaver form",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Create offboarding checklists in Asana from a leaver form\n\n**Who's it for**\nPeople and IT teams at companies of 20 to 500 that offboard from memory or an old checklist and find out months later that someone kept access. Each leaver gets the same dated list, owned by the right people.\n\n**How it works**\n1. A manager submits the leaver form with the last day, department, leaving type and whether a laptop must come back. A manual run uses a sample leaver.\n2. Tasks come from `BASE_TASKS` plus the department's `ROLE_TASKS`. The laptop task is dropped when there is none, and the exit interview is skipped for dismissals.\n3. Each task is due relative to the last day. Weekend dates move to the Friday before, past dates move to today, and for a dismissal every access task is due today and marked urgent.\n4. One parent task goes into `ASANA_PROJECT_GID` and every step becomes a subtask, assigned through `OWNERS` by task type.\n\n**How to set up**\n1. Run it once as imported. It builds the checklist for a sample leaver and stops at `STOP: dry run - Asana untouched`.\n2. Add an Asana credential to `Create the offboarding task` and `Create each subtask`, and set `ASANA_PROJECT_GID` (the number in the project URL).\n3. Replace the addresses in `OWNERS` with people in your Asana workspace and edit the task lists.\n4. Check the plan in `Build the checklist`, then set `DRY_RUN = false` and share the form URL with managers.\n\n**Requirements**\n- An Asana workspace and project\n- An n8n instance that can serve a form\n\n**How to customize**\n- `BASE_TASKS` and `ROLE_TASKS` hold each step with its type and day offset from the last day.\n- `OWNERS` maps a task type to an assignee; `manager` means the manager named on the form.\n- `MIN_NOTICE_DAYS` flags forms submitted too close to the last day.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "59fcf6b5-5717-4c4e-9a00-59fcf6b513e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe form is the real entry point and a manual run uses the sample leaver. Every task, offset and owner lives in `config`, so a new department is one more entry in `ROLE_TASKS`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8b374d68-5717-4c4e-9a00-8b374d681000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the leaver\n\n`config` records whether the form fired and `Came from the form?` picks the reader. Both emit the same leaver shape, so the checklist logic never knows which one ran.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "8c374efb-5717-4c4e-9a00-8c374efb1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Build the dated checklist\n\n`Build the checklist` refuses a form without a usable last day rather than guessing. Dates are moved off weekends and out of the past, and a dismissal pulls every access step to today so nothing waits on the calendar.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "8d37508e-5717-4c4e-9a00-8d37508e1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Create in Asana\n\nThe parent task is created first because subtasks need its gid. `Create in Asana?` needs a live run and a project id; in a dry run the full plan is still visible on `Build the checklist`.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "8e375221-5717-4c4e-9a00-8e3752211003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "ceef0bd8-eb48-4858-a02e-e02e248bceef",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CREATE OFFBOARDING CHECKLISTS IN ASANA FROM A LEAVER FORM - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE leaver; the form trigger uses the submitted one.\n// DRY_RUN true -> the checklist is built and shown, nothing is created in Asana.\n\n// Asana project that holds offboarding tasks; blank skips Asana\nconst ASANA_PROJECT_GID = '';\n// steps for every leaver; offset = days relative to the last day\nconst BASE_TASKS = [\n  {\n    task: \"Handover document reviewed with manager\",\n    type: \"handover\",\n    offset: -5\n  },\n  {\n    task: \"Final payroll: unused leave, expenses and last payslip\",\n    type: \"payroll\",\n    offset: -5\n  },\n  {\n    task: \"Exit interview\",\n    type: \"people\",\n    offset: -3,\n    skip_for: [\n      \"Dismissal\"\n    ]\n  },\n  {\n    task: \"Transfer Drive files and shared inboxes to the manager\",\n    type: \"handover\",\n    offset: -2\n  },\n  {\n    task: \"Collect laptop, charger and badge\",\n    type: \"equipment\",\n    offset: 0,\n    needs_laptop: true\n  },\n  {\n    task: \"Suspend Google Workspace account and SSO\",\n    type: \"access\",\n    offset: 0\n  },\n  {\n    task: \"Remove from Slack, password manager and shared vaults\",\n    type: \"access\",\n    offset: 0\n  },\n  {\n    task: \"Update the HR system and org chart\",\n    type: \"people\",\n    offset: 1\n  }\n];\n// extra steps by department\nconst ROLE_TASKS = {\n  Engineering: [\n    {\n      task: \"Reassign open pull requests and on-call shifts\",\n      type: \"handover\",\n      offset: -3\n    },\n    {\n      task: \"Remove GitHub org membership and rotate shared secrets\",\n      type: \"access\",\n      offset: 0\n    }\n  ],\n  Sales: [\n    {\n      task: \"Reassign CRM accounts and open deals\",\n      type: \"handover\",\n      offset: -3\n    },\n    {\n      task: \"Remove CRM seat and calling licence\",\n      type: \"access\",\n      offset: 1\n    }\n  ],\n  \"Customer Success\": [\n    {\n      task: \"Reassign open tickets and customer accounts\",\n      type: \"handover\",\n      offset: -3\n    },\n    {\n      task: \"Remove helpdesk seat\",\n      type: \"access\",\n      offset: 0\n    }\n  ]\n};\n// task type -> Asana assignee email or gid; 'manager' = the manager on the form\nconst OWNERS = {\n  access: \"it@northwind.example\",\n  equipment: \"it@northwind.example\",\n  handover: \"manager\",\n  payroll: \"payroll@northwind.example\",\n  people: \"people@northwind.example\"\n};\n// assignee of the parent offboarding task\nconst PARENT_OWNER = 'people@northwind.example';\n// a form submitted with fewer days left than this is flagged as short notice\nconst MIN_NOTICE_DAYS = 5;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\n// The form trigger's item carries formMode; a manual run does not.\nconst FROM_FORM = Boolean($input.first() && ($input.first().json.formMode || $input.first().json.submittedAt));\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    asana_project_gid: ASANA_PROJECT_GID,\n    base_tasks: BASE_TASKS,\n    role_tasks: ROLE_TASKS,\n    owners: OWNERS,\n    parent_owner: PARENT_OWNER,\n    min_notice_days: MIN_NOTICE_DAYS,\n    dry_run: DRY_RUN,\n    asana_enabled: ASANA_PROJECT_GID.trim() !== '',\n    from_form: FROM_FORM,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "45a1dd0c-8bf8-414c-aa91-ca91badf45a1",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "9174ab7d-b493-466d-a8cc-88cc8fd89174",
+      "name": "Leaver form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "beaa43e3-fd94-4af3-a0c6-a0c6735abeaa",
+      "parameters": {
+        "formTitle": "Someone is leaving",
+        "formDescription": "Fill this in as soon as a last day is agreed. It creates the offboarding checklist in Asana.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Leaver name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Leaver work email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Manager email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Department",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Engineering"
+                  },
+                  {
+                    "option": "Sales"
+                  },
+                  {
+                    "option": "Customer Success"
+                  },
+                  {
+                    "option": "Operations"
+                  },
+                  {
+                    "option": "Finance"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Last working day",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Leaving type",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Resignation"
+                  },
+                  {
+                    "option": "Contract end"
+                  },
+                  {
+                    "option": "Dismissal"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Has a company laptop",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Anything IT or payroll should know",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "1ee763a4-5c50-4864-a801-8801ee871ee7",
+      "name": "Came from the form?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b96ab70b-c0a9-419b-aaa6-5aa6d7f2b96a",
+              "leftValue": "={{ $('config').first().json.from_form }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "7c6fa872-5c4f-48d2-a68c-f68cbaa17c6f",
+      "name": "Read the leaver form",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form labels -> the leaver shape the checklist reads.\nconst f = $('Leaver form').first().json;\nreturn [{ json: {\n  name: String(f['Leaver name'] || '').trim(), email: String(f['Leaver work email'] || '').trim().toLowerCase(),\n  manager_email: String(f['Manager email'] || '').trim().toLowerCase(), department: f['Department'] || '',\n  last_day: String(f['Last working day'] || '').slice(0, 10), leaving_type: f['Leaving type'] || 'Resignation',\n  laptop: f['Has a company laptop'] === 'Yes', notes: f['Anything IT or payroll should know'] || '',\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "5989c037-41e8-4507-aaa2-eaa2edce5989",
+      "name": "Load sample leaver",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Manual run: an engineer resigning with a laptop to return, last day 12 days out.\nreturn [{ json: {\n  name: 'Felix Andersen', email: 'felix.andersen@northwind.example', manager_email: 'tomas.reyes@northwind.example',\n  department: 'Engineering', last_day: new Date(Date.now() + 12 * 864e5).toISOString().slice(0, 10),\n  leaving_type: 'Resignation', laptop: true, notes: 'Keeps the monitor (bought personally).',\n} }];\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "2f80d868-6cb6-47e8-aa4b-1a4be35b2f80",
+      "name": "Combine leaver sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "9b097051-c703-4101-ad70-1d70011c9b09",
+      "name": "Build the checklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Dates: last day + offset, Saturday/Sunday back to Friday, anything past pulled to today.\n// A dismissal makes every access step due today and urgent, whatever its offset.\nconst cfg = $('config').first().json;\nconst l = $input.first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst problems = [];\nif (!l.name || !l.email) problems.push('leaver name or email missing');\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(l.last_day || '')) problems.push('last working day missing');\nelse if (l.last_day < new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)) problems.push('last day is more than 30 days ago');\nif (problems.length) return [{ json: { ok: false, problems, leaver: l } }];\nconst shift = (iso, n) => {\n  const d = new Date(new Date(iso + 'T00:00:00Z').getTime() + n * 864e5);\n  const dow = d.getUTCDay();\n  if (dow === 6) d.setUTCDate(d.getUTCDate() - 1);\n  if (dow === 0) d.setUTCDate(d.getUTCDate() - 2);\n  const s = d.toISOString().slice(0, 10);\n  return { due: s < today ? today : s, moved: dow % 6 === 0, pulled: s < today };\n};\nconst dismissal = l.leaving_type === 'Dismissal';\nconst owner = t => { const o = cfg.owners[t] || cfg.parent_owner; return o === 'manager' ? (l.manager_email || cfg.parent_owner) : o; };\nconst skipped = [];\nconst steps = [...cfg.base_tasks, ...(cfg.role_tasks[l.department] || [])].filter(t => {\n  if (t.needs_laptop && !l.laptop) { skipped.push(t.task + ' (no laptop)'); return false; }\n  if ((t.skip_for || []).includes(l.leaving_type)) { skipped.push(t.task + ' (' + l.leaving_type + ')'); return false; }\n  return true;\n}).map(t => {\n  const urgent = dismissal && t.type === 'access';\n  const d = urgent ? { due: today, moved: false, pulled: false } : shift(l.last_day, t.offset);\n  return { name: (urgent ? '[URGENT] ' : '') + t.task, type: t.type, due_on: d.due, assignee: owner(t.type),\n    note: d.moved ? 'moved off a weekend' : d.pulled ? 'due date already passed, set to today' : '' };\n}).sort((a, b) => a.due_on.localeCompare(b.due_on));\nconst daysLeft = Math.round((new Date(l.last_day) - new Date(today)) / 864e5);\nconst flags = [];\nif (daysLeft < cfg.min_notice_days) flags.push('short notice: ' + daysLeft + ' days to the last day');\nif (!cfg.role_tasks[l.department]) flags.push('no ROLE_TASKS for ' + l.department);\nconst parent = {\n  name: 'Offboarding: ' + l.name + ' (last day ' + l.last_day + ')',\n  due_on: l.last_day, assignee: cfg.parent_owner,\n  notes: [l.name + ' <' + l.email + '>, ' + l.department + ', ' + l.leaving_type.toLowerCase() + '.', 'Manager: ' + (l.manager_email || 'not given'),\n    'Laptop to return: ' + (l.laptop ? 'yes' : 'no'), l.notes ? 'Notes: ' + l.notes : '', ...flags.map(x => 'Flag: ' + x),\n    skipped.length ? 'Not needed: ' + skipped.join('; ') : ''].filter(Boolean).join('\\n'),\n};\nreturn [{ json: { ok: true, leaver: l, parent, steps, skipped, flags, days_left: daysLeft } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "cd2ad0ee-de7c-428e-ad73-7d73436dcd2a",
+      "name": "Checklist complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b97bd94d-fde1-433d-acb5-bcb5ce68b97b",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "a31b3c60-ddfe-4e60-a3a1-a3a12da3a31b",
+      "name": "STOP: form incomplete - nothing created",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "595a3568-13f5-44e8-ae70-de70a05b595a",
+      "name": "Create in Asana?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d40a331-2459-4de1-a548-2548413c2d40",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2c40a19e-6205-4c3e-aaad-5aad445d2c40",
+              "leftValue": "={{ $('config').first().json.asana_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "851f1f76-56bd-4696-aad7-9ad724c5851f",
+      "name": "STOP: dry run - Asana untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "86cef8f9-3446-4529-ae6d-ae6d663486ce",
+      "name": "Create the offboarding task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.asana.com/api/1.0/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "asanaApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { ...$json.parent, projects: [$('config').first().json.asana_project_gid] } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "7fddb269-542a-4b99-af6d-5f6d4b247fdd",
+      "name": "Shape subtasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per step, each pointing at the parent task Asana just created.\nconst parentGid = $input.first().json.data.gid;\nreturn $('Build the checklist').first().json.steps.map(s => ({ json: { parent_gid: parentGid,\n  body: { data: { name: s.name, due_on: s.due_on, assignee: s.assignee, notes: 'Type: ' + s.type + (s.note ? '. ' + s.note : '') } } } }));\n"
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "82b7e0a8-3e69-4c28-ae9f-ae9fa21b82b7",
+      "name": "Create each subtask",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://app.asana.com/api/1.0/tasks/' + $json.parent_gid + '/subtasks' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "asanaApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "94619bef-bc89-473f-a58f-858fe4369461",
+      "name": "Report what was created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Links back to Asana for the execution log.\nconst parent = $('Create the offboarding task').first().json.data;\nreturn [{ json: { parent: parent.permalink_url || parent.gid, subtasks: $input.all().filter(i => i.json.data?.gid).length } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leaver form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Came from the form?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Came from the form?": {
+      "main": [
+        [
+          {
+            "node": "Read the leaver form",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample leaver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the leaver form": {
+      "main": [
+        [
+          {
+            "node": "Combine leaver sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample leaver": {
+      "main": [
+        [
+          {
+            "node": "Combine leaver sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine leaver sources": {
+      "main": [
+        [
+          {
+            "node": "Build the checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the checklist": {
+      "main": [
+        [
+          {
+            "node": "Checklist complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checklist complete?": {
+      "main": [
+        [
+          {
+            "node": "Create in Asana?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: form incomplete - nothing created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create in Asana?": {
+      "main": [
+        [
+          {
+            "node": "Create the offboarding task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Asana untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create the offboarding task": {
+      "main": [
+        [
+          {
+            "node": "Shape subtasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape subtasks": {
+      "main": [
+        [
+          {
+            "node": "Create each subtask",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create each subtask": {
+      "main": [
+        [
+          {
+            "node": "Report what was created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

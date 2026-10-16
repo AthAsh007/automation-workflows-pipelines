@@ -1,0 +1,761 @@
+{
+  "name": "WhatsApp Chatbot Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## School iPad booking - intake\nKapso webhook (`?token=` checked) -> Config -> Read message -> School clock.\nRead message drops fake calls, retried webhooks and outbound echoes, merges a teacher's batched messages into one turn, and answers media / unknown numbers with a fixed reply.",
+        "height": 724,
+        "width": 1088,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "name": "Sticky Note",
+      "id": "43ea08da-fc09-4404-90d1-c21e9cd1671c"
+    },
+    {
+      "parameters": {
+        "content": "## Agent, tools and reply\nThe agent (LLM + per-phone memory) works out what the teacher wants, asks for anything missing and confirms before booking or cancelling. Its final answer **is** the reply.\nTools: book_ipads, cancel_booking, check_availability, list_my_bookings. The phone number is filled in from the incoming message, never by the LLM.\nPrepare reply always produces one message (apology if the agent failed) -> Send reply on WhatsApp posts it to Kapso (API key in the Header Auth credential).",
+        "height": 728,
+        "width": 1880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        0
+      ],
+      "name": "Sticky Note1",
+      "id": "ccab8156-0516-4feb-b340-4c6593ca93ba"
+    },
+    {
+      "parameters": {},
+      "id": "16df07f2-b6a6-440c-9600-78bd9b9c1373",
+      "name": "Run demo",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        32,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "school-ipad-booking",
+        "options": {}
+      },
+      "id": "a89af441-00be-4a81-b33b-ca69703efd32",
+      "name": "WhatsApp message arrives",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        256,
+        416
+      ],
+      "webhookId": "school-ipad-booking"
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { body: { message: { id: 'wamid.demo.' + Date.now(), timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', from: '12025550167', text: { body: 'book 2 iPads tomorrow 9 to 11' }, kapso: { direction: 'inbound' } }, conversation: { id: 'conv_demo', contact_name: 'Alice Johnson', phone_number: '12025550167' } } } };"
+      },
+      "id": "1bec6773-7433-49ba-ba4a-6e6dda26733d",
+      "name": "Demo message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// School iPad booking - CONFIG (orchestrator). Fill in the PUT ... HERE values.\nconst cfg = {\n  DRY_RUN: true, // ships true: replies are prepared and shown on the STOP node, never sent. Set false to go live.\n  TIMEZONE: 'Asia/Kolkata', // school time zone (IANA name)\n  SCHOOL_OPEN: '07:00',\n  SCHOOL_CLOSE: '12:00',\n  CLOSED_WEEKDAYS: [7], // 1 = Mon ... 7 = Sun; no bookings or availability on these days\n  WEBHOOK_TOKEN: 'PUT A LONG RANDOM TOKEN HERE', // long random string; Kapso must call the webhook with ?token=<this>\n  ALLOWED_PHONES: [], // teacher numbers allowed to use the bot, digits only, e.g. ['919812345678']; empty = anyone\n  KAPSO_PHONE_NUMBER_ID: 'PUT YOUR KAPSO PHONE NUMBER ID HERE',\n  KAPSO_API_BASE: 'https://api.kapso.ai/meta/whatsapp/v24.0',\n};\nreturn $input.all().map((i) => ({ json: Object.assign({}, i.json, { _cfg: cfg }) }));"
+      },
+      "id": "196bbf6f-01dc-46c7-83b6-7b370109f6a4",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kapso webhook -> one item per teacher: { from, name, text, reply }.\n// - Webhook calls must carry ?token=<WEBHOOK_TOKEN>. Calls without it are dropped silently (fake payloads).\n// - Handles batched payloads and skips outbound echoes and non-message events.\n// - Drops message ids it has already handled, so a webhook Kapso retries isn't answered twice.\n//   (Workflow static data only persists for production runs, which is where retries happen.)\n// - Several messages from the same teacher in one batch become one turn for the agent.\n// - Media messages, and numbers not on ALLOWED_PHONES, get a fixed `reply` and skip the agent.\nconst cfg = $('config').first().json._cfg;\nconst digits = (v) => String(v == null ? '' : v).replace(/\\D/g, '');\nconst MEDIA = ['image', 'audio', 'video', 'document', 'sticker', 'location', 'contacts'];\nconst token = String(cfg.WEBHOOK_TOKEN || '');\nconst tokenSet = token.length >= 16 && !/^PUT /.test(token);\nconst allowed = (cfg.ALLOWED_PHONES || []).map(digits).filter(Boolean);\n\nconst store = $getWorkflowStaticData('global');\nconst seen = store.seenMessageIds || (store.seenMessageIds = {});\nconst nowSec = Math.floor(Date.now() / 1000);\nfor (const [id, t] of Object.entries(seen)) if (nowSec - t > 86400) delete seen[id];\n\nconst payloads = (inc) => {\n  const b = inc && inc.body ? inc.body : inc;\n  if (b && b.batch === true && Array.isArray(b.data)) return b.data;\n  return b ? [b] : [];\n};\n\nconst byFrom = new Map();\nfor (const item of $input.all()) {\n  const inc = item.json || {};\n  // Webhook items carry headers; the manual demo item does not.\n  if (inc.headers && !(tokenSet && String((inc.query || {}).token || '') === token)) continue;\n  for (const p of payloads(inc)) {\n    const m = p.message;\n    if (!m) continue;\n    const conv = p.conversation || {};\n    if (m.kapso && m.kapso.direction && m.kapso.direction !== 'inbound') continue;\n    if (m.id) {\n      if (seen[m.id]) continue;\n      seen[m.id] = nowSec;\n    }\n    const from = digits(m.from || conv.phone_number);\n    if (!from) continue;\n    let text = '';\n    if (m.type === 'text') text = (m.text && m.text.body) || '';\n    else if (m.type === 'interactive') text = (m.interactive && ((m.interactive.button_reply && m.interactive.button_reply.title) || (m.interactive.list_reply && m.interactive.list_reply.title))) || '';\n    else if (m.type === 'button') text = (m.button && m.button.text) || '';\n    text = String(text).trim();\n    if (!text && !MEDIA.includes(m.type)) continue; // reactions, system notices, empty texts\n    const entry = byFrom.get(from) || { from, name: '', texts: [], media: false };\n    entry.name = entry.name || String(conv.contact_name || '').trim();\n    if (text) entry.texts.push(text);\n    else entry.media = true;\n    byFrom.set(from, entry);\n  }\n}\n\nconst out = [];\nfor (const e of byFrom.values()) {\n  let reply = '';\n  if (allowed.length && !allowed.includes(e.from)) reply = 'Sorry, this number is not registered for iPad bookings. Please ask the school office to add it.';\n  else if (e.texts.length === 0) reply = 'Sorry, I can only read text messages. Please type your request, e.g. \"book 2 iPads tomorrow 9 to 10\".';\n  out.push({ json: { from: e.from, name: e.name, text: e.texts.join('\\n'), reply, _cfg: cfg } });\n}\nreturn out;"
+      },
+      "id": "3c96c688-0b5c-42a7-82c2-d58dcfee0a1b",
+      "name": "Read message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Today's date, time and the coming week in the school's time zone, so the agent can turn\n// \"tomorrow\" or \"Monday\" into a real date.\nreturn $input.all().map((i) => {\n  const now = $now.setZone(i.json._cfg.TIMEZONE);\n  const upcoming = [];\n  for (let d = 1; d <= 7; d++) upcoming.push(now.plus({ days: d }).toFormat('cccc yyyy-MM-dd'));\n  return { json: Object.assign({}, i.json, {\n    school_today: now.toFormat('yyyy-MM-dd'),\n    school_day: now.toFormat('cccc'),\n    school_time: now.toFormat('HH:mm'),\n    upcoming_days: upcoming.join(', '),\n  }) };\n});"
+      },
+      "id": "a13f0673-a1e0-4788-a8fb-344f84cca4e2",
+      "name": "School clock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "maxIterations": 10,
+          "systemMessage": "=You are the WhatsApp assistant teachers use to book the school's iPads.\n\nCONTEXT\n- Now: {{ $json.school_day }} {{ $json.school_today }}, {{ $json.school_time }} (school time)\n- Coming days: {{ $json.upcoming_days }}\n- School hours: {{ $json._cfg.SCHOOL_OPEN }} to {{ $json._cfg.SCHOOL_CLOSE }}. Any start and end inside those hours can be booked; there are no fixed slots.\n- Teacher: {{ $json.name || 'name unknown' }}\n\nTOOLS\n- check_availability: how many iPads are free in a window, or the start times free on a morning.\n- book_ipads: creates a booking (date, start, end, number of iPads).\n- list_my_bookings: the teacher's upcoming bookings with their booking IDs.\n- cancel_booking: cancels one of the teacher's bookings by booking_id.\nThe teacher's phone number is attached to every tool automatically. Never ask for it.\n\nYOUR ANSWER IS THE WHATSAPP MESSAGE\nYour final answer is sent to the teacher on WhatsApp exactly as you write it, once per turn. Write only the message itself: no notes to yourself, no \"I will send\", no tool names.\n\nHOW TO WORK\n1. Work out what the teacher wants. If it is unclear, ask, e.g. \"Would you like to book iPads, check what's free, see your bookings, or cancel one?\"\n2. Never invent details. A booking needs all four: date, start time, end time, number of iPads. Ask for whatever is missing in one short message. \"Tomorrow at 9\" has no end time; \"tomorrow morning\" has no times at all.\n3. Dates: turn today / tomorrow / weekday names into YYYY-MM-DD using CONTEXT. Times: pass HH:MM in 24-hour form (9 -> 09:00, 11.30 -> 11:30).\n4. Availability questions: call check_availability with only what the teacher said (for example just a date and a number of iPads); it lists the free start times itself. Do not make up a start or end time.\n5. Booking and cancelling change real data, so confirm first:\n   - Answer with the exact proposal, e.g. \"Book 3 iPads on Tue 13 Oct, 09:00-10:00? Reply yes to confirm.\" Do not call book_ipads or cancel_booking in that turn.\n   - Call book_ipads or cancel_booking only when the teacher's new message confirms (yes, ok, confirm, go ahead, book it...) AND your previous answer in this chat was the proposal for exactly that action. If they change any detail, propose again.\n   - Call book_ipads or cancel_booking at most once per turn.\n6. Cancelling: if you do not know the booking_id yet, call list_my_bookings first. If they have more than one upcoming booking, ask which one. Never cancel a booking you cannot identify exactly. Booking IDs look like BK-0012-K7.\n7. Every tool returns toolResult with success and data.reply. Build your answer from data.reply. Never claim something worked unless the tool returned success: true; if it failed, say so plainly and suggest the next step. A book_ipads result with data.duplicate means the booking already exists: tell them it is already booked, not that it was booked again.\n\nSTYLE\nFriendly, short, plain text, at most 3 lines (a list of bookings or free times may be longer). No markdown. Write dates like Tue 13 Oct and times like 09:00-10:00."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1472,
+        320
+      ],
+      "id": "b3ac2f8e-5eda-4d5c-bd13-e6a3b06e3941",
+      "name": "AI Agent",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        544
+      ],
+      "id": "3bd540ba-3878-4d50-9732-7cdc8dd4faf1",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.from }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1280,
+        544
+      ],
+      "id": "b54b98ef-bbe1-4063-959c-f1cbb5f45778",
+      "name": "Window Buffer Memory"
+    },
+    {
+      "parameters": {
+        "description": "Create an iPad booking on the school sheet. Only call this after the teacher has confirmed your booking proposal. Returns toolResult { success, data.reply, data.duplicate }.",
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Tool: Book the slot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $json.from }}",
+            "name": "={{ $json.name }}",
+            "devices": "={{ $fromAI('devices', 'Number of iPads to book', 'number') }}",
+            "date": "={{ $fromAI('date', 'Booking date as YYYY-MM-DD', 'string') }}",
+            "start": "={{ $fromAI('start', 'Start time as HH:MM, 24-hour', 'string') }}",
+            "end": "={{ $fromAI('end', 'End time as HH:MM, 24-hour', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "devices",
+              "displayName": "devices",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "start",
+              "displayName": "start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "end",
+              "displayName": "end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "751bad9b-2977-4ab1-9def-0852d6bd54c4",
+      "name": "book_ipads",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1408,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Cancel one of the teacher's upcoming bookings. Only call this after the teacher has confirmed your cancellation proposal. Returns toolResult { success, data.reply }; on failure data.bookings lists their bookings.",
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Tool: Cancel the slot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $json.from }}",
+            "booking_id": "={{ $fromAI('booking_id', 'ID of the booking to cancel, e.g. BK-0007-K7, from list_my_bookings. Empty string only if the teacher has exactly one booking.', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "booking_id",
+              "displayName": "booking_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "7e8a44d0-d703-4e44-877b-5948bfdc2fb0",
+      "name": "cancel_booking",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Check free iPads. With date, start and end: how many are free in that window. With only a date (or nothing): the start times free on the school morning. Pass empty strings / 0 for anything the teacher did not say. Returns toolResult { success, data.reply }.",
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Tool: Check availability"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "devices": "={{ $fromAI('devices', 'Number of iPads needed, 0 if not given', 'number') }}",
+            "hours": "={{ $fromAI('hours', 'How many hours they need them for, 0 if not given', 'number') }}",
+            "date": "={{ $fromAI('date', 'Date as YYYY-MM-DD, empty string if not given', 'string') }}",
+            "start": "={{ $fromAI('start', 'Start time as HH:MM 24-hour, empty string if not given', 'string') }}",
+            "end": "={{ $fromAI('end', 'End time as HH:MM 24-hour, empty string if not given', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "devices",
+              "displayName": "devices",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hours",
+              "displayName": "hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "start",
+              "displayName": "start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "end",
+              "displayName": "end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "dc5f2c3e-5c57-4829-9ffd-cdff69d8099c",
+      "name": "check_availability",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1696,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "description": "List the teacher's upcoming bookings with their booking IDs. Use it to show their bookings and to find the booking_id before cancelling. Returns toolResult { success, data.reply, data.bookings }.",
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "",
+          "cachedResultName": "Tool: My bookings"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $json.from }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "id": "ea6245ee-8410-4932-b1b2-104df05786c1",
+      "name": "list_my_bookings",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1840,
+        576
+      ]
+    },
+    {
+      "id": "81078000-53a7-9b15-58f4-f511d0f721e4",
+      "name": "Needs the agent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "r",
+              "leftValue": "={{ $json.reply }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "5c712a16-5903-b614-0ce4-da5a24866f15",
+      "name": "Prepare reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Runs once per teacher turn. Exactly one WhatsApp reply goes out: the agent's answer, the fixed\n// reply from Read message (media, unknown number), or an apology when the agent failed\n// (LLM error, max iterations, empty answer), so a teacher is never left without a reply.\nconst src = $('School clock').item.json;\nconst err = $json.error ? String($json.error.message || $json.error) : null;\nconst answer = String(src.reply || $json.output || '').trim();\nreturn {\n  json: {\n    to: src.from,\n    text: answer || 'Sorry, something went wrong on my side. Please try again in a minute.',\n    agent_error: err,\n  },\n};"
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json._cfg.KAPSO_API_BASE + '/' + $('config').first().json._cfg.KAPSO_PHONE_NUMBER_ID + '/messages' }}",
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: String($json.to || '').replace(/\\D/g, ''), type: 'text', text: { body: $json.text, preview_url: false } }) }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "4f151a52-0480-5c27-700d-935180ca2a09",
+      "name": "Send reply on WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2688,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "b7d1c2e0-5a11-4c3e-9d70-0f1e2a3b4c51",
+      "name": "Replies switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2448,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "replies-on",
+              "leftValue": "={{ $('config').first().json._cfg.DRY_RUN === false }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b7d1c2e0-5a11-4c3e-9d70-0f1e2a3b4c52",
+      "name": "STOP: dry run - reply not sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        512
+      ],
+      "parameters": {}
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run demo": {
+      "main": [
+        [
+          {
+            "node": "Demo message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp message arrives": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo message": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read message": {
+      "main": [
+        [
+          {
+            "node": "School clock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "book_ipads": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancel_booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "list_my_bookings": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "School clock": {
+      "main": [
+        [
+          {
+            "node": "Needs the agent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs the agent?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare reply": {
+      "main": [
+        [
+          {
+            "node": "Replies switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replies switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send reply on WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - reply not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

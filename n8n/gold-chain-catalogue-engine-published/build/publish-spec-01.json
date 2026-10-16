@@ -1,0 +1,48 @@
+{
+  "title": "Reprice gold chain stock daily and announce it on WhatsApp",
+  "stickies": [
+    {
+      "color": 4,
+      "band": "top",
+      "from": "Run it now",
+      "to": "check the stock rows",
+      "width": 760,
+      "content": "## Reprice gold chain stock daily and announce it on WhatsApp\n\n**Who's it for**\nJewellery wholesalers and gold traders who send a daily price list to customers on WhatsApp and rework every price by hand each morning.\n\n**How it works**\nEvery weekday at 08:00, or by hand, it reads the Stock tab and checks every row: a chain with no weight or an unknown karat is held back with its reason. It fetches today's 24k rate from goldapi.io and prices each chain as weight x purity x rate, plus the style's making charge and your margin. If the rate moved more than `MAX_RATE_MOVE_PCT` since the last list, it stops. From the same priced rows it builds the catalogue, the stock list, a CSV and an announcement of what changed. The owner approves on WhatsApp before any customer receives it, then the prices are written back.\n\n**How to set up**\n1. Run **Run it now** first: demo stock, a labelled demo rate, nothing sent.\n2. In `config`, set `PURITY`, `STYLES`, `WHOLESALE_MARGIN_PCT` and `SHEET_ID`.\n3. Add `GOLD_API_KEY` and connect Google Sheets and Twilio on the `[cred]` nodes.\n4. Set `TEST_WHATSAPP` to your number, then `TEST_RUN = false`.\n\n**Requirements**\nA Google Sheet with Stock and Customers tabs, a goldapi.io key, and a Twilio WhatsApp sender. WhatsApp only allows free-form messages within 24 hours of the customer's last message, so the broadcast needs an approved template.\n\n**How to customize**\n`STYLES` holds making charges per gram, `ROUND_TO` and `CURRENCY` shape the prices, and `BROADCAST_CAP` and `APPROVAL_WAIT_HOURS` bound the send. Import the companion enquiries workflow to answer replies at the approved price."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "stock sheet configured?",
+      "to": "check the stock rows",
+      "content": "### 1. Read the stock, and check it before pricing\n\n`stock sheet configured?` reads the Stock tab through `[cred] Sheets - read the stock`, or falls back to `use the demo stock` so the whole run works with nothing connected.\n\n`check the stock rows` holds back a chain with no weight, a karat missing from `PURITY` or a style missing from `STYLES`, with its reason. A row is never priced on a guess and never silently dropped."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "gold rate configured?",
+      "to": "rate looks right?",
+      "content": "### 2. Price every chain at today's rate\n\n`Gold rate - today's price` calls goldapi.io; without a key, `use the demo gold rate` supplies a rate labelled as not a market price everywhere it appears.\n\n`price every chain` applies one formula: weight x purity x 24k rate, plus the making charge, plus margin.\n\n`rate looks right?` refuses a rate that moved more than `MAX_RATE_MOVE_PCT` since the last list. A stale feed or a wrong currency is far likelier than the market, and a wrong price sent to every customer is the expensive failure."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "build the catalogue",
+      "to": "plan the broadcast",
+      "content": "### 3. Four views of the same priced rows\n\n`build the catalogue` makes the customer catalogue, the internal stock list, a CSV and the announcement from one set of rows, so they cannot disagree. The announcement says only what changed: new in, back in stock, last few, sold out.\n\n`plan the broadcast` skips opted-out, unusable and duplicate numbers with a reason, and enforces `BROADCAST_CAP` in code."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "sending on?",
+      "to": "STOP: prices written",
+      "content": "### 4. The owner approves, then it sends and writes back\n\n`[cred] Twilio - ask the owner to approve` sends the full message with an approve link, and `wait for the owner's approval` holds the run. Nothing reaches a customer until the owner opens it, and if `APPROVAL_WAIT_HOURS` passes first nothing is sent: a morning price is wrong by the evening.\n\nAfter approval the announcement goes out, and `[cred] Sheets - write today's prices` records price, rate and quantity. That write is how tomorrow's run knows what is new and what sold out."
+    },
+    {
+      "color": 3,
+      "band": "below",
+      "from": "STOP: preview - draft shown",
+      "to": "STOP: preview - prices not written",
+      "content": "## Nothing is sent until you say so\n\nIt ships with `TEST_RUN = true` and a blank `TEST_WHATSAPP`: every message is built and shown on `STOP: preview - draft shown`, and the sheet is not written.\n\nPut your own number in `TEST_WHATSAPP` and real sends go only to you, at most three, marked [TEST]. Set `TEST_RUN = false` to go live."
+    }
+  ]
+}

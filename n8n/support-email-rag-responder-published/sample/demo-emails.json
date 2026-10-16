@@ -1,0 +1,51 @@
+[
+  {
+    "from": "Priya Shah <priya@example.com>",
+    "subject": "Locked out of the portal",
+    "text": "Hi, I can't log in to the client portal. How do I reset my password?",
+    "id": "demo-msg-001",
+    "threadId": "demo-thread-001",
+    "messageId": "<a1@example.com>"
+  },
+  {
+    "from": "Tom Reid <tom@example.org>",
+    "subject": "Re: March invoice",
+    "text": "Thanks. Can you change the billing contact on our invoice to accounts@example.org please?",
+    "id": "demo-msg-002",
+    "threadId": "demo-thread-777",
+    "messageId": "<b2@example.org>",
+    "inReplyTo": "<prev-777@demo-agency.example>"
+  },
+  {
+    "from": "Ana Lopez <ana@example.net>",
+    "subject": "TikTok Shop",
+    "text": "Hello, we have a problem connecting our TikTok Shop catalogue to the product feed. Can you help?",
+    "id": "demo-msg-003",
+    "threadId": "demo-thread-003",
+    "messageId": "<c3@example.net>"
+  },
+  {
+    "from": "Growth Partners <hello@example.com>",
+    "subject": "Partnership opportunity",
+    "text": "We help agencies scale with white-label SEO services. Interested in a partnership? Book a demo with us.",
+    "id": "demo-msg-004",
+    "threadId": "demo-thread-004",
+    "messageId": "<d4@example.com>"
+  },
+  {
+    "from": "Mark Evans <mark@example.co.uk>",
+    "subject": "Report late AGAIN",
+    "text": "This is the third time our monthly report is late. Frankly unacceptable, and I want a refund for this month.",
+    "id": "demo-msg-005",
+    "threadId": "demo-thread-005",
+    "messageId": "<e5@example.co.uk>"
+  },
+  {
+    "from": "",
+    "subject": "",
+    "text": "",
+    "id": "demo-msg-006",
+    "threadId": "demo-thread-006",
+    "messageId": ""
+  }
+]

@@ -1,0 +1,710 @@
+{
+  "name": "Categorise emailed receipts into Google Sheets expense rows with OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Categorise emailed receipts into Google Sheets expense rows with OpenAI\n\n**Who's it for**\nFreelancers and small teams whose receipts arrive by email and get typed into an expenses sheet once a quarter. Each receipt becomes a row within a minute of landing in Gmail.\n\n**How it works**\n1. Gmail is polled every minute for unread mail matching `subject:(receipt OR invoice)`. A manual run uses five sample receipts instead.\n2. Rules read the vendor from the sender, the total from lines like \"Total paid\" or \"Amount charged\", the currency from the symbol or ISO code, and the receipt date from the body or the email header.\n3. A category comes from OpenAI when `USE_OPENAI` is true, otherwise from the keyword table in `config`. An AI answer outside your category list falls back to the keyword match.\n4. Rows missing an amount or a vendor are marked needs review. Rows are written to the Expenses tab keyed by Gmail message id, so a re-run never adds a second row.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. It parses the samples and stops at `STOP: dry run - nothing written`.\n2. Connect Gmail on `New receipt in Gmail` and adjust its search query to match your receipts.\n3. Connect Google Sheets and put the spreadsheet id in `EXPENSE_SHEET_ID`. The Expenses tab needs a message_id column.\n4. Optional: add an OpenAI credential to `Pick a category with OpenAI` and set `USE_OPENAI = true`. Set `DRY_RUN = false` to start writing rows.\n\n**Requirements**\n- A Gmail account that receives receipts\n- A Google Sheet with an Expenses tab\n- Optional: an OpenAI API key\n\n**How to customize**\n- `CATEGORY_KEYWORDS` maps each category to the words that select it.\n- `DEFAULT_CURRENCY` is used when a receipt shows only a bare number.\n- `REVIEW_ABOVE` marks any receipt above that amount for a second look.",
+        "height": 1072,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "2e46f668-5717-4c4e-9a00-2e46f66813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nGmail polls every minute for unread receipts; `Run manually` is the zero-credential way in. Category keywords and review thresholds live in `config`.",
+        "height": 656,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ecdbb70d-5717-4c4e-9a00-ecdbb70d1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Collect and parse receipts\n\n`Started by Gmail?` tells a real poll from a manual run, which gets `Load sample receipts`. `Extract receipt fields` ranks total labels so a subtotal never wins, and drops message ids it has already written.",
+        "height": 656,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "ebdbb57a-5717-4c4e-9a00-ebdbb57a1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Choose a category\n\nThe keyword category is computed first, so `Check the AI category` always has a fallback. A model answer outside the allowed list or under 0.5 confidence is rejected rather than written.",
+        "height": 656,
+        "width": 1232,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "eadbb3e7-5717-4c4e-9a00-eadbb3e71002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write once per message\n\nRows are upserted on message_id, and `Remember processed messages` runs only after a real write, so a dry run never marks a receipt as done.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2864,
+        0
+      ],
+      "id": "e9dbb254-5717-4c4e-9a00-e9dbb2541003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "cfdf9fba-8912-499a-ac0c-bc0c6619cfdf",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CATEGORISE EMAILED RECEIPTS INTO GOOGLE SHEETS EXPENSE ROWS WITH OPENAI - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE receipts. The Gmail trigger feeds real ones.\n// USE_OPENAI false -> categories come from CATEGORY_KEYWORDS only.\n\n// Google Sheets id holding the Expenses tab; blank means nothing is written\nconst EXPENSE_SHEET_ID = '';\n// set true after adding the OpenAI credential to the categoriser\nconst USE_OPENAI = false;\n// category -> words that select it; the first category with a hit wins\nconst CATEGORY_KEYWORDS = {\n  Software: [\n    \"subscription\",\n    \"license\",\n    \"saas\",\n    \"hosting\",\n    \"cloud\",\n    \"domain\",\n    \"plan\"\n  ],\n  Travel: [\n    \"taxi\",\n    \"cab\",\n    \"flight\",\n    \"airline\",\n    \"hotel\",\n    \"rail\",\n    \"train\",\n    \"parking\"\n  ],\n  Meals: [\n    \"restaurant\",\n    \"bistro\",\n    \"cafe\",\n    \"coffee\",\n    \"lunch\",\n    \"dinner\",\n    \"catering\"\n  ],\n  Office: [\n    \"stationery\",\n    \"paper\",\n    \"printer\",\n    \"ink\",\n    \"desk\",\n    \"chair\"\n  ],\n  Advertising: [\n    \"ads\",\n    \"campaign\",\n    \"sponsored\",\n    \"promotion\"\n  ]\n};\n// used when a receipt shows no currency symbol or code\nconst DEFAULT_CURRENCY = 'USD';\n// receipts above this amount are marked needs review\nconst REVIEW_ABOVE = 1000;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    expense_sheet_id: EXPENSE_SHEET_ID,\n    use_openai: USE_OPENAI,\n    category_keywords: CATEGORY_KEYWORDS,\n    default_currency: DEFAULT_CURRENCY,\n    review_above: REVIEW_ABOVE,\n    dry_run: DRY_RUN,\n    sheets_enabled: EXPENSE_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "05767e2e-4872-4bce-a5a7-c5a7032d0576",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "805b7697-a6bb-4d67-a8eb-b8eb656e805b",
+      "name": "New receipt in Gmail",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread",
+          "q": "subject:(receipt OR invoice OR \"order confirmation\") newer_than:2d"
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "baecfa51-0590-4b01-a652-1652371cbaec",
+      "name": "Pick up the trigger email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The Gmail trigger and the manual run share one path. When Gmail started the run\n// its messages are passed on; a manual run gets an empty list and uses the samples.\nlet messages = [];\ntry { messages = $('New receipt in Gmail').all().map(i => i.json); } catch (e) { messages = []; }\nreturn [{ json: { from_gmail: messages.length > 0, messages } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "c17cd8dd-c74d-45cd-afa0-1fa00678c17c",
+      "name": "Started by Gmail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f65e3566-4b4a-4186-a446-14467235f65e",
+              "leftValue": "={{ $json.from_gmail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "50bf1f75-2226-4ce5-a135-f1354a2050bf",
+      "name": "Read receipt emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Gmail (simple: false) -> the fields the parser reads. Plain text is preferred over HTML.\nreturn $input.first().json.messages.map(m => ({ json: {\n  message_id: m.id, from_name: m.from?.value?.[0]?.name || '', from_address: m.from?.value?.[0]?.address || '',\n  subject: m.subject || '', email_date: m.date || '',\n  text: m.text || String(m.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' '),\n} }));\n"
+      },
+      "position": [
+        944,
+        176
+      ]
+    },
+    {
+      "id": "888f41a7-4df5-4377-a524-d524febe888f",
+      "name": "Load sample receipts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. Covers a decimal comma, a missing total and a duplicate message.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString();\nreturn [\n  { message_id: '18f0a1', from_name: 'Pixelpond Billing', from_address: 'billing@pixelpond.example', subject: 'Your receipt from Pixelpond', email_date: day(1),\n    text: 'Thanks for your payment.\\nPlan: Team subscription (annual)\\nDate: ' + day(1).slice(0, 10) + '\\nSubtotal $240.00\\nTax $19.20\\nTotal paid: $259.20' },\n  { message_id: '18f0a2', from_name: 'MetroCab', from_address: 'no-reply@metrocab.example', subject: 'Trip receipt', email_date: day(2),\n    text: 'Your ride on ' + day(2).slice(0, 10) + '\\nTaxi fare 31,50\\nAmount charged: EUR 34,65' },\n  { message_id: '18f0a3', from_name: '', from_address: 'orders@cornerbistro.example', subject: 'Order confirmation #5521', email_date: day(3),\n    text: 'Corner Bistro, catering for 12\\nGrand total: £186.00' },\n  { message_id: '18f0a4', from_name: 'Northgate Supplies', from_address: 'hello@northgate.example', subject: 'Invoice 7731', email_date: day(4),\n    text: 'Invoice 7731\\nItems: printer paper, ink\\nPlease see attached PDF.' },\n  { message_id: '18f0a1', from_name: 'Pixelpond Billing', from_address: 'billing@pixelpond.example', subject: 'Fwd: Your receipt from Pixelpond', email_date: day(1),\n    text: 'Forwarded copy. Total paid: $259.20' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "d886a287-94e9-4e57-a816-18163cded886",
+      "name": "Combine receipt sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "54493492-47d4-4af2-a241-b241ce815449",
+      "name": "Extract receipt fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Rules, not a model: the total comes from the highest-priority label found, so\n// \"Subtotal\" never wins over \"Total paid\". Message ids already seen are dropped.\nconst cfg = $('config').first().json;\nconst seen = new Set(($getWorkflowStaticData('global').seen_ids || []));\nconst SYM = { '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', '₹': 'INR' };\nconst LABELS = ['grand total', 'total paid', 'amount paid', 'amount charged', 'total charged', 'total due', 'amount due', 'total'];\nconst num = s => {\n  let t = s.replace(/[^0-9.,]/g, '');\n  if (/,\\d{2}$/.test(t)) t = t.replace(/\\./g, '').replace(',', '.'); else t = t.replace(/,/g, '');\n  const n = Number(t); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;\n};\nconst findAmount = text => {\n  const lines = text.split(/\\n/);\n  for (const label of LABELS) {\n    for (const line of lines) {\n      const low = line.toLowerCase();\n      const at = low.indexOf(label);\n      if (at < 0 || (label === 'total' && /sub\\s*total/.test(low))) continue;\n      const m = line.slice(at + label.length).match(/([A-Z]{3})?\\s*([$€£¥₹])?\\s*([0-9][0-9.,]*)\\s*([A-Z]{3})?/);\n      if (m && num(m[3])) return { amount: num(m[3]), currency: m[1] || m[4] || SYM[m[2]] || '', label };\n    }\n  }\n  return { amount: null, currency: '', label: '' };\n};\nconst findDate = (text, fallback) => {\n  const iso = text.match(/(20\\d{2})-(\\d{2})-(\\d{2})/);\n  if (iso) return { date: iso[0], date_source: 'body' };\n  return { date: fallback ? new Date(fallback).toISOString().slice(0, 10) : '', date_source: fallback ? 'email header' : '' };\n};\nconst vendorOf = r => {\n  const name = r.from_name.replace(/\\b(billing|receipts?|payments?|no-?reply|team|invoices?)\\b/gi, '').trim();\n  if (name) return name;\n  const host = (r.from_address.split('@')[1] || '').split('.')[0];\n  return host ? host.charAt(0).toUpperCase() + host.slice(1) : '';\n};\nconst kw = cfg.category_keywords;\nconst out = [], skipped = [];\nfor (const { json: r } of $input.all()) {\n  if (seen.has(r.message_id)) { skipped.push({ message_id: r.message_id, reason: 'already processed' }); continue; }\n  seen.add(r.message_id);\n  const a = findAmount(r.text);\n  const d = findDate(r.text, r.email_date);\n  const vendor = vendorOf(r);\n  const hay = (vendor + ' ' + r.subject + ' ' + r.text).toLowerCase();\n  const keyword_category = Object.keys(kw).find(c => kw[c].some(w => new RegExp('\\\\b' + w + '\\\\b').test(hay))) || 'Uncategorised';\n  out.push({ json: { message_id: r.message_id, vendor, amount: a.amount, currency: a.currency || cfg.default_currency,\n    currency_guessed: !a.currency, amount_label: a.label, receipt_date: d.date, date_source: d.date_source,\n    subject: r.subject, keyword_category, snippet: r.text.slice(0, 400) } });\n}\nif (!out.length) return [];\nout[0].json._skipped = skipped;\nreturn out;\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "4cd975a3-caf9-40b3-a342-4342e39a4cd9",
+      "name": "Keywords only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5275f78e-9914-472e-acd7-5cd721cd5275",
+              "leftValue": "={{ !$('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "05092970-d6fb-4670-a79e-279ec7330509",
+      "name": "Pick a category with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Vendor: {{ $json.vendor }}\nSubject: {{ $json.subject }}\nAmount: {{ $json.amount }} {{ $json.currency }}\nReceipt text:\n{{ $json.snippet }}\n\nAllowed categories: {{ Object.keys($('config').first().json.category_keywords).join(', ') }}, Uncategorised",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You file business expenses. Pick exactly one category from the allowed list for this receipt. If none fits, answer Uncategorised. Confidence is 0 to 1."
+        }
+      },
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "f99c297d-746f-446d-abc3-dbc3a1d8f99c",
+      "name": "Pick a category with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        512
+      ]
+    },
+    {
+      "id": "cd16f710-9c17-4210-a99d-499da493cd16",
+      "name": "Pick a category with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"category\": \"Software\",\n  \"confidence\": 0.82\n}"
+      },
+      "position": [
+        1984,
+        512
+      ]
+    },
+    {
+      "id": "8a25c381-fc3b-4531-ad6d-cd6d624c8a25",
+      "name": "Check the AI category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The model may only choose from the configured list; anything else, or a low\n// confidence, keeps the keyword category so a bad answer never lands in the sheet.\nconst cfg = $('config').first().json;\nconst allowed = [...Object.keys(cfg.category_keywords), 'Uncategorised'];\nconst r = $('Extract receipt fields').item.json;\nconst o = $json.output || {};\nconst ok = allowed.includes(o.category) && Number(o.confidence || 0) >= 0.5;\nreturn { json: { ...r, category: ok ? o.category : r.keyword_category, category_source: ok ? 'openai' : 'keywords (AI answer rejected)' } };\n"
+      },
+      "position": [
+        2224,
+        352
+      ]
+    },
+    {
+      "id": "98901929-4d54-4659-a5be-a5bec0649890",
+      "name": "Use the keyword category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Deterministic fallback while USE_OPENAI is false.\nreturn $input.all().map(i => ({ json: { ...i.json, category: i.json.keyword_category, category_source: 'keywords' } }));\n"
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "ec22401a-4590-4bfa-a7ff-e7ffafb9ec22",
+      "name": "Combine categorised receipts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2448,
+        176
+      ]
+    },
+    {
+      "id": "f59db745-537e-43b5-a4ec-94ecbeb0f59d",
+      "name": "Build expense rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One sheet row per receipt. Anything a person must check is spelled out in review_notes.\nconst cfg = $('config').first().json;\nreturn $input.all().map(({ json: r }) => {\n  const notes = [];\n  if (r.amount === null) notes.push('no total found');\n  if (!r.vendor) notes.push('no vendor');\n  if (r.currency_guessed) notes.push('currency assumed ' + r.currency);\n  if (r.date_source === 'email header') notes.push('date taken from email');\n  if (r.category === 'Uncategorised') notes.push('no category matched');\n  if (r.amount !== null && r.amount > cfg.review_above) notes.push('above REVIEW_ABOVE');\n  return { json: {\n    message_id: r.message_id, receipt_date: r.receipt_date, vendor: r.vendor, amount: r.amount ?? '', currency: r.currency,\n    category: r.category, category_source: r.category_source, status: notes.length ? 'needs review' : 'ready',\n    review_notes: notes.join('; '), subject: r.subject, logged_at: cfg.run_started_at,\n  } };\n});\n"
+      },
+      "position": [
+        2672,
+        176
+      ]
+    },
+    {
+      "id": "b48ccee1-b37a-4291-ab5d-eb5d11ecb48c",
+      "name": "Write to the sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ffccb7ae-79be-4d4e-a277-6277a8adffcc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "00ccb941-3c12-4ef1-ab2f-ab2f358c00cc",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2912,
+        176
+      ]
+    },
+    {
+      "id": "fb6a6213-e8fd-4a23-a867-4867adcafb6a",
+      "name": "STOP: dry run - nothing written",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3136,
+        352
+      ]
+    },
+    {
+      "id": "7e4f3e1c-6929-4d5c-ae26-1e26dc6f7e4f",
+      "name": "Write rows to the Expenses tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.expense_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Expenses"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "message_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3136,
+        176
+      ]
+    },
+    {
+      "id": "d01660ed-8c34-48dd-aeb6-2eb698c8d016",
+      "name": "Remember processed messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only after a real write: the ids join the seen list (last 500 kept) so a re-poll skips them.\nconst store = $getWorkflowStaticData('global');\nconst ids = $('Build expense rows').all().map(i => i.json.message_id);\nstore.seen_ids = [...new Set([...(store.seen_ids || []), ...ids])].slice(-500);\nreturn [{ json: { remembered: ids.length, total_seen: store.seen_ids.length } }];\n"
+      },
+      "position": [
+        3360,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New receipt in Gmail": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Pick up the trigger email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick up the trigger email": {
+      "main": [
+        [
+          {
+            "node": "Started by Gmail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Started by Gmail?": {
+      "main": [
+        [
+          {
+            "node": "Read receipt emails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample receipts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read receipt emails": {
+      "main": [
+        [
+          {
+            "node": "Combine receipt sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample receipts": {
+      "main": [
+        [
+          {
+            "node": "Combine receipt sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine receipt sources": {
+      "main": [
+        [
+          {
+            "node": "Extract receipt fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract receipt fields": {
+      "main": [
+        [
+          {
+            "node": "Keywords only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keywords only?": {
+      "main": [
+        [
+          {
+            "node": "Use the keyword category",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pick a category with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick a category with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Pick a category with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick a category with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Pick a category with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick a category with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Check the AI category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use the keyword category": {
+      "main": [
+        [
+          {
+            "node": "Combine categorised receipts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the AI category": {
+      "main": [
+        [
+          {
+            "node": "Combine categorised receipts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine categorised receipts": {
+      "main": [
+        [
+          {
+            "node": "Build expense rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build expense rows": {
+      "main": [
+        [
+          {
+            "node": "Write to the sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the sheet?": {
+      "main": [
+        [
+          {
+            "node": "Write rows to the Expenses tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write rows to the Expenses tab": {
+      "main": [
+        [
+          {
+            "node": "Remember processed messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

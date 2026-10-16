@@ -1,0 +1,1104 @@
+{
+  "name": "Offer rental viewing slots by email from form requests",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Offer rental viewing slots by email from form requests\n\n**Who's it for**\nLetting agents and landlords who run group or back-to-back viewings and spend the morning swapping emails to find a time. A prospect fills in one form and gets three real options within a minute.\n\n**How it works**\n1. A prospect submits the form with the property, preferred days and preferred time of day. A manual run uses a sample request.\n2. Viewing slots and current holds are read from the Slots and Holds tabs. Free places = capacity minus bookings minus holds that have not expired.\n3. Slots at least `MIN_NOTICE_HOURS` ahead and within `LOOKAHEAD_DAYS` are scored: +2 for the preferred days, +2 for the preferred time. The best 3 are picked, one per day first so the choices are spread out.\n4. The offered slots are written to the Holds tab with a 24-hour expiry and the prospect gets an email listing them.\n5. With no free slot, the request goes to the Waitlist tab and the agent gets an email.\n\n**How to set up**\n1. Run it once as imported. It matches the sample request and stops at `STOP: preview - nothing sent`.\n2. Create a sheet with Slots (Slot ID, Property, Start, Capacity, Booked), Holds (Hold ID, Slot ID, Email, Expires) and Waitlist tabs, connect Google Sheets and set `SLOTS_SHEET_ID`.\n3. Connect Gmail and set `AGENT_EMAIL` and `AGENCY_NAME`. Edit the Property options on the form to match your Slot sheet.\n4. Put your address in `TEST_EMAIL` to receive the offers yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet with Slots, Holds and Waitlist tabs\n- A Gmail account\n\n**How to customize**\n- `HOLD_HOURS` sets how long offered slots stay reserved.\n- `OFFER_COUNT` and `LOOKAHEAD_DAYS` change how many choices are offered and how far ahead.\n- `TIMEZONE` must match the times written in the Start column.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "c8d304a3-5717-4c4e-9a00-c8d304a313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nProspects submit `Viewing request form`; `Run manually` replays a sample request. Hold length, notice period and lookahead all live in `config`.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dc3d2236-5717-4c4e-9a00-dc3d22361000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the request\n\n`Read the viewing request` lower-cases the email and fills missing preferences with Any, so the matcher never sees a blank. A manual run uses `Load sample request`.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "dd3d23c9-5717-4c4e-9a00-dd3d23c91001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read slots and holds\n\nSlots and holds are read in parallel and merged, so free places can be counted in one place. Expired holds are ignored there, which is why nothing ever needs to delete a row from the Holds tab.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "da3d1f10-5717-4c4e-9a00-da3d1f101002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Match or waitlist\n\nScoring favours preferred days and times, then the earliest slot, with one slot per day picked first. With nothing free the prospect goes on the Waitlist tab and the agent is told, rather than the form silently failing.",
+        "height": 688,
+        "width": 1744,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "db3d20a3-5717-4c4e-9a00-db3d20a31003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Email the choices and hold them\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. Only a live run writes holds, so a test offer never blocks a real slot for the next 24 hours.",
+        "height": 688,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3856,
+        0
+      ],
+      "id": "e03d2882-5717-4c4e-9a00-e03d28821004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "dd3c6de8-5392-4568-a4cc-94cc9cdbdd3c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// OFFER RENTAL VIEWING SLOTS BY EMAIL FROM FORM REQUESTS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SLOTS_SHEET_ID blank -> SAMPLE slots and holds so the run works before any credential exists.\n// Only a live run writes holds or waitlist rows; test mode emails TEST_EMAIL only.\n\n// Google Sheets id with Slots, Holds and Waitlist tabs; blank uses sample data\nconst SLOTS_SHEET_ID = '';\n// timezone of the 'YYYY-MM-DD HH:mm' times in the Start column\nconst TIMEZONE = 'Europe/London';\n// slots offered per request\nconst OFFER_COUNT = 3;\n// offered slots are reserved for this long\nconst HOLD_HOURS = 24;\n// never offer a slot sooner than this\nconst MIN_NOTICE_HOURS = 12;\n// never offer a slot further out than this\nconst LOOKAHEAD_DAYS = 14;\n// sign-off on the offer email\nconst AGENCY_NAME = 'Harbour Lettings';\n// gets an alert when a request lands on the waitlist\nconst AGENT_EMAIL = 'lettings@harbour-lettings.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    slots_sheet_id: SLOTS_SHEET_ID,\n    timezone: TIMEZONE,\n    offer_count: OFFER_COUNT,\n    hold_hours: HOLD_HOURS,\n    min_notice_hours: MIN_NOTICE_HOURS,\n    lookahead_days: LOOKAHEAD_DAYS,\n    agency_name: AGENCY_NAME,\n    agent_email: AGENT_EMAIL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: SLOTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "d5c6001c-b1f7-4f5c-a945-4945ba6fd5c6",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "132a9e4a-132e-4b2a-a202-e20262e9132a",
+      "name": "Viewing request form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "5a437306-b44a-4d26-a1e5-d1e5ef955a43",
+      "parameters": {
+        "formTitle": "Book a viewing",
+        "formDescription": "Tell us which property and when suits you. We will email you three times to choose from.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Full name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone"
+            },
+            {
+              "fieldLabel": "Property",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "FLAT-12"
+                  },
+                  {
+                    "option": "HSE-7"
+                  },
+                  {
+                    "option": "FLAT-30"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Preferred days",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Any day"
+                  },
+                  {
+                    "option": "Weekdays"
+                  },
+                  {
+                    "option": "Weekends"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Preferred time",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Any time"
+                  },
+                  {
+                    "option": "Morning"
+                  },
+                  {
+                    "option": "Afternoon"
+                  },
+                  {
+                    "option": "Evening"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "7cd8b963-afbc-4873-a2f8-22f838da7cd8",
+      "name": "Read the viewing request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form submission when there is one; an empty marker on a manual run.\nlet f = null;\ntry { f = $('Viewing request form').first().json; } catch (e) { f = null; }\nif (!f || !f['Email']) return [{ json: { has_request: false } }];\nreturn [{ json: { has_request: true, name: String(f['Full name'] || '').trim(), email: String(f['Email']).trim().toLowerCase(),\n  phone: f['Phone'] || '', property: f['Property'], days: f['Preferred days'] || 'Any day', time: f['Preferred time'] || 'Any time',\n  submitted_at: f.submittedAt || new Date().toISOString() } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "e969fc71-74df-4321-a30f-030f6bfce969",
+      "name": "Request from the form?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "774ef5d2-3be6-4832-a9a2-c9a2e541774e",
+              "leftValue": "={{ $json.has_request }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "b75684b1-6790-4761-a674-6674aabcb756",
+      "name": "Load sample request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run: someone who can only do weekday evenings.\nreturn [{ json: { has_request: true, name: 'Sam Patel', email: 'sam.patel@mail.example', phone: '(212) 555-0142',\n  property: 'FLAT-12', days: 'Weekdays', time: 'Evening', submitted_at: new Date().toISOString() } }];\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "e50450c4-b444-4b84-a84a-e84ace67e504",
+      "name": "Combine request sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "bb527171-98e5-4821-a4a2-74a290fcbb52",
+      "name": "Slots sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "59cc83f2-75c2-4c52-abfd-9bfd6e2159cc",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "274258c8-03cd-4a48-ab32-eb3280fb2742",
+      "name": "Read viewing slots",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slots_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Slots"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "10bfcac6-fffc-48e6-ae76-2e76d0d510bf",
+      "name": "Read active holds",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slots_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Holds"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "472eac6a-bd89-4f4a-a80b-c80b6bc9472e",
+      "name": "Load sample slots and holds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until SLOTS_SHEET_ID is set. Built on the next weekdays and weekend in TIMEZONE so\n// the expected offer is the same whatever day it runs.\nconst cfg = $('config').first().json;\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, year: 'numeric', month: '2-digit', day: '2-digit' })\n  .formatToParts(new Date()).map(x => [x.type, x.value]));\nconst base = Date.UTC(+p.year, +p.month - 1, +p.day);\nconst wk = [], we = [];\nfor (let i = 1; wk.length < 6 || we.length < 2; i++) {\n  const d = new Date(base + i * 864e5);\n  ([0, 6].includes(d.getUTCDay()) ? we : wk).push(d.toISOString().slice(0, 10));\n}\nconst slot = (id, property, date, time, cap, booked) => ({ 'Slot ID': id, Property: property, Start: date + ' ' + time, Capacity: cap, Booked: booked });\nconst inHours = h => new Date(Date.now() + h * 36e5).toISOString();\nreturn [\n  slot('S1', 'FLAT-12', wk[0], '18:00', 1, 1),\n  slot('S2', 'FLAT-12', wk[1], '18:00', 2, 0),\n  slot('S3', 'FLAT-12', wk[1], '10:00', 4, 1),\n  slot('S4', 'FLAT-12', wk[2], '18:30', 4, 2),\n  slot('S5', 'FLAT-12', wk[3], '17:30', 2, 0),\n  slot('S6', 'FLAT-12', wk[4], '18:00', 3, 1),\n  slot('S7', 'FLAT-12', we[0], '11:00', 6, 0),\n  slot('S8', 'FLAT-12', wk[2], '19:00', 2, 0),\n  slot('S9', 'HSE-7', wk[0], '18:00', 2, 0),\n  { 'Hold ID': 'H-1', 'Slot ID': 'S2', Email: 'a@mail.example', Expires: inHours(5) },\n  { 'Hold ID': 'H-2', 'Slot ID': 'S2', Email: 'b@mail.example', Expires: inHours(20) },\n  { 'Hold ID': 'H-3', 'Slot ID': 'S4', Email: 'c@mail.example', Expires: inHours(-3) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1648,
+        512
+      ]
+    },
+    {
+      "id": "922c5e2b-ce6c-4ebb-ace9-fce9bdd2922c",
+      "name": "Combine slot sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 3
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "f0c6bdef-b988-493f-a826-28267236f0c6",
+      "name": "Match the request to open slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Free = Capacity - Booked - holds still in date. Times are wall-clock in TIMEZONE,\n// so 'now' is turned into the same wall clock before comparing.\nconst cfg = $('config').first().json;\nconst req = $('Combine request sources').first().json;\nconst rows = $input.all().map(i => i.json);\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })\n  .formatToParts(new Date()).map(x => [x.type, x.value]));\nconst nowWall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute);\nconst holds = {};\nfor (const h of rows.filter(r => r['Hold ID'])) if (new Date(h.Expires).getTime() > Date.now()) holds[h['Slot ID']] = (holds[h['Slot ID']] || 0) + 1;\nconst timeOf = hr => hr < 12 ? 'Morning' : hr < 17 ? 'Afternoon' : 'Evening';\nconst open = [];\nfor (const s of rows.filter(r => r['Slot ID'] && r.Property !== undefined && !r['Hold ID'])) {\n  if (String(s.Property).trim() !== req.property) continue;\n  const at = Date.parse(String(s.Start).trim().replace(' ', 'T') + ':00Z');\n  if (!at) continue;\n  const hours = (at - nowWall) / 36e5;\n  if (hours < cfg.min_notice_hours || hours > cfg.lookahead_days * 24) continue;\n  const free = Number(s.Capacity || 0) - Number(s.Booked || 0) - (holds[s['Slot ID']] || 0);\n  if (free <= 0) continue;\n  const d = new Date(at);\n  const weekend = [0, 6].includes(d.getUTCDay());\n  const score = (req.days === 'Any day' || (req.days === 'Weekends') === weekend ? 2 : 0) + (req.time === 'Any time' || timeOf(d.getUTCHours()) === req.time ? 2 : 0);\n  open.push({ slot_id: s['Slot ID'], start: s.Start, day: String(s.Start).slice(0, 10), at, free, score,\n    label: d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }) + ' at ' + String(s.Start).slice(11, 16) });\n}\nopen.sort((a, b) => b.score - a.score || a.at - b.at);\n// Spread: best slot per day first, then fill from what is left.\nconst offers = [], days = new Set();\nfor (const s of open) if (offers.length < cfg.offer_count && !days.has(s.day)) { offers.push(s); days.add(s.day); }\nfor (const s of open) if (offers.length < cfg.offer_count && !offers.includes(s)) offers.push(s);\noffers.sort((a, b) => a.at - b.at);\nconst expires = new Date(Date.now() + cfg.hold_hours * 36e5).toISOString();\nreturn [{ json: { request: req, offers, open_count: open.length, expires } }];\n"
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "85e47b7f-7ba1-49cf-ae2e-ce2efc4685e4",
+      "name": "Any slot free?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d46e0470-f43a-4170-a70f-570f7233d46e",
+              "leftValue": "={{ $json.offers.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "680dac99-eae7-46c9-a6f0-16f03d94680d",
+      "name": "Write the waitlist alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Nothing free: one row for the Waitlist tab and one email for the agent.\nconst cfg = $('config').first().json;\nconst { request: r } = $input.first().json;\nconst row = { Added: new Date().toISOString().slice(0, 10), Name: r.name, Email: r.email, Phone: r.phone, Property: r.property, 'Preferred days': r.days, 'Preferred time': r.time };\nconst body = ['No free viewing slot for ' + r.property + ' in the next ' + cfg.lookahead_days + ' days.', '',\n  'Name: ' + r.name, 'Email: ' + r.email, 'Phone: ' + (r.phone || 'not given'), 'Prefers: ' + r.days + ', ' + r.time, '',\n  'They have been added to the Waitlist tab. Add slots or call them back.'].join('\\n');\nreturn [{ json: { row, subject: 'Waitlist: ' + r.name + ' for ' + r.property, body,\n  send_to: cfg.mode === 'test' ? cfg.test_email : cfg.agent_email } }];\n"
+      },
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "282e8b33-29ee-4943-aac0-8ac0a5aa282e",
+      "name": "Alert switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c60a158-b4fa-45d8-a205-c2052a0b8c60",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        352
+      ]
+    },
+    {
+      "id": "ad7773a2-390c-4502-a0f9-d0f913d1ad77",
+      "name": "STOP: preview - no alert sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        512
+      ]
+    },
+    {
+      "id": "79c5a5e7-d3b2-43b7-a98a-d98ac87e79c5",
+      "name": "Alert the letting agent",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "7411782b-dd1d-48bb-ac52-1c5293d27411",
+      "name": "Live waitlist write?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6237d1f0-8562-46f0-a744-874473b36237",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "c3108f1b-1ae3-44ab-aed8-2ed8ac82c310",
+      "name": "STOP: test - waitlist untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        512
+      ]
+    },
+    {
+      "id": "10f45e45-1056-4ab5-ac8c-6c8cddb010f4",
+      "name": "Shape the waitlist row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the sheet columns, so the append maps cleanly.\nreturn [{ json: $('Write the waitlist alert').first().json.row }];\n"
+      },
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "c602a5aa-aba7-448a-a174-51744389c602",
+      "name": "Add to the waitlist",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slots_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Waitlist"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3664,
+        352
+      ]
+    },
+    {
+      "id": "a949e13c-636e-467c-a402-f4022a4fa949",
+      "name": "Write the offer email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Numbered choices so a one-character reply is enough to confirm.\nconst cfg = $('config').first().json;\nconst { request: r, offers, expires } = $input.first().json;\nconst until = new Date(expires).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: cfg.timezone });\nconst body = [\n  'Hi ' + (r.name.split(' ')[0] || 'there') + ',', '',\n  'Thanks for asking to view ' + r.property + '. These times are free:', '',\n  ...offers.map((o, i) => (i + 1) + '. ' + o.label),\n  '', 'Reply with 1, 2 or 3 to confirm. We are holding these for you until ' + until + '.', '',\n  cfg.agency_name,\n].join('\\n');\nreturn [{ json: { ...r, offers, expires, subject: 'Viewing times for ' + r.property, body, send_to: cfg.mode === 'test' ? cfg.test_email : r.email } }];\n"
+      },
+      "position": [
+        3904,
+        176
+      ]
+    },
+    {
+      "id": "86df01bb-712e-454b-a180-b18045e286df",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4128,
+        176
+      ]
+    },
+    {
+      "id": "ded2932c-5d9b-4d6c-a97d-b97d8bbfded2",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        4352,
+        352
+      ]
+    },
+    {
+      "id": "8db874a6-af55-4cc6-afb6-3fb63ff58db8",
+      "name": "Email the viewing choices",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $('Write the offer email').first().json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        4352,
+        176
+      ]
+    },
+    {
+      "id": "d877afba-c9c5-499a-a80a-e80a1619d877",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4560,
+        176
+      ]
+    },
+    {
+      "id": "ebccc724-d371-43e4-a916-d9164607ebcc",
+      "name": "STOP: test send - slots not held",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        4784,
+        352
+      ]
+    },
+    {
+      "id": "fa280846-dca0-4e66-a60f-060fbe55fa28",
+      "name": "Split into hold rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Holds row per offered slot, expiring after HOLD_HOURS.\nconst o = $('Write the offer email').first().json;\nreturn o.offers.map(s => ({ json: { 'Hold ID': 'H-' + s.slot_id + '-' + Date.now().toString(36), 'Slot ID': s.slot_id, Email: o.email, Expires: o.expires } }));\n"
+      },
+      "position": [
+        4784,
+        176
+      ]
+    },
+    {
+      "id": "dc9b81c2-a487-4922-ad62-fd621cb1dc9b",
+      "name": "Hold the offered slots",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slots_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Holds"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        5008,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Viewing request form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the viewing request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the viewing request": {
+      "main": [
+        [
+          {
+            "node": "Request from the form?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request from the form?": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample request": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine request sources": {
+      "main": [
+        [
+          {
+            "node": "Slots sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slots sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read viewing slots",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read active holds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample slots and holds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read viewing slots": {
+      "main": [
+        [
+          {
+            "node": "Combine slot sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read active holds": {
+      "main": [
+        [
+          {
+            "node": "Combine slot sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Load sample slots and holds": {
+      "main": [
+        [
+          {
+            "node": "Combine slot sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Combine slot sources": {
+      "main": [
+        [
+          {
+            "node": "Match the request to open slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match the request to open slots": {
+      "main": [
+        [
+          {
+            "node": "Any slot free?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any slot free?": {
+      "main": [
+        [
+          {
+            "node": "Write the offer email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write the waitlist alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the waitlist alert": {
+      "main": [
+        [
+          {
+            "node": "Alert switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert switched on?": {
+      "main": [
+        [
+          {
+            "node": "Alert the letting agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - no alert sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert the letting agent": {
+      "main": [
+        [
+          {
+            "node": "Live waitlist write?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live waitlist write?": {
+      "main": [
+        [
+          {
+            "node": "Shape the waitlist row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - waitlist untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the waitlist row": {
+      "main": [
+        [
+          {
+            "node": "Add to the waitlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the offer email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the viewing choices",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the viewing choices": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Split into hold rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - slots not held",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into hold rows": {
+      "main": [
+        [
+          {
+            "node": "Hold the offered slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

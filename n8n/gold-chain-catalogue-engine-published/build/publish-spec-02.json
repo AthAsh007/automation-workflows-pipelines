@@ -1,0 +1,41 @@
+{
+  "title": "Answer WhatsApp gold chain enquiries from a Google Sheets price list",
+  "stickies": [
+    {
+      "color": 4,
+      "band": "top",
+      "from": "A WhatsApp message arrives",
+      "to": "read the message",
+      "width": 760,
+      "content": "## Answer WhatsApp gold chain enquiries from a Google Sheets price list\n\n**Who's it for**\nJewellery wholesalers who get \"22k rope 20 inch, how much?\" on WhatsApp all day and want every answer to quote the same approved price list.\n\n**How it works**\nTwilio posts each incoming WhatsApp message to the webhook. The workflow reads the Stock tab, then works out what the customer wants: style, karat, length and quantity. Keyword rules always run, and an optional AI model can fill gaps, but only into those fields; it never sees a price and never writes the reply. The reply is decided in order: an opt-out is confirmed and recorded, an order, bulk quantity, custom piece or complaint goes to the owner, a stock question is answered from the sheet at the last approved price, and a vague message is asked for style and karat.\n\n**How to set up**\n1. Run **Run the demo messages** first: five invented messages, nothing sent.\n2. In `config`, set `SHEET_ID`, `TWILIO_WHATSAPP_FROM` and `OWNER_WHATSAPP`.\n3. Connect Google Sheets and Twilio on the `[cred]` nodes and point the sender's incoming webhook here.\n4. Set `TEST_WHATSAPP`, then `TEST_RUN = false`.\n\n**Requirements**\nA Google Sheet with Stock and Customers tabs and a Twilio WhatsApp sender. An AI key is optional.\n\n**How to customize**\n`HANDOFF_QTY` sets when a quantity goes to a person, the keyword lists in `read the message` decide what is recognised, and `STYLES` limits which styles are ever offered. Pair it with the companion repricing workflow, which writes the prices this one quotes."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "stock sheet configured?",
+      "to": "read the message",
+      "content": "### 1. Take the message in, with the stock beside it\n\n`A WhatsApp message arrives` is the Twilio webhook; `Run the demo messages` feeds five invented messages instead. The stock comes from `[cred] Sheets - read the stock`, or `use the demo stock` when no sheet is set.\n\n`read the message` applies the keyword rules: style, karat, length, quantity, and whether a person is needed."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "AI configured?",
+      "to": "keyword reading only",
+      "content": "### 2. Let a model help read, never answer\n\nWith `AI_API_KEY` set, `AI - read what they want` reads the message into the same fields. It is never shown a price and never writes the reply.\n\n`apply the AI reading` ignores a style that is not in `STYLES`, and an answer that does not parse keeps the keyword read. Without a key, `keyword reading only` carries on alone."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "decide the reply",
+      "to": "STOP: replies sent",
+      "content": "### 3. Answer from the sheet, or hand it to a person\n\n`decide the reply` quotes every price and stock count from the Stock tab at the price last approved, with the list date, so the bot cannot quote a number the owner never saw. Orders, bulk quantities, custom pieces, payment questions and complaints are acknowledged and sent to the owner with who, what and why. The bot does not negotiate.\n\n`sending on?` sends through `[cred] Twilio - send on WhatsApp`, or shows every reply on `STOP: preview - replies shown`."
+    },
+    {
+      "color": 7,
+      "band": "below",
+      "from": "rows for the customers tab",
+      "to": "STOP: preview - opt-outs not recorded",
+      "content": "### 4. Record opt-outs\n\nA \"STOP\" is confirmed to the customer, and `[cred] Sheets - record the opt-outs` marks them in the Customers tab, so the daily announcement never messages that number again. In preview, `STOP: preview - opt-outs not recorded` shows the rows it would write."
+    }
+  ]
+}

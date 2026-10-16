@@ -1,0 +1,681 @@
+{
+  "name": "Draft podcast show notes from transcripts with OpenAI in Notion",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Draft podcast show notes from transcripts with OpenAI in Notion\n\n**Who's it for**\nPodcasters and small production teams who already get a timestamped transcript from their recording tool and spend an hour per episode writing chapters and show notes by hand.\n\n**How it works**\n1. Your transcription tool (or a form) posts the transcript and episode details to a webhook. Plain \"[00:12:30] Name: text\" lines and WebVTT files both work.\n2. Chapters start at phrases such as \"let's talk about\" or \"moving on to\", at least 3 minutes apart, with a forced break after 12 minutes without one. The first chapter is always 00:00, as YouTube and Spotify expect.\n3. URLs and spoken domains like \"fieldnote dot io\" are collected into a links list.\n4. A 3-sentence summary comes from OpenAI or from the highest scoring sentences, and a Notion page is created with status Draft, the summary, chapters and links.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. It drafts notes for a sample transcript and stops at `STOP: dry run - Notion untouched`.\n2. Create a Notion database with Name (title), Episode (number), Guest (text) and Status (select), share it with your integration and set `NOTION_DATABASE_ID`.\n3. Add the Notion credential to `Create the Notion page`, optionally add OpenAI and set `USE_OPENAI = true`, and point your tool at the production webhook URL.\n4. Check one draft in the execution, then set `DRY_RUN = false`.\n\n**Requirements**\n- A timestamped transcript per episode\n- A Notion database for show notes\n- Optional: an OpenAI API key\n\n**How to customize**\n- `CHAPTER_PHRASES` lists the phrases that open a new chapter.\n- `MIN_CHAPTER_MINUTES` and `MAX_CHAPTER_MINUTES` control chapter length.\n- `ALWAYS_LINKS` adds your own links (subscribe, newsletter) to every episode.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "378c1272-5717-4c4e-9a00-378c127213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive the transcript\n\nYour transcription tool posts to `Transcript webhook`, which waits for a respond node so the caller gets the draft back. A manual run feeds `Load sample episode` through the same path.",
+        "height": 768,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d6859147-5717-4c4e-9a00-d68591471000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Find chapters and links\n\nChapters come from what the host says, not fixed intervals, because \"let's talk about\" is where listeners expect a jump point. Spoken domains are rebuilt into URLs, since transcripts rarely contain the link itself.",
+        "height": 768,
+        "width": 320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "d5858fb4-5717-4c4e-9a00-d5858fb41001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Write the summary\n\nSentence scoring is the default and needs no key: guest sentences with frequent topic words and numbers win. OpenAI is optional and both paths produce the same fields.",
+        "height": 768,
+        "width": 1008,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "d885946d-5717-4c4e-9a00-d885946d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Create the Notion draft\n\nThe caller gets chapters and links back before Notion is touched. The page is created with status Draft only when `DRY_RUN` is false, and long text is split under the 2,000 character Notion limit.",
+        "height": 768,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2768,
+        0
+      ],
+      "id": "d78592da-5717-4c4e-9a00-d78592da1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "0c7ffde9-7e90-4f19-a70a-470aeea40c7f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// DRAFT PODCAST SHOW NOTES FROM TRANSCRIPTS WITH OPENAI IN NOTION - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_OPENAI false -> the summary is built from the highest scoring transcript sentences.\n// DRY_RUN true -> notes are built and returned to the caller, Notion is not written.\n\n// Notion database for show notes; blank means nothing is written\nconst NOTION_DATABASE_ID = '';\n// set true after adding an OpenAI credential to the model node\nconst USE_OPENAI = false;\n// phrases that start a new chapter (lowercase, apostrophes left out: lets, not let + apostrophe + s)\nconst CHAPTER_PHRASES = [\n  \"lets talk about\",\n  \"lets get into\",\n  \"moving on to\",\n  \"switching gears to\",\n  \"i want to ask you about\",\n  \"talk to me about\",\n  \"tell me about\"\n];\n// shortest chapter\nconst MIN_CHAPTER_MINUTES = 3;\n// a chapter longer than this is split at the next speaker change\nconst MAX_CHAPTER_MINUTES = 12;\n// sentences in the summary\nconst SUMMARY_SENTENCES = 3;\n// links added to every episode\nconst ALWAYS_LINKS = [\n  {\n    label: \"Newsletter\",\n    url: \"https://www.yourpodcast.example/newsletter\"\n  }\n];\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    notion_database_id: NOTION_DATABASE_ID,\n    use_openai: USE_OPENAI,\n    chapter_phrases: CHAPTER_PHRASES,\n    min_chapter_minutes: MIN_CHAPTER_MINUTES,\n    max_chapter_minutes: MAX_CHAPTER_MINUTES,\n    summary_sentences: SUMMARY_SENTENCES,\n    always_links: ALWAYS_LINKS,\n    dry_run: DRY_RUN,\n    notion_enabled: NOTION_DATABASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        288
+      ]
+    },
+    {
+      "id": "970dacb9-30d6-4ce9-a604-f6040474970d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        288
+      ]
+    },
+    {
+      "id": "2624cca0-7a89-4aa0-aca1-5ca1b4632624",
+      "name": "Transcript webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "57504f96-015e-4cb6-a450-b45084a55750",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "podcast-show-notes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        464
+      ]
+    },
+    {
+      "id": "17d46740-8d68-4340-a359-c35925c317d4",
+      "name": "Read the submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The webhook body when a tool called; nothing when the run was started by hand.\nlet body = null;\ntry { body = $('Transcript webhook').first().json.body || null; } catch (e) { body = null; }\nreturn [{ json: { from_webhook: Boolean(body), episode: body || {} } }];\n"
+      },
+      "position": [
+        496,
+        288
+      ]
+    },
+    {
+      "id": "50bbf382-34f9-4ee2-afe5-efe5ccf150bb",
+      "name": "Real submission?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3ffc8f74-0759-4334-ab3f-8b3ff8573ffc",
+              "leftValue": "={{ $json.from_webhook }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        704,
+        288
+      ]
+    },
+    {
+      "id": "9abfece6-8f15-4106-a600-760025b59abf",
+      "name": "Load sample episode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used for manual runs: a 38-minute interview in \"[hh:mm:ss] Speaker: text\" form.\nconst L = [\n  ['00:00:04', 'Host', 'Welcome to Small Ops, the show about running a company with fewer than twenty people. Today I am talking with Mira Kovac, who runs operations at Fieldnote.'],\n  ['00:00:31', 'Mira', 'Thanks for having me. I have listened to every episode, so this is a bit surreal.'],\n  ['00:01:10', 'Host', 'Before we start, everything we mention is linked in the show notes at yourpodcast.example.'],\n  ['00:03:10', 'Host', \"Let's talk about how you hired your first operations person.\"],\n  ['00:03:35', 'Mira', 'We waited too long. By the time we hired, the founders were spending 15 hours a week on invoices and payroll.'],\n  ['00:06:20', 'Mira', 'The job description we used is public, it is at fieldnote-hq dot example slash careers.'],\n  ['00:08:45', 'Mira', 'The first ninety days were mostly writing down what the founders did from memory.'],\n  ['00:11:30', 'Host', 'Moving on to tools. What is in your stack today?'],\n  ['00:11:52', 'Mira', 'Fewer tools than you would think. We cut from 23 subscriptions to 11 last year and saved about 9,000 dollars.'],\n  ['00:14:10', 'Mira', 'The audit spreadsheet we used is here: https://fieldnote.example/tool-audit and anyone can copy it.'],\n  ['00:16:30', 'Mira', 'Most of the savings came from seats nobody used, not from cancelling whole tools.'],\n  ['00:19:00', 'Host', 'That matches what other guests have said about seat creep.'],\n  ['00:21:45', 'Mira', 'We also moved approvals out of email, which cut our month-end close from six days to two.'],\n  ['00:24:30', 'Mira', 'The close checklist lives in our wiki and every step has an owner and a deadline.'],\n  ['00:27:10', 'Host', 'Switching gears to remote work. How do you run a team across three time zones?'],\n  ['00:27:40', 'Mira', 'We have a two hour overlap every day and we protect it. Everything else is written.'],\n  ['00:31:15', 'Mira', 'A weekly written update replaced our Monday all hands, and attendance at the update is effectively one hundred percent.'],\n  ['00:35:20', 'Host', 'Where can people find you?'],\n  ['00:35:40', 'Mira', 'I write a monthly letter at mirakovac dot example and the company blog is fieldnote-hq dot example.'],\n  ['00:37:55', 'Host', 'Thanks Mira. That is the episode.'],\n];\nreturn [{ json: { from_webhook: false, episode: { episode_number: 42, title: 'Hiring your first ops person, with Mira Kovac', guest: 'Mira Kovac', published_date: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10),\n  transcript: L.map(l => '[' + l[0] + '] ' + l[1] + ': ' + l[2]).join('\\n') } } }];\n"
+      },
+      "position": [
+        928,
+        464
+      ]
+    },
+    {
+      "id": "b2fc28eb-c42c-4d7b-a640-56405612b2fc",
+      "name": "Combine episode sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1152,
+        288
+      ]
+    },
+    {
+      "id": "dea5ebee-f15d-4d8e-a574-4574726ddea5",
+      "name": "Find chapters and links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Parses \"[hh:mm:ss] Speaker: text\" lines or WebVTT cues into timed segments, then\n// cuts chapters at CHAPTER_PHRASES (MIN_CHAPTER_MINUTES apart) and forces a cut after\n// MAX_CHAPTER_MINUTES at the next speaker change. Links: URLs plus spoken \"x dot io\".\nconst cfg = $('config').first().json;\nconst ep = $input.first().json.episode;\nconst raw = String(ep.transcript || '');\nconst secs = t => t.split(':').map(Number).reduce((a, n) => a * 60 + n, 0);\nconst segs = [];\nconst vtt = /(\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\.\\d+)?\\s*-->\\s*[^\\n]+\\n([\\s\\S]*?)(?=\\n\\s*\\n|$)/g;\nif (/-->/.test(raw)) { for (const m of raw.matchAll(vtt)) { const t = m[2].replace(/<v ([^>]+)>/, '$1: ').replace(/<[^>]+>/g, '').trim(); const sp = t.match(/^([^:]{1,40}):\\s*(.*)$/s); segs.push({ t: secs(m[1]), speaker: sp ? sp[1] : '', text: sp ? sp[2] : t }); } }\nelse for (const line of raw.split(/\\n+/)) { const m = line.match(/^\\[?(\\d{1,2}:\\d{2}(?::\\d{2})?)\\]?\\s*(?:([^:]{1,40}):)?\\s*(.*)$/); if (m) segs.push({ t: secs(m[1]), speaker: (m[2] || '').trim(), text: m[3].trim() }); }\nif (!segs.length) return [{ json: { error: 'No timestamped lines found in the transcript.', episode: ep } }];\nconst fmt = s => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = String(s % 60).padStart(2, '0'); return h ? h + ':' + String(m).padStart(2, '0') + ':' + x : String(m).padStart(2, '0') + ':' + x; };\nconst cap = s => s.charAt(0).toUpperCase() + s.slice(1);\nconst titleFrom = rest => cap(rest.replace(/[?.!,].*$/, '').replace(/^((how|what|why|the|your|you|we|i)\\s+)+/i, '').split(/\\s+/).slice(0, 7).join(' ').trim());\nconst chapters = [{ t: 0, title: 'Intro' }];\nlet last = 0;\nfor (let i = 0; i < segs.length; i++) {\n  const s = segs[i], low = s.text.toLowerCase().replace(/['’]/g, '');\n  const plain = s.text.replace(/['’]/g, '');\n  const phrase = cfg.chapter_phrases.find(p => low.includes(p));\n  const gap = s.t - last;\n  if (phrase && gap >= cfg.min_chapter_minutes * 60) {\n    const rest = plain.slice(low.indexOf(phrase) + phrase.length).trim();\n    chapters.push({ t: s.t, title: titleFrom(rest) || 'Next topic' }); last = s.t;\n  } else if (gap >= cfg.max_chapter_minutes * 60 && i > 0 && s.speaker && s.speaker !== segs[i - 1].speaker) {\n    chapters.push({ t: s.t, title: titleFrom(s.text) }); last = s.t;\n  }\n}\nconst lastT = segs[segs.length - 1].t;\nif (lastT - last > 60 && /\\b(where can people find|that is the episode|thanks for listening)/i.test(segs.slice(-3).map(s => s.text).join(' '))) {\n  const out = segs.slice(-3).find(s => /where can people find|that is the episode|thanks for listening/i.test(s.text));\n  if (out && out.t - last >= cfg.min_chapter_minutes * 60) chapters.push({ t: out.t, title: 'Where to find ' + (ep.guest || 'our guest') });\n}\nconst links = new Map();\nfor (const s of segs) {\n  for (const m of s.text.matchAll(/https?:\\/\\/[^\\s)>\\]]+/g)) links.set(m[0].replace(/[.,]$/, ''), { url: m[0].replace(/[.,]$/, ''), at: fmt(s.t) });\n  for (const m of s.text.matchAll(/\\b([a-z0-9-]+) dot (com|io|org|co|dev|ai|fm|net|example)((?: slash [a-z0-9-]+)*)/gi)) {\n    const url = 'https://' + m[1].toLowerCase() + '.' + m[2].toLowerCase() + m[3].toLowerCase().replace(/ slash /g, '/');\n    links.set(url, { url, at: fmt(s.t) });\n  }\n}\nreturn [{ json: { episode: ep, segments: segs, chapters: chapters.map(c => ({ ...c, stamp: fmt(c.t) })), links: [...links.values()], length: fmt(lastT) } }];\n"
+      },
+      "position": [
+        1456,
+        288
+      ]
+    },
+    {
+      "id": "9bb2369d-83c2-478d-a91b-f91bdab89bb2",
+      "name": "Sentence summary only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3ed0bcd1-a678-4581-a5e9-85e9499c3ed0",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1760,
+        288
+      ]
+    },
+    {
+      "id": "71dfe1ca-bbe9-46aa-a22e-b22e6e6971df",
+      "name": "Summarise by sentence scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Extractive: score each guest sentence by how many frequent content words it\n// holds (stopwords removed), keep the top SUMMARY_SENTENCES in transcript order.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst stop = new Set('a an and are as at be but by for from has have i in is it its of on or so that the their this to was we were what with you your our us they them about there not just very would could really think know like dont do did'.split(' '));\nconst host = (d.segments[0] || {}).speaker;\nconst sentences = d.segments.filter(s => s.speaker !== host).flatMap(s => s.text.split(/(?<=[.!?])\\s+/).map(x => ({ x, t: s.t }))).filter(o => o.x.split(' ').length >= 8 && !/https?:|dot (com|io|example)/i.test(o.x));\nconst freq = {};\nfor (const o of sentences) for (const w of o.x.toLowerCase().match(/[a-z]{3,}/g) || []) if (!stop.has(w)) freq[w] = (freq[w] || 0) + 1;\nconst score = o => (o.x.toLowerCase().match(/[a-z]{3,}/g) || []).filter(w => !stop.has(w)).reduce((a, w) => a + freq[w], 0) / Math.sqrt(o.x.split(' ').length) + (/\\d/.test(o.x) ? 2 : 0);\nconst top = [...sentences].sort((a, b) => score(b) - score(a)).slice(0, cfg.summary_sentences).sort((a, b) => a.t - b.t);\nreturn [{ json: { ...d, summary: top.map(o => o.x).join(' '), summary_source: 'sentence scoring' } }];\n"
+      },
+      "position": [
+        1984,
+        288
+      ]
+    },
+    {
+      "id": "aba545a3-5b34-40b3-ab5a-ab5a539aaba5",
+      "name": "Summarise with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Episode: ' + $json.episode.title + '\\nGuest: ' + ($json.episode.guest || '') + '\\nTranscript:\\n' + $json.segments.map(s => s.speaker + ': ' + s.text).join('\\n').slice(0, 12000) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You write podcast show notes. Write a summary of exactly three sentences in plain language for someone deciding whether to listen. Use at least one concrete number or example from the transcript. No hype words, no emoji, do not start with \"In this episode\"."
+        }
+      },
+      "position": [
+        1984,
+        464
+      ]
+    },
+    {
+      "id": "58a3fa8e-434f-4a2e-a54c-254cc4cd58a3",
+      "name": "Summarise with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        2000,
+        624
+      ]
+    },
+    {
+      "id": "a7061133-8547-4f43-addc-9ddcdfaaa706",
+      "name": "Summarise with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"summary\": \"Three sentences.\"\n}"
+      },
+      "position": [
+        2112,
+        624
+      ]
+    },
+    {
+      "id": "1b0071fa-a9e3-47da-a91c-491c41d91b00",
+      "name": "Read the OpenAI summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Agent output -> same shape as the scoring path; empty output falls back to the title.\nconst d = $('Find chapters and links').first().json;\nconst s = String($input.first().json.output?.summary || '').trim();\nreturn [{ json: { ...d, summary: s || d.episode.title, summary_source: 'openai' } }];\n"
+      },
+      "position": [
+        2352,
+        464
+      ]
+    },
+    {
+      "id": "70fc75a8-6941-4128-ad3a-6d3a371b70fc",
+      "name": "Combine summaries",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2576,
+        288
+      ]
+    },
+    {
+      "id": "502e48b2-ca9a-4512-a961-5961b161502e",
+      "name": "Build the Notion page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Notion caps a rich text item at 2,000 characters, so text is chunked. The page\n// gets Name, Episode, Guest and Status=Draft, then Summary, Chapters and Links blocks.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst ep = d.episode;\nconst rt = s => String(s).match(/[\\s\\S]{1,1900}/g)?.map(c => ({ type: 'text', text: { content: c } })) || [];\nconst h2 = t => ({ object: 'block', type: 'heading_2', heading_2: { rich_text: rt(t) } });\nconst para = t => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: rt(t) } });\nconst bullet = (t, url) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ type: 'text', text: { content: t, ...(url ? { link: { url } } : {}) } }] } });\nconst links = [...d.links, ...cfg.always_links.map(l => ({ url: l.url, label: l.label }))];\nconst chapterText = d.chapters.map(c => c.stamp + ' ' + c.title).join('\\n');\nconst children = [h2('Summary'), para(d.summary), h2('Chapters'), ...d.chapters.map(c => bullet(c.stamp + ' ' + c.title)),\n  h2('Links'), ...links.map(l => bullet(l.label || l.url.replace(/^https?:\\/\\//, ''), l.url)), h2('Chapters for YouTube and Spotify'), para(chapterText)];\nconst page = { parent: { database_id: cfg.notion_database_id }, properties: {\n  Name: { title: rt(ep.title || 'Untitled episode') }, Episode: { number: Number(ep.episode_number) || null },\n  Guest: { rich_text: rt(ep.guest || '') }, Status: { select: { name: 'Draft' } } }, children: children.slice(0, 100) };\nreturn [{ json: { title: ep.title, summary: d.summary, summary_source: d.summary_source, chapters: chapterText, links: links.map(l => l.url), length: d.length, page } }];\n"
+      },
+      "position": [
+        2816,
+        288
+      ]
+    },
+    {
+      "id": "170ece9f-770f-42ef-ae09-3e098f26170e",
+      "name": "Reply with the draft",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ ok: true, title: $json.title, chapters: $json.chapters, links: $json.links, summary: $json.summary }) }}",
+        "options": {}
+      },
+      "position": [
+        3040,
+        288
+      ]
+    },
+    {
+      "id": "a86b8782-9e53-42e2-acff-6cffd8f1a86b",
+      "name": "Live and database set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "913fc4ac-fa00-46ec-a914-9914e53f913f",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "923fc63f-bc54-488f-a397-63972986923f",
+              "leftValue": "={{ $('config').first().json.notion_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3264,
+        288
+      ]
+    },
+    {
+      "id": "a8524d22-d5aa-4682-a0f1-90f15551a852",
+      "name": "STOP: dry run - Notion untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3488,
+        464
+      ]
+    },
+    {
+      "id": "4e18dd08-2c61-4a88-acb3-dcb333bb4e18",
+      "name": "Create the Notion page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.page) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3488,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcript webhook": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the submission": {
+      "main": [
+        [
+          {
+            "node": "Real submission?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real submission?": {
+      "main": [
+        [
+          {
+            "node": "Combine episode sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample episode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample episode": {
+      "main": [
+        [
+          {
+            "node": "Combine episode sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine episode sources": {
+      "main": [
+        [
+          {
+            "node": "Find chapters and links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find chapters and links": {
+      "main": [
+        [
+          {
+            "node": "Sentence summary only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentence summary only?": {
+      "main": [
+        [
+          {
+            "node": "Summarise by sentence scoring",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarise with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarise with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Summarise with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Read the OpenAI summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise by sentence scoring": {
+      "main": [
+        [
+          {
+            "node": "Combine summaries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the OpenAI summary": {
+      "main": [
+        [
+          {
+            "node": "Combine summaries",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine summaries": {
+      "main": [
+        [
+          {
+            "node": "Build the Notion page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Notion page": {
+      "main": [
+        [
+          {
+            "node": "Reply with the draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply with the draft": {
+      "main": [
+        [
+          {
+            "node": "Live and database set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and database set?": {
+      "main": [
+        [
+          {
+            "node": "Create the Notion page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Notion untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,567 @@
+{
+  "name": "Warn before SSL certificates expire with crt.sh and Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Warn before SSL certificates expire with crt.sh and Gmail\n\n**Who's it for**\nAgencies and small IT teams looking after 5 to 100 client domains, where one forgotten renewal means a browser warning on a client site. It needs no agent on the servers and no paid monitoring.\n\n**How it works**\n1. Every day at 07:30 it queries the public crt.sh certificate log for each domain in `DOMAINS`, or uses sample certificates until `USE_CRTSH` is true.\n2. Precertificate duplicates are merged by serial. Each domain gets the newest certificate whose names cover it, exactly or through a wildcard, so a certificate that was already renewed is ignored.\n3. A warning is due when days left drop into a tier in `WARN_DAYS` (30, 14 and 7 by default) and that tier was not sent for that certificate. A domain with no unexpired certificate on record is flagged too.\n4. Each owner gets one email listing their domains, days left and issuer.\n\n**How to set up**\n1. Run it once as imported. It checks sample certificates and stops at `STOP: preview - nothing sent`.\n2. Fill `DOMAINS` with each hostname and the owner who should hear about it, then set `USE_CRTSH = true`. crt.sh needs no account.\n3. Connect Gmail to `Email the owner`.\n4. Put your address in `TEST_EMAIL` to get every warning yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Gmail account\n- Domains with publicly logged certificates (every public CA logs them)\n\n**How to customize**\n- `WARN_DAYS` sets the tiers; each fires once per certificate.\n- `IGNORE_ISSUERS` skips certificates from issuers you do not deploy, such as a CDN that renews for you.\n- crt.sh shows what was issued, not what a server presents, so pair this with a renewal process that deploys the new certificate.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "b6401941-5717-4c4e-9a00-b640194113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every day at 07:30. Domains, owners and tiers live in `config`; `List domains` makes one item per hostname so each gets its own crt.sh query.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b6404874-5717-4c4e-9a00-b64048741000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the certificate log\n\ncrt.sh is public, so no credential is needed, but it can be slow: the lookup allows 45 seconds and retries. `Load sample certificates` returns crt.sh rows so the matching runs offline.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "b7404a07-5717-4c4e-9a00-b7404a071001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Match and group\n\nRows are merged by serial before matching, because crt.sh lists a precertificate and a certificate for each issue. Taking the newest covering certificate is what silences a domain that was already renewed.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "b8404b9a-5717-4c4e-9a00-b8404b9a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Email and remember\n\nA test send goes to `TEST_EMAIL` and records nothing. A live send stores the tier per serial, so each tier fires once and a renewed certificate starts again at 30 days.",
+        "height": 560,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "b9404d2d-5717-4c4e-9a00-b9404d2d1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "31743575-d0c0-42e5-a7f4-47f4b4203174",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WARN BEFORE SSL CERTIFICATES EXPIRE WITH CRT.SH AND GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_CRTSH false -> SAMPLE certificates, so the run works offline.\n// Tiers already sent are remembered per certificate serial in workflow static data.\n\n// true queries https://crt.sh for every domain below\nconst USE_CRTSH = false;\n// hostnames to watch and who gets the warning\nconst DOMAINS = [\n  {\n    domain: \"northwind.example\",\n    owner: \"ops@northwind.example\"\n  },\n  {\n    domain: \"api.northwind.example\",\n    owner: \"ops@northwind.example\"\n  },\n  {\n    domain: \"shop.orchardlane.example\",\n    owner: \"web@harbourdigital.example\"\n  },\n  {\n    domain: \"status.orchardlane.example\",\n    owner: \"web@harbourdigital.example\"\n  }\n];\n// warning tiers in days left\nconst WARN_DAYS = [\n  30,\n  14,\n  7\n];\n// issuer name fragments to skip, e.g. a CDN that renews for you\nconst IGNORE_ISSUERS = [];\n// sign-off on every email\nconst SENDER_NAME = 'Northwind ops bot';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_crtsh: USE_CRTSH,\n    domains: DOMAINS,\n    warn_days: WARN_DAYS,\n    ignore_issuers: IGNORE_ISSUERS,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "id": "9708c48d-d241-4a7d-ac7d-0c7d80289708",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "id": "d2547fdb-fee7-496b-ae77-fe776ec2d254",
+      "name": "Every day at 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        400
+      ]
+    },
+    {
+      "id": "aeff525e-62a8-40fe-a4f1-84f1a29daeff",
+      "name": "List domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per domain so crt.sh is queried once each.\nreturn $('config').first().json.domains.filter(d => d.domain).map(d => ({ json: { domain: d.domain.toLowerCase().trim(), owner: d.owner } }));\n"
+      },
+      "position": [
+        496,
+        224
+      ]
+    },
+    {
+      "id": "e40439b2-e76f-4612-ad67-2d67ca61e404",
+      "name": "crt.sh lookups on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0e33bb1c-c038-4a5c-a290-2290496f0e33",
+              "leftValue": "={{ $('config').first().json.use_crtsh }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        224
+      ]
+    },
+    {
+      "id": "f6199b9c-f8c5-42dc-ac72-0c720deff619",
+      "name": "Look up certificates on crt.sh",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://crt.sh/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.domain }}"
+            },
+            {
+              "name": "output",
+              "value": "json"
+            },
+            {
+              "name": "exclude",
+              "value": "expired"
+            },
+            {
+              "name": "deduplicate",
+              "value": "Y"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        224
+      ]
+    },
+    {
+      "id": "07250bc1-17a2-4971-ac4c-1c4c780c0725",
+      "name": "Load sample certificates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_CRTSH is true. crt.sh rows, dates relative to now. shop has an old\n// certificate about to expire AND its replacement; status has nothing unexpired.\nconst at = d => new Date(Date.now() + d * 864e5).toISOString().slice(0, 19);\nconst le = \"C=US, O=Let's Encrypt, CN=R11\";\nreturn [\n  { id: 101, issuer_name: le, common_name: 'northwind.example', name_value: 'northwind.example\\nwww.northwind.example', serial_number: '04aa01', not_before: at(-78), not_after: at(12) },\n  { id: 102, issuer_name: le, common_name: 'northwind.example', name_value: 'northwind.example\\nwww.northwind.example', serial_number: '04aa01', not_before: at(-78), not_after: at(12) },\n  { id: 103, issuer_name: 'C=US, O=DigiCert Inc, CN=DigiCert Global G2 TLS RSA SHA256 2020 CA1', common_name: '*.northwind.example', name_value: '*.northwind.example', serial_number: '0c77f2', not_before: at(-337), not_after: at(28) },\n  { id: 104, issuer_name: le, common_name: 'shop.orchardlane.example', name_value: 'shop.orchardlane.example', serial_number: '03bb10', not_before: at(-85), not_after: at(5) },\n  { id: 105, issuer_name: le, common_name: 'shop.orchardlane.example', name_value: 'shop.orchardlane.example', serial_number: '03bb99', not_before: at(-5), not_after: at(85) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        400
+      ]
+    },
+    {
+      "id": "2a4f6311-8d5d-47c1-a28d-428d3a5c2a4f",
+      "name": "Combine certificate sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        224
+      ]
+    },
+    {
+      "id": "dbcf78db-2b9f-426b-a43f-643f5bc2dbcf",
+      "name": "Pick the newest certificate per domain",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A certificate covers a domain if a name matches exactly, or is *.parent and the\n// domain is exactly one label below it. The newest not_after wins, so a renewed\n// certificate hides the one it replaced.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst warned = store.warned || {};\nconst tiers = [...cfg.warn_days].sort((a, b) => a - b);\nconst certs = {};\nfor (const { json: c } of $input.all()) {\n  if (!c.serial_number || !c.not_after) continue;\n  if (cfg.ignore_issuers.some(x => (c.issuer_name || '').includes(x))) continue;\n  certs[c.serial_number] = c; // precert and leaf share a serial\n}\nconst covers = (names, d) => names.some(n => n === d || (n.startsWith('*.') && d.endsWith(n.slice(1)) && d.split('.').length === n.split('.').length));\nconst issuerOf = s => ((s || '').match(/O=([^,]+)/) || [])[1] || s;\nconst due = [], fine = [];\nfor (const { domain, owner } of cfg.domains.map(d => ({ ...d, domain: d.domain.toLowerCase().trim() }))) {\n  const mine = Object.values(certs).filter(c => covers(String(c.name_value || c.common_name).toLowerCase().split('\\n').map(s => s.trim()), domain))\n    .sort((a, b) => b.not_after.localeCompare(a.not_after));\n  if (!mine.length) { due.push({ domain, owner, tier: 'none', days_left: null, issuer: '', serial: '', not_after: '', replaced: 0 }); continue; }\n  const c = mine[0];\n  const daysLeft = Math.floor((new Date(c.not_after + 'Z') - Date.now()) / 864e5);\n  const tier = daysLeft < 0 ? 0 : tiers.find(t => daysLeft <= t);\n  const row = { domain, owner, days_left: daysLeft, not_after: c.not_after.slice(0, 10), issuer: issuerOf(c.issuer_name), serial: c.serial_number, replaced: mine.length - 1 };\n  if (tier === undefined) { fine.push(row); continue; }\n  if ((warned[c.serial_number] ?? Infinity) <= tier) { fine.push({ ...row, note: 'tier ' + tier + ' already sent' }); continue; }\n  due.push({ ...row, tier });\n}\nreturn [{ json: { due, fine } }];\n"
+      },
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "id": "1a07aef3-3135-4103-a51a-651a4aea1a07",
+      "name": "Group warnings by owner",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One email per owner, most urgent domain first.\nconst cfg = $('config').first().json;\nconst by = {};\nfor (const d of $input.first().json.due) (by[d.owner] ||= []).push(d);\nreturn Object.entries(by).map(([owner, list]) => {\n  list.sort((a, b) => (a.days_left ?? -99) - (b.days_left ?? -99));\n  const line = d => d.tier === 'none' ? '- ' + d.domain + ': no unexpired certificate on record at crt.sh. Check the site now.' :\n    '- ' + d.domain + ': ' + (d.days_left < 0 ? 'EXPIRED ' + -d.days_left + ' days ago' : d.days_left + ' days left') + ' (expires ' + d.not_after + ', ' + d.issuer + ')';\n  const worst = list[0];\n  const subject = worst.tier === 'none' || worst.days_left < 0 ? 'Certificate problem on ' + worst.domain : 'Certificate for ' + worst.domain + ' expires in ' + worst.days_left + ' days' + (list.length > 1 ? ' (+' + (list.length - 1) + ' more)' : '');\n  const body = ['Hi,', '', 'These certificates need renewing:', ...list.map(line), '',\n    'Dates come from the public certificate log (crt.sh), so a renewal that was issued but not deployed will not show here.', '', cfg.sender_name].join('\\n');\n  return { json: { owner, domains: list.map(d => ({ serial: d.serial, tier: d.tier })), subject, body, send_to: cfg.mode === 'test' ? cfg.test_email : owner } };\n});\n"
+      },
+      "position": [
+        1648,
+        224
+      ]
+    },
+    {
+      "id": "20aa6512-f273-4372-a846-c846830120aa",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        224
+      ]
+    },
+    {
+      "id": "55787c11-3098-40c1-a0b6-d0b6975c5578",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        400
+      ]
+    },
+    {
+      "id": "43a58471-3350-4b21-acd6-1cd653fc43a5",
+      "name": "Email the owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.owner + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        224
+      ]
+    },
+    {
+      "id": "72879e8d-6000-447d-af14-3f1466287287",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        224
+      ]
+    },
+    {
+      "id": "60239a32-493d-4e92-a477-8477eae16023",
+      "name": "STOP: test send - tiers not recorded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        400
+      ]
+    },
+    {
+      "id": "62a95b54-ba4e-4914-a741-d741857762a9",
+      "name": "Remember warned tiers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Lowest tier sent per serial; a renewed certificate has a new serial and starts fresh.\nconst store = $getWorkflowStaticData('global');\nconst warned = store.warned || {};\nfor (const g of $('Group warnings by owner').all()) for (const d of g.json.domains) if (d.serial && typeof d.tier === 'number') warned[d.serial] = Math.min(warned[d.serial] ?? Infinity, d.tier);\nstore.warned = warned;\nreturn [{ json: { serials: Object.keys(warned).length } }];\n"
+      },
+      "position": [
+        2560,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 07:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List domains": {
+      "main": [
+        [
+          {
+            "node": "crt.sh lookups on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crt.sh lookups on?": {
+      "main": [
+        [
+          {
+            "node": "Look up certificates on crt.sh",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample certificates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up certificates on crt.sh": {
+      "main": [
+        [
+          {
+            "node": "Combine certificate sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample certificates": {
+      "main": [
+        [
+          {
+            "node": "Combine certificate sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine certificate sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the newest certificate per domain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the newest certificate per domain": {
+      "main": [
+        [
+          {
+            "node": "Group warnings by owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group warnings by owner": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the owner": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember warned tiers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - tiers not recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,578 @@
+{
+  "name": "Announce new GitHub releases of watched repositories in Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Announce new GitHub releases of watched repositories in Discord\n\n**Who's it for**\nDeveloper communities and small teams that depend on 5 to 50 open source projects and want upgrades announced where they already talk. Major versions and breaking changes stand out from routine patches.\n\n**How it works**\n1. Every hour it reads the latest releases of each repository in `WATCH`, or sample releases until `USE_GITHUB` is true. Public repositories need no token.\n2. Drafts are dropped, and prereleases too unless `INCLUDE_PRERELEASES` is true. A release is new when it was published after the last one announced for that repository; a repository seen for the first time looks back `FIRST_RUN_DAYS`.\n3. Each tag is parsed as a version and compared with the previous stable release to call it major, minor or patch. Release notes containing `BREAKING_WORDS` get a warning line.\n4. One Discord message per release, oldest first, capped at `MAX_POSTS` per run.\n\n**How to set up**\n1. Run it once as imported. It reads sample releases and stops at `STOP: dry run - nothing posted`.\n2. Fill `WATCH` with owner/name pairs and set `USE_GITHUB = true`.\n3. Add a Discord bot credential to `Post the release to Discord` and set `DISCORD_CHANNEL_ID`.\n4. Set `DRY_RUN = false` and activate the workflow. The last announced release per repository is kept in workflow static data.\n\n**Requirements**\n- A Discord server with a bot that can post in the channel\n- Public GitHub repositories (or a token for private ones)\n\n**How to customize**\n- `ONLY_BUMPS` limits posts to, for example, `[\"major\", \"minor\"]`.\n- `BREAKING_WORDS` lists the phrases that mark a breaking change.\n- `NOTES_CHARS` sets how much of the release notes is quoted.",
+        "height": 944,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "6828e40a-5717-4c4e-9a00-6828e40a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 12 past every hour. The watch list, prerelease rule and breaking-change phrases live in `config`; `List watched repositories` makes one item per repository.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4fcf506f-5717-4c4e-9a00-4fcf506f1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read releases\n\nThe public releases endpoint needs no credential for public repositories. `Load sample releases` includes a draft, a release candidate and an old release, so every filter is exercised offline.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "4ecf4edc-5717-4c4e-9a00-4ecf4edc1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find and classify new releases\n\nReleases are grouped by the repository in their URL, so the order of the API responses does not matter. The bump is measured against the previous stable release, which keeps a release candidate from turning 3.0.0 into a patch.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "51cf5395-5717-4c4e-9a00-51cf53951002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nA dry run posts nothing and records nothing. `Remember the last release` runs only after Discord accepted the posts, so a failed post is retried on the next hour.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "50cf5202-5717-4c4e-9a00-50cf52021003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "c0164b93-4fb7-4ba3-ade3-ade3834ac016",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ANNOUNCE NEW GITHUB RELEASES OF WATCHED REPOSITORIES IN DISCORD - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GITHUB false -> SAMPLE releases, so the run works offline.\n// DISCORD_CHANNEL_ID blank -> nothing is posted.\n\n// true reads the public releases API for each repository\nconst USE_GITHUB = false;\n// owner/name of each repository to watch\nconst WATCH = [\n  \"acme-labs/widget-kit\",\n  \"northwind/cli\"\n];\n// true also announces release candidates and betas\nconst INCLUDE_PRERELEASES = false;\n// which kinds of release to announce\nconst ONLY_BUMPS = [\n  \"major\",\n  \"minor\",\n  \"patch\",\n  \"other\"\n];\n// phrases in the notes that flag a breaking change\nconst BREAKING_WORDS = [\n  \"breaking change\",\n  \"breaking:\",\n  \"removed support\",\n  \"no longer supported\",\n  \"migration guide\"\n];\n// a repository seen for the first time announces releases from this many days back\nconst FIRST_RUN_DAYS = 7;\n// characters of release notes quoted in the message\nconst NOTES_CHARS = 300;\n// hard ceiling on Discord posts per run\nconst MAX_POSTS = 10;\n// channel for announcements; blank skips Discord\nconst DISCORD_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_github: USE_GITHUB,\n    watch: WATCH,\n    include_prereleases: INCLUDE_PRERELEASES,\n    only_bumps: ONLY_BUMPS,\n    breaking_words: BREAKING_WORDS,\n    first_run_days: FIRST_RUN_DAYS,\n    notes_chars: NOTES_CHARS,\n    max_posts: MAX_POSTS,\n    discord_channel_id: DISCORD_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    discord_enabled: DISCORD_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "d2754bdb-6a00-456b-ae8b-2e8b02c2d275",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "7a075546-5c6a-4b66-adac-cdaccb557a07",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "12 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "8bfd0c11-7a50-40c1-af4c-6f4cc75c8bfd",
+      "name": "List watched repositories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per repository for the releases call.\nreturn $('config').first().json.watch.map(repo => ({ json: { repo } }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "8eff573f-2f51-498f-a6b7-a6b7e2868eff",
+      "name": "GitHub lookups on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a2c79269-22be-4b99-a45a-645a2b24a2c7",
+              "leftValue": "={{ $('config').first().json.use_github }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "0f2d2680-1aea-4e80-aa1f-4a1f73830f2d",
+      "name": "Fetch recent releases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $json.repo + '/releases' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "10"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "66b21ea5-9d16-4d15-a309-e309bb5066b2",
+      "name": "Load sample releases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GITHUB is true. GitHub release objects, dates relative to now.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nconst rel = (repo, tag, d, body, extra = {}) => ({ tag_name: tag, name: tag, draft: false, prerelease: false, published_at: ago(d), body,\n  html_url: 'https://github.com/' + repo + '/releases/tag/' + tag, author: { login: 'release-bot' }, ...extra });\nreturn [\n  rel('acme-labs/widget-kit', 'v3.0.0', 1, '## Highlights\\n- New theming engine\\n\\nBREAKING CHANGE: Node 16 is no longer supported. See the migration guide.'),\n  rel('acme-labs/widget-kit', 'v3.0.0-rc.2', 3, 'Release candidate.', { prerelease: true }),\n  rel('acme-labs/widget-kit', 'v2.4.1', 20, 'Fix tooltip position.'),\n  rel('northwind/cli', 'v1.9.0', 0.2, 'Draft notes', { draft: true, published_at: null }),\n  rel('northwind/cli', 'v1.8.0', 2, '- Add --json output to every command\\n- Faster startup'),\n  rel('northwind/cli', 'v1.7.3', 5, '- Fix crash when HOME is unset'),\n  rel('northwind/cli', 'v1.7.2', 30, '- Fix typo in help text'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "9fd3a92d-aaf9-4d1d-a06d-806d77889fd3",
+      "name": "Combine release sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "8f7e4556-de8d-4676-ae5e-1e5e77e58f7e",
+      "name": "Find new releases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Per repository: drop drafts (and prereleases), keep releases newer than the last one\n// announced, and compare each tag with the previous stable one to name the bump.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst last = store.last_seen || {};\nconst parse = t => { const m = String(t).match(/(\\d+)\\.(\\d+)(?:\\.(\\d+))?(?:-([0-9a-z.-]+))?/i); return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0), m[4] || ''] : null; };\nconst bump = (a, b) => !a || !b ? 'other' : a[0] !== b[0] ? 'major' : a[1] !== b[1] ? 'minor' : a[2] !== b[2] ? 'patch' : 'other';\nconst byRepo = {};\nfor (const { json: r } of $input.all()) {\n  const repo = (String(r.html_url || '').match(/github\\.com\\/([^/]+\\/[^/]+)\\/releases/) || [])[1];\n  if (!repo || r.draft || !r.published_at) continue;\n  (byRepo[repo] ||= []).push(r);\n}\nconst out = [], skipped = [];\nfor (const [repo, list] of Object.entries(byRepo)) {\n  list.sort((a, b) => b.published_at.localeCompare(a.published_at));\n  const since = last[repo] || new Date(Date.now() - cfg.first_run_days * 864e5).toISOString();\n  const stable = list.filter(r => !r.prerelease);\n  for (const r of list.filter(x => x.published_at > since)) {\n    if (r.prerelease && !cfg.include_prereleases) { skipped.push(repo + ' ' + r.tag_name + ' (prerelease)'); continue; }\n    const prev = stable.find(s => s.published_at < r.published_at);\n    const kind = bump(parse(r.tag_name), prev && parse(prev.tag_name));\n    if (!cfg.only_bumps.includes(kind)) { skipped.push(repo + ' ' + r.tag_name + ' (' + kind + ')'); continue; }\n    const notes = String(r.body || '');\n    const breaking = cfg.breaking_words.filter(w => notes.toLowerCase().includes(w.toLowerCase()));\n    out.push({ repo, tag: r.tag_name, previous: prev?.tag_name || '', kind, breaking, prerelease: r.prerelease,\n      published_at: r.published_at, url: r.html_url, notes: notes.replace(/\\r/g, '').slice(0, cfg.notes_chars) });\n  }\n}\nout.sort((a, b) => a.published_at.localeCompare(b.published_at));\nconst posts = out.slice(0, cfg.max_posts);\nfor (const r of out.slice(cfg.max_posts)) skipped.push(r.repo + ' ' + r.tag + ' (over MAX_POSTS, next run)');\nreturn [{ json: { releases: posts, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "de4a75de-39e3-4c7e-aee4-bee4de1dde4a",
+      "name": "Anything new?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f745d63e-44de-4ede-a325-932537bdf745",
+              "leftValue": "={{ $json.releases.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "05935c90-4493-4f90-ac0d-6c0dfa130593",
+      "name": "STOP: no new releases",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "faf5b137-a973-4607-ad83-0d8306cefaf5",
+      "name": "Write the announcements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message per release, under Discord's 2000-character limit.\nreturn $input.first().json.releases.map(r => {\n  const head = '**' + r.repo + ' ' + r.tag + '** (' + r.kind + (r.previous ? ' from ' + r.previous : '') + (r.prerelease ? ', prerelease' : '') + ')';\n  const warn = r.breaking.length ? '> Breaking change flagged in the notes: ' + r.breaking.join(', ') : '';\n  const content = [head, warn, r.notes ? '```\\n' + r.notes.replace(/```/g, \"'''\") + '\\n```' : '', r.url].filter(Boolean).join('\\n').slice(0, 1990);\n  return { json: { ...r, content } };\n});\n"
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "f41843f5-0c88-4965-ab7a-3b7adaa0f418",
+      "name": "Post to Discord?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "27d3051b-091d-4aab-a2a0-72a0768227d3",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "26d30388-46c8-4908-a81e-a81e323b26d3",
+              "leftValue": "={{ $('config').first().json.discord_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "301bd22e-f576-4fce-a950-f9503f2d301b",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "74a50272-86bc-42d2-abb7-5bb740a174a5",
+      "name": "Post the release to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "guildId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.discord_channel_id }}"
+        },
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "f16261ba-302c-4b9a-aa9f-7a9f4419f162",
+      "name": "Remember the last release",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Newest announced publish time per repository; the next run starts after it.\nconst store = $getWorkflowStaticData('global');\nconst last = store.last_seen || {};\nfor (const r of $('Write the announcements').all()) if (!last[r.json.repo] || r.json.published_at > last[r.json.repo]) last[r.json.repo] = r.json.published_at;\nstore.last_seen = last;\nreturn [{ json: { repos: Object.keys(last).length } }];\n"
+      },
+      "position": [
+        2784,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List watched repositories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List watched repositories": {
+      "main": [
+        [
+          {
+            "node": "GitHub lookups on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub lookups on?": {
+      "main": [
+        [
+          {
+            "node": "Fetch recent releases",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample releases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch recent releases": {
+      "main": [
+        [
+          {
+            "node": "Combine release sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample releases": {
+      "main": [
+        [
+          {
+            "node": "Combine release sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine release sources": {
+      "main": [
+        [
+          {
+            "node": "Find new releases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find new releases": {
+      "main": [
+        [
+          {
+            "node": "Anything new?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new?": {
+      "main": [
+        [
+          {
+            "node": "Write the announcements",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new releases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the announcements": {
+      "main": [
+        [
+          {
+            "node": "Post to Discord?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Discord?": {
+      "main": [
+        [
+          {
+            "node": "Post the release to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the release to Discord": {
+      "main": [
+        [
+          {
+            "node": "Remember the last release",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

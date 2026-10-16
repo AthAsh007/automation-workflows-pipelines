@@ -1,0 +1,703 @@
+{
+  "name": "Create follow-up tasks for stalled HubSpot deals",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Create follow-up tasks for stalled HubSpot deals\n\n**Who's it for**\nSales managers whose HubSpot pipeline has deals nobody has touched in weeks. Each rep gets a task on the deals that went quiet, so the follow-up happens in HubSpot where they already work.\n\n**How it works**\n1. Every weekday at 07:30 it reads open deals and open follow-up tasks from HubSpot, or sample data until HubSpot is connected.\n2. Days idle is counted from the last logged activity. Each stage has its own limit in `STAGE_MAX_IDLE_DAYS` (5 days for Contract sent, 14 for Decision maker bought in), with `DEFAULT_MAX_IDLE_DAYS` for custom stages.\n3. A deal over its limit gets one task, due tomorrow, with priority High at twice the limit. A deal that already has an open follow-up task is skipped, so tasks never pile up.\n4. Unowned deals go to `FALLBACK_OWNER_ID`. Slack gets one summary grouped by owner.\n\n**How to set up**\n1. Run it once as imported. It checks sample deals and stops at `STOP: not live - no tasks created` and `STOP: preview - nothing posted`.\n2. Create a HubSpot private app with deals and tasks scopes, add it to the three HubSpot nodes, then set `USE_HUBSPOT = true`.\n3. Edit `STAGE_MAX_IDLE_DAYS` with your internal stage ids, and connect Slack with `SLACK_CHANNEL_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel, where the test summary lands. Set `TEST_RUN = false` to create tasks and post to `SLACK_CHANNEL_ID`.\n\n**Requirements**\n- A HubSpot account with Sales Hub deals and a private app token\n- Optional: a Slack workspace\n\n**How to customize**\n- `STAGE_MAX_IDLE_DAYS` holds the limit per stage id.\n- `MIN_DEAL_AMOUNT` leaves small deals alone.\n- `MAX_TASKS_PER_RUN` caps how many tasks one run can create.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "90db8271-5717-4c4e-9a00-90db827113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns before the working day so tasks are waiting when reps log in. Stage limits, the fallback owner and the task cap live in `config`.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "09b2cea4-5717-4c4e-9a00-09b2cea41000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read deals and open tasks\n\nOpen follow-up tasks are fetched alongside deals, because the duplicate check has to happen before anything is created. `Load sample deals` supplies both until `USE_HUBSPOT` is true.",
+        "height": 704,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0ab2d037-5717-4c4e-9a00-0ab2d0371001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find stalled deals and report\n\n`Find stalled deals` compares idle days with the limit for that stage, skips small deals and deals already covered by an open task, and applies `MAX_TASKS_PER_RUN`. Slack gets the same list grouped by owner. A test summary goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank.",
+        "height": 704,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "0bb2d1ca-5717-4c4e-9a00-0bb2d1ca1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Create tasks\n\nTasks are created only on a live run, each associated with its deal and assigned to the deal owner. The deal id in the subject is what stops tomorrow's run from making a second one.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2928,
+        0
+      ],
+      "id": "0cb2d35d-5717-4c4e-9a00-0cb2d35d1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "b2d974f4-290d-40b4-a1fb-61fbadd7b2d9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CREATE FOLLOW-UP TASKS FOR STALLED HUBSPOT DEALS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_HUBSPOT false -> SAMPLE deals and tasks so the run works before any credential exists.\n// Tasks carry the deal id in the subject, which is how an open task is recognised next time.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n\n// set true after adding the HubSpot credential to the HubSpot nodes\nconst USE_HUBSPOT = false;\n// internal stage id -> days without activity before a task is made\nconst STAGE_MAX_IDLE_DAYS = {\n  appointmentscheduled: 10,\n  qualifiedtobuy: 10,\n  presentationscheduled: 7,\n  decisionmakerboughtin: 14,\n  contractsent: 5\n};\n// limit for stages not listed above\nconst DEFAULT_MAX_IDLE_DAYS = 14;\n// deals below this amount are skipped\nconst MIN_DEAL_AMOUNT = 500;\n// HubSpot owner id that gets tasks for unowned deals\nconst FALLBACK_OWNER_ID = '101';\n// owner id -> name for the Slack summary\nconst OWNER_NAMES = {\n  \"101\": \"Maya Ortiz\",\n  \"102\": \"Theo Grant\",\n  \"103\": \"Ines Park\"\n};\n// hard ceiling on tasks created in one run\nconst MAX_TASKS_PER_RUN = 30;\n// start of every task subject; also used to find open tasks\nconst TASK_PREFIX = 'Stalled deal follow-up';\n// channel for the owner summary; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_hubspot: USE_HUBSPOT,\n    stage_max_idle_days: STAGE_MAX_IDLE_DAYS,\n    default_max_idle_days: DEFAULT_MAX_IDLE_DAYS,\n    min_deal_amount: MIN_DEAL_AMOUNT,\n    fallback_owner_id: FALLBACK_OWNER_ID,\n    owner_names: OWNER_NAMES,\n    max_tasks_per_run: MAX_TASKS_PER_RUN,\n    task_prefix: TASK_PREFIX,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "cc22aee0-5ac2-48e0-ab5e-cb5e9023cc22",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "73a4dd66-668c-4986-a7dc-07dc5a3573a4",
+      "name": "Every weekday at 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "9479745b-3985-45eb-ae9f-ae9f0b429479",
+      "name": "Use sample deals?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0783a16-054e-4f36-a207-d2074b25d078",
+              "leftValue": "={{ !$('config').first().json.use_hubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "abbd322b-7bc3-42bb-a702-d70279d2abbd",
+      "name": "Load sample deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_HUBSPOT is true. One deal already has an open follow-up task.\nconst ago = n => new Date(Date.now() - n * 864e5).toISOString();\nconst d = (id, name, stage, idle, amount, owner) => ({ id, name, stage, amount, owner_id: owner, last_activity: ago(idle) });\nreturn [{ json: {\n  deals: [\n    d('7001', 'Harbour Dental - website', 'contractsent', 9, 12000, '101'),\n    d('7002', 'Northfield rebrand', 'qualifiedtobuy', 4, 8000, '102'),\n    d('7003', 'Lumen booking app', 'presentationscheduled', 12, 15000, '102'),\n    d('7004', 'Orchard menu site', 'decisionmakerboughtin', 20, 4500, '103'),\n    d('7005', 'Pine and Co logo', 'appointmentscheduled', 30, 300, '103'),\n    d('7006', 'Quarry Labs pilot', 'custom_pilot_stage', 25, 20000, '101'),\n    d('7007', 'Tallow renewal', 'contractsent', 40, 6000, ''),\n  ],\n  open_task_subjects: ['Stalled deal follow-up: Lumen booking app (#7003)'],\n} }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "d559ac59-da95-4a89-aa5a-ba5ae6d4d559",
+      "name": "Search open deals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'hs_is_closed', operator: 'EQ', value: 'false' }] }], properties: ['dealname', 'dealstage', 'amount', 'hubspot_owner_id', 'notes_last_updated', 'hs_last_sales_activity_timestamp', 'createdate'], sorts: [{ propertyName: 'notes_last_updated', direction: 'ASCENDING' }], limit: 100 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "7cc95bfb-209f-4b8b-a46e-a46e39a27cc9",
+      "name": "Collect open deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Last activity: logged notes/calls/emails first, then sales activity, then creation date.\nconst deals = [];\nfor (const page of $input.all()) for (const r of page.json.results || []) {\n  const p = r.properties || {};\n  deals.push({ id: r.id, name: p.dealname || 'Deal ' + r.id, stage: p.dealstage || '', amount: Number(p.amount || 0), owner_id: p.hubspot_owner_id || '',\n    last_activity: p.notes_last_updated || p.hs_last_sales_activity_timestamp || p.createdate });\n}\nreturn [{ json: { deals } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "1d485cd9-5389-4309-a8ea-08eadb541d48",
+      "name": "Search open follow-up tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/tasks/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'hs_task_status', operator: 'NEQ', value: 'COMPLETED' }, { propertyName: 'hs_task_subject', operator: 'CONTAINS_TOKEN', value: $('config').first().json.task_prefix.split(' ')[0] }] }], properties: ['hs_task_subject', 'hs_task_status'], limit: 100 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "8a2dd408-b09f-4188-ab38-cb3822bb8a2d",
+      "name": "Collect deals and tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pairs the deals with the subjects of open tasks, in the sample shape.\nconst subjects = [];\nfor (const page of $input.all()) for (const r of page.json.results || []) subjects.push(r.properties?.hs_task_subject || '');\nreturn [{ json: { deals: $('Collect open deals').first().json.deals, open_task_subjects: subjects } }];\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "56bdd411-c022-48c1-a038-b038af5c56bd",
+      "name": "Combine deal sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "59959d35-2422-4ea5-acaf-bcafce605995",
+      "name": "Find stalled deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A deal is stalled when days idle exceed its stage limit. An open task whose\n// subject carries \"(#dealId)\" means someone is already on it, so no second task.\nconst cfg = $('config').first().json;\nconst { deals, open_task_subjects } = $input.first().json;\nconst covered = new Set(open_task_subjects.filter(s => s.startsWith(cfg.task_prefix)).map(s => (s.match(/\\(#(\\d+)\\)/) || [])[1]).filter(Boolean));\nconst now = Date.now();\nconst tasks = [], skipped = [];\nfor (const d of deals) {\n  const idle = Math.floor((now - new Date(d.last_activity).getTime()) / 864e5);\n  const limit = cfg.stage_max_idle_days[d.stage] ?? cfg.default_max_idle_days;\n  if (idle <= limit) continue;\n  if (d.amount < cfg.min_deal_amount) { skipped.push({ id: d.id, name: d.name, reason: 'below MIN_DEAL_AMOUNT' }); continue; }\n  if (covered.has(String(d.id))) { skipped.push({ id: d.id, name: d.name, reason: 'open follow-up task exists' }); continue; }\n  tasks.push({ ...d, idle, limit, ratio: idle / limit, priority: idle >= 2 * limit ? 'HIGH' : 'MEDIUM', owner_id: d.owner_id || cfg.fallback_owner_id, unowned: !d.owner_id });\n}\ntasks.sort((a, b) => b.ratio - a.ratio);\nfor (const t of tasks.slice(cfg.max_tasks_per_run)) skipped.push({ id: t.id, name: t.name, reason: 'over MAX_TASKS_PER_RUN' });\nreturn [{ json: { tasks: tasks.slice(0, cfg.max_tasks_per_run), skipped, open_deals: deals.length } }];\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "0923b845-609e-44b5-a08d-608df3b00923",
+      "name": "Write one task per deal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Task subject carries the deal id so the next run can see this task is open.\nconst cfg = $('config').first().json;\nconst due = new Date(); due.setDate(due.getDate() + 1); due.setHours(9, 0, 0, 0);\nreturn $input.first().json.tasks.map(t => ({ json: { ...t,\n  subject: cfg.task_prefix + ': ' + t.name + ' (#' + t.id + ')',\n  body: 'No activity for ' + t.idle + ' days; the limit for stage ' + t.stage + ' is ' + t.limit + '. Log a call, email or meeting, or move the deal on.' + (t.unowned ? ' This deal had no owner.' : ''),\n  due_ms: due.getTime() } }));\n"
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "a7a5467d-5271-416d-a1a2-41a2fad8a7a5",
+      "name": "Write the owner summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Slack message grouped by owner, with what was skipped and why.\nconst cfg = $('config').first().json;\nconst { tasks, skipped, open_deals } = $input.first().json;\nconst name = id => cfg.owner_names[id] || 'owner ' + id;\nconst by = {};\nfor (const t of tasks) (by[t.owner_id] ||= []).push(t);\nconst text = [\n  (cfg.mode === 'test' ? '[TEST] ' : '') + '*Stalled deals*: ' + tasks.length + ' follow-up task' + (tasks.length === 1 ? '' : 's') + (cfg.mode === 'live' ? ' created' : ' prepared') + ' from ' + open_deals + ' open deals',\n  ...Object.entries(by).map(([id, list]) => '*' + name(id) + '*: ' + list.map(t => t.name + ' (' + t.idle + 'd idle' + (t.priority === 'HIGH' ? ', high' : '') + (t.unowned ? ', was unowned' : '') + ')').join('; ')),\n  ...(skipped.length ? ['', 'Skipped: ' + skipped.map(s => s.name + ' - ' + s.reason).join('; ')] : []),\n].join('\\n');\nreturn [{ json: { text, send_to: cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id } }];\n"
+      },
+      "position": [
+        2080,
+        384
+      ]
+    },
+    {
+      "id": "5fff7773-c2cb-4183-ac16-ac16176a5fff",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2288,
+        384
+      ]
+    },
+    {
+      "id": "65f60cb5-3c03-4625-a9fb-f9fbf9e065f6",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2512,
+        544
+      ]
+    },
+    {
+      "id": "1a28d462-7fab-49c2-a0ca-00cac2111a28",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2512,
+        384
+      ]
+    },
+    {
+      "id": "ebe82660-5445-4860-aac4-8ac4e3a3ebe8",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2736,
+        544
+      ]
+    },
+    {
+      "id": "f70137d4-31c6-4d94-aa0b-0a0bddf7f701",
+      "name": "Post the owner summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2736,
+        384
+      ]
+    },
+    {
+      "id": "84dba27e-58ba-471e-a611-4611597d84db",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        208
+      ]
+    },
+    {
+      "id": "6b6c4da3-be98-48b3-a417-84179b9a6b6c",
+      "name": "STOP: not live - no tasks created",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        384
+      ]
+    },
+    {
+      "id": "8c0f2bca-1695-40aa-acd2-dcd264698c0f",
+      "name": "Create the task in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { hs_timestamp: String($json.due_ms), hs_task_subject: $json.subject, hs_task_body: $json.body, hs_task_status: 'NOT_STARTED', hs_task_priority: $json.priority, hs_task_type: 'TODO', hubspot_owner_id: $json.owner_id }, associations: [{ to: { id: $json.id }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 216 }] }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3200,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 07:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample deals?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample deals?": {
+      "main": [
+        [
+          {
+            "node": "Load sample deals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search open deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search open deals": {
+      "main": [
+        [
+          {
+            "node": "Collect open deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect open deals": {
+      "main": [
+        [
+          {
+            "node": "Search open follow-up tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search open follow-up tasks": {
+      "main": [
+        [
+          {
+            "node": "Collect deals and tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample deals": {
+      "main": [
+        [
+          {
+            "node": "Combine deal sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect deals and tasks": {
+      "main": [
+        [
+          {
+            "node": "Combine deal sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine deal sources": {
+      "main": [
+        [
+          {
+            "node": "Find stalled deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find stalled deals": {
+      "main": [
+        [
+          {
+            "node": "Write one task per deal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the owner summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the owner summary": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the owner summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write one task per deal": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Create the task in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - no tasks created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

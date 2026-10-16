@@ -1,0 +1,794 @@
+{
+  "name": "Route refund requests from a form by policy rules with Gmail replies",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Route refund requests from a form by policy rules with Gmail replies\n\n**Who's it for**\nSmall online shops whose refund inbox is the same five cases every week. Clear cases get an answer in a minute; anything unusual waits for a person, with the policy reason written down.\n\n**How it works**\n1. A customer fills in the refund form: order number, email, purchase date, product type, amount, reason and details. A manual run uses 7 sample requests.\n2. Past requests are read from the log, so a second request from the same email within 90 days always goes to review.\n3. The policy table sets, per product type, the return window, the change-of-mind window and the amount that can be approved without a person. Anything over 300 is always reviewed.\n4. Fault reasons (damaged, not as described, late) inside the window are approved up to the limit; change-of-mind requests follow the stricter window, and digital goods are not refundable for change of mind.\n5. The customer gets the reply for their outcome, and the request is logged with the rule that decided it.\n\n**How to set up**\n1. Run it once as imported. It applies the policy to the samples and stops at `STOP: preview - nothing sent`.\n2. Edit `POLICY` and `REVIEW_ALWAYS_OVER` to match your refund policy, and the reply wording in `REPLIES`.\n3. Connect Gmail and Google Sheets, create a Refund requests tab, and put the sheet id in `LOG_SHEET_ID`.\n4. Activate the workflow and share the form URL. Put your address in `TEST_EMAIL` first, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Gmail account\n- A Google Sheet for the log\n\n**How to customize**\n- `POLICY` holds windows and limits per product type; add a type and its dropdown option on the form.\n- `FAULT_REASONS` decides which reasons use the fault rules.\n- `REPEAT_DAYS` sets how far back repeat requests are checked.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "9a5255d8-5717-4c4e-9a00-9a5255d813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe form is the front door; the manual trigger replays sample requests. The whole refund policy, including reply wording, lives in `config`, so a policy change never touches the logic.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "edf386fd-5717-4c4e-9a00-edf386fd1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the request\n\nForm answers are keyed by their labels, so `Read the form submission` renames them once. `Collect the requests` gathers them into one item so the log is read a single time.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "ecf3856a-5717-4c4e-9a00-ecf3856a1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check history and policy\n\nPast requests are read before deciding, because a repeat requester is the case a rule table gets wrong most often. Escalation rules run before approval rules, so a large or repeat claim can never be auto-approved.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "ebf383d7-5717-4c4e-9a00-ebf383d71002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Reply and log\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. The log is written only on a live run with a sheet set, so test requests never count as a customer's earlier request.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "eaf38244-5717-4c4e-9a00-eaf382441003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "52863105-1a06-4175-a988-398866f05286",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ROUTE REFUND REQUESTS FROM A FORM BY POLICY RULES WITH GMAIL REPLIES - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE requests. LOG_SHEET_ID blank -> SAMPLE past requests, nothing logged.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Approval here only records the decision; the refund itself is issued by your team.\n\n// per product type: return window, change-of-mind window (0 = never), most that is approved without review\nconst POLICY = {\n  Physical: {\n    window_days: 30,\n    change_mind_days: 14,\n    approve_max: 150,\n    change_mind_max: 50\n  },\n  Digital: {\n    window_days: 14,\n    change_mind_days: 0,\n    approve_max: 30,\n    change_mind_max: 0\n  },\n  Subscription: {\n    window_days: 7,\n    change_mind_days: 7,\n    approve_max: 30,\n    change_mind_max: 30\n  },\n  \"Custom order\": {\n    window_days: 30,\n    change_mind_days: 0,\n    approve_max: 0,\n    change_mind_max: 0\n  }\n};\n// reasons that use the fault rules\nconst FAULT_REASONS = [\n  \"Damaged or faulty\",\n  \"Not as described\",\n  \"Late delivery\"\n];\n// any request above this amount goes to a person\nconst REVIEW_ALWAYS_OVER = 300;\n// a second request from the same email inside this many days goes to review\nconst REPEAT_DAYS = 90;\n// reply text per outcome; {order}, {amount} and {why} are filled in\nconst REPLIES = {\n  approve: \"Your refund of {amount} for order {order} is approved. It will reach your original payment method within 5 to 10 business days.\",\n  review: \"Thanks, we have your request for order {order}. A member of the team will look at it and reply within 2 business days.\",\n  decline: \"We are sorry, but order {order} is not eligible for a refund: {why}. If you think this is wrong, reply to this email with any details we missed.\"\n};\n// used in the subject and sign-off\nconst SHOP_NAME = 'Northwind Goods';\n// Google Sheets id with a Refund requests tab; blank uses sample history and logs nothing\nconst LOG_SHEET_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    policy: POLICY,\n    fault_reasons: FAULT_REASONS,\n    review_always_over: REVIEW_ALWAYS_OVER,\n    repeat_days: REPEAT_DAYS,\n    replies: REPLIES,\n    shop_name: SHOP_NAME,\n    log_sheet_id: LOG_SHEET_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    log_enabled: LOG_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "9e65769d-daf2-478d-a3f5-f3f51ab89e65",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "18d42cce-3822-486e-a60b-f60b908d18d4",
+      "name": "Refund request form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "04585603-165f-4313-aad6-8ad6bd3a0458",
+      "parameters": {
+        "formTitle": "Request a refund",
+        "formDescription": "Tell us about the order. Most requests get an answer within a few minutes.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Order number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Purchase date",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Product type",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Physical"
+                  },
+                  {
+                    "option": "Digital"
+                  },
+                  {
+                    "option": "Subscription"
+                  },
+                  {
+                    "option": "Custom order"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Amount paid",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Reason",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Damaged or faulty"
+                  },
+                  {
+                    "option": "Not as described"
+                  },
+                  {
+                    "option": "Late delivery"
+                  },
+                  {
+                    "option": "Changed my mind"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Details",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "59e3642e-8a74-41ce-ac55-ac55dd2d59e3",
+      "name": "Read the form submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form fields arrive under their labels. A manual run has no submission, so it\n// returns a marker and the sample requests are used.\nlet subs = [];\ntry { if ($('Refund request form').isExecuted) subs = $('Refund request form').all().map(i => i.json); } catch (e) { subs = []; }\nif (!subs.length) return [{ json: { source: 'none' } }];\nreturn subs.map(s => ({ json: { source: 'form', order: String(s['Order number'] || '').trim().replace(/^#/, ''), email: String(s['Email'] || '').trim().toLowerCase(),\n  purchased: s['Purchase date'], type: s['Product type'], amount: Number(s['Amount paid'] || 0), reason: s['Reason'], details: s['Details'] || '',\n  submitted_at: s.submittedAt || new Date().toISOString() } }));\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "0148fa95-2de8-4e05-a09d-f09d15000148",
+      "name": "Form submitted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1f31255-52fc-49c5-a4e4-e4e49640b1f3",
+              "leftValue": "={{ $json.source === 'form' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "8949ca6b-53ae-46fb-a4e6-24e67f928949",
+      "name": "Load sample requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. Two approvals, two declines, three reviews.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [\n  ['R1', 'jade@willowmere.example', day(10), 'Physical', 89, 'Damaged or faulty', 'Lid arrived cracked.'],\n  ['R2', 'kofi@ambergate.example', day(20), 'Physical', 40, 'Changed my mind', 'Colour does not suit the room.'],\n  ['R3', 'lia@foxglove.example', day(3), 'Digital', 29, 'Changed my mind', 'Bought the wrong template.'],\n  ['R4', 'max@redfern.example', day(5), 'Subscription', 25, 'Other', 'Forgot to cancel before renewal.'],\n  ['R5', 'nell@kestrel.example', day(12), 'Physical', 420, 'Not as described', 'Sofa cover is a different fabric.'],\n  ['R6', 'otto@brambles.example', day(15), 'Physical', 60, 'Damaged or faulty', 'Handle came off.'],\n  ['R7', 'pia@thornbury.example', day(5), 'Custom order', 120, 'Damaged or faulty', 'Engraving is misspelled.'],\n].map(([order, email, purchased, type, amount, reason, details]) => ({ json: { source: 'sample', order, email, purchased, type, amount, reason, details, submitted_at: new Date().toISOString() } }));\n"
+      },
+      "position": [
+        944,
+        384
+      ]
+    },
+    {
+      "id": "1a0c946f-5ab4-47bf-aa56-da565cb61a0c",
+      "name": "Combine request sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        208
+      ]
+    },
+    {
+      "id": "8d070f6e-0cce-490e-aaba-caba89ed8d07",
+      "name": "Collect the requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item, so the log is read once however many requests came in.\nreturn [{ json: { requests: $input.all().map(i => i.json).filter(r => r.source !== 'none') } }];\n"
+      },
+      "position": [
+        1392,
+        208
+      ]
+    },
+    {
+      "id": "551803a5-cdc6-4215-abea-cbeaf0505518",
+      "name": "Log sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cd7abe35-a927-4fa5-aee4-1ee49360cd7a",
+              "leftValue": "={{ $('config').first().json.log_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        208
+      ]
+    },
+    {
+      "id": "1437055d-888e-4a4d-a0c0-b0c04ef81437",
+      "name": "Read past requests",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.log_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Refund requests"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "f8c47eb9-4780-4ee9-acf0-5cf0a274f8c4",
+      "name": "Load sample past requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until LOG_SHEET_ID is set. Otto asked for a refund 30 days ago.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString();\nreturn [\n  { order: 'Q88', email: 'otto@brambles.example', outcome: 'approve', submitted_at: day(30) },\n  { order: 'Q41', email: 'jade@willowmere.example', outcome: 'approve', submitted_at: day(200) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1856,
+        384
+      ]
+    },
+    {
+      "id": "36ee338d-aa5a-497d-a152-e152ab2836ee",
+      "name": "Combine request history",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "e2c9df6a-a3f2-424a-a625-b62532c9e2c9",
+      "name": "Apply the refund policy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Order of rules: impossible dates, big amounts and repeat requests go to a person\n// first; then the product type's window; then fault vs change-of-mind limits.\n// Every outcome carries the rule that produced it.\nconst cfg = $('config').first().json;\nconst { requests } = $('Collect the requests').first().json;\nconst now = Date.now();\nconst history = $input.all().map(i => i.json).filter(h => h.email);\nconst out = [];\nfor (const r of requests) {\n  const p = cfg.policy[r.type];\n  const days = Math.floor((now - new Date(r.purchased).getTime()) / 864e5);\n  const prior = history.find(h => String(h.email).toLowerCase() === r.email && h.order !== r.order && (now - new Date(h.submitted_at).getTime()) / 864e5 <= cfg.repeat_days);\n  const fault = cfg.fault_reasons.includes(r.reason);\n  let outcome, rule;\n  if (!p) { outcome = 'review'; rule = 'unknown product type ' + r.type; }\n  else if (isNaN(days) || days < 0) { outcome = 'review'; rule = 'purchase date is missing or in the future'; }\n  else if (r.amount > cfg.review_always_over) { outcome = 'review'; rule = 'amount over ' + cfg.review_always_over; }\n  else if (prior) { outcome = 'review'; rule = 'repeat request (order ' + prior.order + ' within ' + cfg.repeat_days + ' days)'; }\n  else if (days > p.window_days) {\n    if (fault && days <= p.window_days * 2) { outcome = 'review'; rule = 'fault reported ' + days + ' days after purchase, past the ' + p.window_days + ' day window'; }\n    else { outcome = 'decline'; rule = 'it is ' + days + ' days since purchase and the ' + r.type.toLowerCase() + ' return window is ' + p.window_days + ' days'; }\n  }\n  else if (fault) {\n    if (r.amount <= p.approve_max) { outcome = 'approve'; rule = 'fault inside ' + p.window_days + ' days, up to ' + p.approve_max; }\n    else { outcome = 'review'; rule = 'fault claim above the ' + p.approve_max + ' auto-approve limit for ' + r.type; }\n  }\n  else if (p.change_mind_days === 0) { outcome = 'decline'; rule = r.type.toLowerCase() + ' products are not refundable for a change of mind'; }\n  else if (days > p.change_mind_days) { outcome = 'decline'; rule = 'change-of-mind refunds close ' + p.change_mind_days + ' days after purchase'; }\n  else if (r.amount <= p.change_mind_max) { outcome = 'approve'; rule = 'change of mind inside ' + p.change_mind_days + ' days, up to ' + p.change_mind_max; }\n  else { outcome = 'review'; rule = 'change-of-mind amount above ' + p.change_mind_max; }\n  out.push({ json: { ...r, days_since_purchase: days, outcome, rule } });\n}\nreturn out;\n"
+      },
+      "position": [
+        2304,
+        208
+      ]
+    },
+    {
+      "id": "e76efdd3-3c0b-49e3-ab90-7b908f0ae76e",
+      "name": "Write each reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One reply per request, worded for its outcome. Declines quote the rule.\nconst cfg = $('config').first().json;\nconst money = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);\nconst subjects = { approve: 'Refund approved for order {order}', review: 'We are looking at your refund request for order {order}', decline: 'About your refund request for order {order}' };\nreturn $input.all().map(({ json: r }) => {\n  const fill = s => s.replace('{order}', r.order).replace('{amount}', money(r.amount)).replace('{why}', r.rule);\n  return { json: { ...r, subject: fill(subjects[r.outcome]), body: ['Hi,', '', fill(cfg.replies[r.outcome]), '', cfg.shop_name].join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : r.email } };\n});\n"
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "91173d42-3233-4ca2-a814-48146c319117",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "d0e89101-228c-4ab1-a1c4-61c43fccd0e8",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "db817e86-dc1f-40a6-ae8e-4e8e2f15db81",
+      "name": "Email the customer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST ' + $json.outcome + ' to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "35307b69-0268-4499-ab2e-0b2e1c243530",
+      "name": "Log this request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "29a3b5e1-1c7f-4991-aba1-2ba174ec29a3",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "28a3b44e-5a2a-47ee-a37f-637f540d28a3",
+              "leftValue": "={{ $('config').first().json.log_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        208
+      ]
+    },
+    {
+      "id": "b7ca5f3a-fb64-411a-a4b4-d4b44199b7ca",
+      "name": "STOP: test send or no sheet - not logged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3424,
+        384
+      ]
+    },
+    {
+      "id": "b810c4e5-d3db-4f55-a88b-288be310b810",
+      "name": "Shape the log row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One row per request: what was asked, what the policy decided, and why.\nreturn $('Write each reply').all().map(({ json: r }) => ({ json: { submitted_at: r.submitted_at, order: r.order, email: r.email, product_type: r.type,\n  amount: r.amount, reason: r.reason, days_since_purchase: r.days_since_purchase, outcome: r.outcome, rule: r.rule, details: r.details, status: r.outcome === 'review' ? 'open' : 'closed' } }));\n"
+      },
+      "position": [
+        3424,
+        208
+      ]
+    },
+    {
+      "id": "ca7b528d-0b93-487d-ab27-ab270228ca7b",
+      "name": "Log the request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.log_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Refund requests"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3648,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund request form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the form submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the form submission": {
+      "main": [
+        [
+          {
+            "node": "Form submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form submitted?": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample requests": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine request sources": {
+      "main": [
+        [
+          {
+            "node": "Collect the requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect the requests": {
+      "main": [
+        [
+          {
+            "node": "Log sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read past requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample past requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read past requests": {
+      "main": [
+        [
+          {
+            "node": "Combine request history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample past requests": {
+      "main": [
+        [
+          {
+            "node": "Combine request history",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine request history": {
+      "main": [
+        [
+          {
+            "node": "Apply the refund policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply the refund policy": {
+      "main": [
+        [
+          {
+            "node": "Write each reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each reply": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the customer": {
+      "main": [
+        [
+          {
+            "node": "Log this request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log this request?": {
+      "main": [
+        [
+          {
+            "node": "Shape the log row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send or no sheet - not logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the log row": {
+      "main": [
+        [
+          {
+            "node": "Log the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,706 @@
+{
+  "name": "Flag risky Shopify orders to Slack before fulfilment",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Flag risky Shopify orders to Slack before fulfilment\n\n**Who's it for**\nShopify merchants who fulfil the same day and have been hit by chargebacks on orders that looked odd in hindsight. It flags those orders while there is still time to call the customer.\n\n**How it works**\n1. Every 30 minutes it reads unfulfilled orders from the last 2 days through the Shopify GraphQL Admin API, or 7 sample orders until Shopify is connected.\n2. Each order collects points: Shopify high risk 40, cancel recommendation 30, billing and shipping countries differ 20, first order over 300 25, freight forwarder address 25, a line of 5 or more units 15, disposable email domain 15.\n3. At 50 points the order is held: tagged `risk-review` so your packing team skips it. From 30 to 49 it is listed to watch.\n4. Orders already tagged `risk-review` or `risk-cleared` are not scored again, so clearing an order is just adding that tag.\n\n**How to set up**\n1. Run it once as imported. It scores the sample orders and stops at `STOP: dry run - orders untouched`.\n2. Add a Shopify access token credential to `Fetch unfulfilled orders` and `Tag the order for review`, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Set `SLACK_CHANNEL_ID` and adjust `POINTS` and the word lists to your store.\n4. Set `DRY_RUN = false` once a few runs look right.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_orders and write_orders\n- A Slack workspace\n\n**How to customize**\n- `HOLD_SCORE` and `WATCH_SCORE` set the two lines.\n- `FORWARDER_WORDS` and `DISPOSABLE_DOMAINS` hold the address and email patterns.\n- `HIGH_VALUE` sets what counts as a large first order.",
+        "height": 1104,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "0b42e4f1-5717-4c4e-9a00-0b42e4f113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 30 minutes so an order is scored well before the next packing round. Points, thresholds, word lists and tags all live in `config`.",
+        "height": 1104,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dcf9cd24-5717-4c4e-9a00-dcf9cd241000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read unfulfilled orders\n\nShopify retired the REST order risk endpoint, so `Fetch unfulfilled orders` asks the GraphQL Admin API for orders and their risk summary in one read-only call. `Load sample orders` mirrors the result until `USE_SHOPIFY` is true.",
+        "height": 1104,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "ddf9ceb7-5717-4c4e-9a00-ddf9ceb71001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score every order\n\nShopify's own risk level is one signal among several, because it misses forwarders and bulk resale orders. Already-tagged orders are skipped first, so a cleared order never comes back.",
+        "height": 1104,
+        "width": 320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "def9d04a-5717-4c4e-9a00-def9d04a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Tag and alert\n\nOnly `HOLD_SCORE` orders are tagged; watch orders are listed but left alone. Tagging and posting each sit behind a live check, so a dry run shows the full alert text and changes nothing.",
+        "height": 1104,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        0
+      ],
+      "id": "dff9d1dd-5717-4c4e-9a00-dff9d1dd1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "2ca966ad-c7d2-429d-a34b-134b55082ca9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// FLAG RISKY SHOPIFY ORDERS TO SLACK BEFORE FULFILMENT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE orders.\n// SLACK_CHANNEL_ID blank -> no alert. DRY_RUN true -> orders are scored and shown, nothing is tagged or posted.\n\n// set true after adding the Shopify credential to both Shopify nodes\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// unfulfilled orders created in this window are scored\nconst LOOKBACK_HOURS = 48;\n// points per signal\nconst POINTS = {\n  shopify_high: 40,\n  shopify_medium: 15,\n  recommend_cancel: 30,\n  country_mismatch: 20,\n  first_order_high_value: 25,\n  forwarder: 25,\n  bulk_quantity: 15,\n  disposable_email: 15,\n  risky_country: 20\n};\n// a first order at or above this total is a signal\nconst HIGH_VALUE = 300;\n// a single line with this many units is a signal\nconst BULK_QTY = 5;\n// address fragments that suggest a parcel forwarder\nconst FORWARDER_WORDS = [\n  \"shipito\",\n  \"myus\",\n  \"planet express\",\n  \"forward\",\n  \"reship\",\n  \"c/o\",\n  \"suite #\"\n];\n// throwaway email domains\nconst DISPOSABLE_DOMAINS = [\n  \"mailinator.com\",\n  \"guerrillamail.com\",\n  \"tempmail.dev\",\n  \"10minutemail.com\"\n];\n// shipping country codes you treat as higher risk\nconst RISKY_COUNTRIES = [];\n// orders at or above this are tagged for review\nconst HOLD_SCORE = 50;\n// orders at or above this are listed in the alert but not tagged\nconst WATCH_SCORE = 30;\n// tag added to held orders\nconst REVIEW_TAG = 'risk-review';\n// add this tag by hand to clear an order; it is never scored again\nconst CLEARED_TAG = 'risk-cleared';\n// channel for the alert; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    lookback_hours: LOOKBACK_HOURS,\n    points: POINTS,\n    high_value: HIGH_VALUE,\n    bulk_qty: BULK_QTY,\n    forwarder_words: FORWARDER_WORDS,\n    disposable_domains: DISPOSABLE_DOMAINS,\n    risky_countries: RISKY_COUNTRIES,\n    hold_score: HOLD_SCORE,\n    watch_score: WATCH_SCORE,\n    review_tag: REVIEW_TAG,\n    cleared_tag: CLEARED_TAG,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        256
+      ]
+    },
+    {
+      "id": "0678b0d5-f8c9-4045-a477-a477acc00678",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        256
+      ]
+    },
+    {
+      "id": "fbd714fc-d2c4-4e3c-a1e7-b1e73f8ffbd7",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        432
+      ]
+    },
+    {
+      "id": "cdd19281-73dc-4431-a610-8610c94ccdd1",
+      "name": "Shopify connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d9ba5c1-e46c-4371-a512-d5123e0c3d9b",
+              "leftValue": "={{ $('config').first().json.use_shopify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        256
+      ]
+    },
+    {
+      "id": "880f6c84-2550-4b44-aaef-daef14a7880f",
+      "name": "Fetch unfulfilled orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/graphql.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query($q: String!) { orders(first: 50, query: $q, sortKey: CREATED_AT, reverse: true) { nodes { id name email createdAt tags totalPriceSet { shopMoney { amount currencyCode } } customer { id numberOfOrders } billingAddress { countryCode } shippingAddress { countryCode address1 address2 company city } lineItems(first: 50) { nodes { quantity title sku } } risk { recommendation assessments { riskLevel } } } } }\", variables: { q: 'fulfillment_status:unfulfilled status:open created_at:>' + new Date(Date.now() - $('config').first().json.lookback_hours * 36e5).toISOString() } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        256
+      ]
+    },
+    {
+      "id": "9d6b9b6e-fc7f-450e-a505-c5059ded9d6b",
+      "name": "Read Shopify orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// GraphQL nodes -> flat orders. numberOfOrders arrives as a string.\nconst out = [];\nfor (const page of $input.all()) for (const o of page.json.data?.orders?.nodes || []) {\n  const ship = o.shippingAddress || {};\n  out.push({ json: {\n    gid: o.id, name: o.name, email: String(o.email || '').toLowerCase(), tags: (o.tags || []).map(t => t.toLowerCase()),\n    total: Number(o.totalPriceSet?.shopMoney?.amount || 0), currency: o.totalPriceSet?.shopMoney?.currencyCode || 'USD',\n    orders_count: Number(o.customer?.numberOfOrders || 1), billing_country: o.billingAddress?.countryCode || '',\n    shipping_country: ship.countryCode || '', shipping_text: [ship.company, ship.address1, ship.address2, ship.city].filter(Boolean).join(', '),\n    lines: (o.lineItems?.nodes || []).map(l => ({ title: l.title, qty: l.quantity })),\n    risk_level: (o.risk?.assessments || []).map(a => a.riskLevel).sort((a, b) => ['NONE', 'LOW', 'PENDING', 'MEDIUM', 'HIGH'].indexOf(b) - ['NONE', 'LOW', 'PENDING', 'MEDIUM', 'HIGH'].indexOf(a))[0] || 'NONE',\n    recommendation: o.risk?.recommendation || 'NONE',\n  } });\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        256
+      ]
+    },
+    {
+      "id": "919516bc-0a37-43fc-aa4e-0a4e1fcf9195",
+      "name": "Load sample orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SHOPIFY is true. Three should be held, one watched, two cleared, one skipped.\nconst o = (name, extra) => ({ gid: 'gid://shopify/Order/' + name.slice(1), name, email: 'buyer' + name.slice(1) + '@example.com', tags: [], total: 80, currency: 'USD',\n  orders_count: 3, billing_country: 'US', shipping_country: 'US', shipping_text: '12 Elm St, Springfield', lines: [{ title: 'Trail runner', qty: 1 }],\n  risk_level: 'LOW', recommendation: 'ACCEPT', ...extra });\nreturn [\n  o('#2101', { email: 'ana@brightwell.example', total: 640, orders_count: 1, billing_country: 'GB' }),\n  o('#2102', { email: 'kyle@quickmail.example', total: 420, orders_count: 1, billing_country: 'CA', shipping_text: 'c/o Shipito, Suite #4471, 1430 Ocean Ave, Torrance', risk_level: 'MEDIUM', recommendation: 'INVESTIGATE' }),\n  o('#2103', { email: 'li@pinehurst.example', total: 210, risk_level: 'HIGH', recommendation: 'CANCEL' }),\n  o('#2104', { email: 'coach@riverclub.example', total: 300, orders_count: 6, lines: [{ title: 'Club socks', qty: 12 }] }),\n  o('#2105', { email: 'mo@lindqvist.example' }),\n  o('#2106', { email: 'zed@harbor.example', total: 900, orders_count: 1, billing_country: 'FR', tags: ['risk-cleared'] }),\n  o('#2107', { email: 'deal4u@quickbuy.example', total: 350, orders_count: 1, billing_country: 'IE', lines: [{ title: 'Smart watch', qty: 6 }] }),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        432
+      ]
+    },
+    {
+      "id": "4e1fcff2-1646-4852-aafd-eafdd2214e1f",
+      "name": "Combine order sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        256
+      ]
+    },
+    {
+      "id": "0b4980d4-1142-4694-a1b4-61b4baf70b49",
+      "name": "Score each order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every signal that fires adds its POINTS and a plain-language reason, so the alert\n// says why an order was held, not just that it was.\nconst cfg = $('config').first().json;\nconst P = cfg.points;\nconst scored = [], skipped = [];\nfor (const { json: o } of $input.all()) {\n  if (o.tags.includes(cfg.review_tag) || o.tags.includes(cfg.cleared_tag)) { skipped.push({ name: o.name, reason: 'already tagged ' + (o.tags.includes(cfg.cleared_tag) ? cfg.cleared_tag : cfg.review_tag) }); continue; }\n  const why = []; let score = 0;\n  const add = (pts, reason) => { score += pts; why.push(reason + ' (+' + pts + ')'); };\n  if (o.risk_level === 'HIGH') add(P.shopify_high, 'Shopify risk high');\n  else if (o.risk_level === 'MEDIUM') add(P.shopify_medium, 'Shopify risk medium');\n  if (o.recommendation === 'CANCEL') add(P.recommend_cancel, 'Shopify recommends cancel');\n  if (o.billing_country && o.shipping_country && o.billing_country !== o.shipping_country) add(P.country_mismatch, 'billing ' + o.billing_country + ', shipping ' + o.shipping_country);\n  if (o.orders_count <= 1 && o.total >= cfg.high_value) add(P.first_order_high_value, 'first order of ' + o.total + ' ' + o.currency);\n  const addr = o.shipping_text.toLowerCase();\n  const fw = cfg.forwarder_words.find(w => addr.includes(w));\n  if (fw) add(P.forwarder, 'forwarder address (\"' + fw + '\")');\n  const bulk = o.lines.find(l => l.qty >= cfg.bulk_qty);\n  if (bulk) add(P.bulk_quantity, bulk.qty + ' x ' + bulk.title);\n  if (cfg.disposable_domains.includes(o.email.split('@')[1])) add(P.disposable_email, 'disposable email');\n  if (cfg.risky_countries.includes(o.shipping_country)) add(P.risky_country, 'ships to ' + o.shipping_country);\n  const verdict = score >= cfg.hold_score ? 'hold' : score >= cfg.watch_score ? 'watch' : 'clear';\n  scored.push({ ...o, score, why, verdict });\n}\nscored.sort((a, b) => b.score - a.score);\nreturn [{ json: { hold: scored.filter(o => o.verdict === 'hold'), watch: scored.filter(o => o.verdict === 'watch'),\n  clear: scored.filter(o => o.verdict === 'clear').map(o => o.name), skipped } }];\n"
+      },
+      "position": [
+        1488,
+        256
+      ]
+    },
+    {
+      "id": "4c2c204b-bfe2-46db-aa1d-ca1d62b24c2c",
+      "name": "Split orders to tag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per held order, carrying the GraphQL id the tag mutation needs.\nconst cfg = $('config').first().json;\nreturn $input.first().json.hold.map(o => ({ json: { gid: o.gid, name: o.name, tags: [cfg.review_tag] } }));\n"
+      },
+      "position": [
+        1792,
+        256
+      ]
+    },
+    {
+      "id": "0f61b0e5-265a-4b55-a916-091657100f61",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2016,
+        256
+      ]
+    },
+    {
+      "id": "c1e40c46-af83-4266-a56c-656c9a55c1e4",
+      "name": "STOP: dry run - orders untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2224,
+        432
+      ]
+    },
+    {
+      "id": "2ea289db-d996-436b-a139-7139d4c22ea2",
+      "name": "Tag the order for review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/graphql.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }\", variables: { id: $json.gid, tags: $json.tags } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2224,
+        256
+      ]
+    },
+    {
+      "id": "a645ad26-8c2d-4d46-ad41-fd413c75a645",
+      "name": "Write the risk alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message: held orders first with their reasons, then the watch list.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst admin = gid => 'https://' + cfg.shop_domain + '/admin/orders/' + gid.split('/').pop();\nconst line = o => '• <' + admin(o.gid) + '|' + o.name + '> ' + o.total + ' ' + o.currency + ', score ' + o.score + ': ' + o.why.join('; ');\nconst text = [\n  ...(d.hold.length ? [':no_entry: *' + d.hold.length + ' order' + (d.hold.length === 1 ? '' : 's') + ' held for review* (tagged ' + cfg.review_tag + (cfg.mode === 'preview' ? ', dry run' : '') + ')', ...d.hold.map(line), ''] : []),\n  ...(d.watch.length ? [':eyes: *Watch* (not tagged)', ...d.watch.map(line)] : []),\n].join('\\n').trim();\nreturn [{ json: { text, flagged: d.hold.length + d.watch.length } }];\n"
+      },
+      "position": [
+        1792,
+        432
+      ]
+    },
+    {
+      "id": "5076bd65-c850-4fd5-a75f-c75f5f905076",
+      "name": "Anything to flag?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9ab24b71-2e35-4221-aaf0-0af0b6fc9ab2",
+              "leftValue": "={{ $json.flagged > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2016,
+        432
+      ]
+    },
+    {
+      "id": "7d2f5594-a7f9-4f54-a8c3-98c302377d2f",
+      "name": "STOP: nothing risky",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2224,
+        592
+      ]
+    },
+    {
+      "id": "a65f0da3-7d2f-48b3-aa8c-aa8c5b9aa65f",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2224,
+        768
+      ]
+    },
+    {
+      "id": "b6108af5-c3c0-4065-afe1-6fe199a0b610",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2448,
+        944
+      ]
+    },
+    {
+      "id": "649419e4-d29e-4aa4-a26c-c26c66476494",
+      "name": "Live alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c4fc518e-9e82-412e-aa73-6a7337cdc4fc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2448,
+        768
+      ]
+    },
+    {
+      "id": "8374be54-cdb9-4c14-a7ae-97aef8778374",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2672,
+        944
+      ]
+    },
+    {
+      "id": "997a7f99-dbe0-49c9-a978-b978a494997a",
+      "name": "Alert the fulfilment channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2672,
+        768
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Shopify connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch unfulfilled orders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch unfulfilled orders": {
+      "main": [
+        [
+          {
+            "node": "Read Shopify orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Shopify orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample orders": {
+      "main": [
+        [
+          {
+            "node": "Combine order sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine order sources": {
+      "main": [
+        [
+          {
+            "node": "Score each order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score each order": {
+      "main": [
+        [
+          {
+            "node": "Split orders to tag",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the risk alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split orders to tag": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Tag the order for review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - orders untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the risk alert": {
+      "main": [
+        [
+          {
+            "node": "Anything to flag?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to flag?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing risky",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Live alert?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live alert?": {
+      "main": [
+        [
+          {
+            "node": "Alert the fulfilment channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

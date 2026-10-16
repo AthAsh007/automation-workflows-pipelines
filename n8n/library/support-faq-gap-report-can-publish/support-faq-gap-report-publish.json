@@ -1,0 +1,744 @@
+{
+  "name": "Find repeated support questions in Gmail and report help center gaps weekly",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Find repeated support questions in Gmail and report help center gaps weekly\n\n**Who's it for**\nSupport teams of one to five people who answer from a shared Gmail inbox and keep a small help center. It shows which article to write next, from what customers actually asked last week.\n\n**How it works**\n1. Every Monday at 08:00 it lists last week's threads sent to your support address, one question per thread, or uses 16 sample emails until Gmail is connected.\n2. Subjects and the first lines are lower-cased, stripped of reply prefixes and ticket numbers, and reduced to keywords.\n3. Questions that share at least a quarter of their keywords are grouped. Groups of 2 or more are compared with `HELP_ARTICLES`.\n4. A group with no article sharing 2 keywords is a gap. A group whose article exists is listed as \"still asked\", which usually means the article is hard to find or unclear.\n\n**How to set up**\n1. Run it once as imported. It groups the sample emails and stops at `STOP: dry run - report not sent`.\n2. Add a Gmail credential to `List last week support emails` and `Fetch subject and snippet`, set `SUPPORT_ADDRESS`, and set `USE_GMAIL = true`.\n3. List your current help articles with a few keywords each in `HELP_ARTICLES`.\n4. Fill in `REPORT_TO` and, optionally, `SLACK_CHANNEL_ID`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Gmail or Google Workspace inbox that receives support email\n- A list of your help articles\n- Optional: a Slack workspace\n\n**How to customize**\n- `MIN_GROUP_SIZE` and `SIMILARITY` decide how alike questions must be to count as one topic.\n- `EXTRA_STOPWORDS` removes words that appear in every email, such as your product name.\n- `TOP_GAPS` sets how many gaps the report lists.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "27ae6cd3-5717-4c4e-9a00-27ae6cd313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns Monday at 08:00 so the report covers a full week. The help article list lives in `config`; adding an article there removes its topic from next week's gaps.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0d5c1ce6-5717-4c4e-9a00-0d5c1ce61000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read last week's threads\n\nThe Gmail API list call only returns ids, so `Fetch subject and snippet` asks for metadata alone, never full bodies. `Read Gmail messages` keeps one message per thread so replies do not inflate a topic.",
+        "height": 880,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0e5c1e79-5717-4c4e-9a00-0e5c1e791001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Group questions and check articles\n\nKeyword overlap is crude but explainable: each topic shows the words that tied it together. An article must share `ARTICLE_MATCH_MIN` keywords to count, so a vague match does not hide a real gap.",
+        "height": 880,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "0b5c19c0-5717-4c4e-9a00-0b5c19c01002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send the report\n\nThe report text is built on every run so a dry run shows the result. Email and Slack are each optional and each lands on its own STOP when blank, behind one `Live run?` gate.",
+        "height": 880,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "0c5c1b53-5717-4c4e-9a00-0c5c1b531003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "cee2bb3f-51cd-4d8f-ab0b-bb0bae86cee2",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// FIND REPEATED SUPPORT QUESTIONS IN GMAIL AND REPORT HELP CENTER GAPS WEEKLY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GMAIL false -> SAMPLE emails.\n// DRY_RUN true -> the report is built and shown, nothing is sent. REPORT_TO and SLACK_CHANNEL_ID are each optional.\n\n// set true after adding the Gmail credential to the two Gmail API nodes\nconst USE_GMAIL = false;\n// address customers write to\nconst SUPPORT_ADDRESS = 'support@yourcompany.example';\n// how far back to read\nconst LOOKBACK_DAYS = 7;\n// most threads read per run\nconst MAX_THREADS = 200;\n// your current help articles; keywords are what a question about that article would say\nconst HELP_ARTICLES = [\n  {\n    title: \"Reset your password\",\n    url: \"https://help.yourcompany.example/reset-password\",\n    keywords: [\n      \"password\",\n      \"reset\",\n      \"login\",\n      \"locked\"\n    ]\n  },\n  {\n    title: \"Cancel or pause your plan\",\n    url: \"https://help.yourcompany.example/cancel\",\n    keywords: [\n      \"cancel\",\n      \"subscription\",\n      \"pause\",\n      \"plan\"\n    ]\n  },\n  {\n    title: \"Connect Slack\",\n    url: \"https://help.yourcompany.example/slack\",\n    keywords: [\n      \"slack\",\n      \"integration\",\n      \"connect\",\n      \"notification\"\n    ]\n  }\n];\n// words to ignore on top of the built-in list, such as your product name\nconst EXTRA_STOPWORDS = [\n  \"acme\",\n  \"app\"\n];\n// share of keywords two questions must have in common to group (0 to 1)\nconst SIMILARITY = 0.25;\n// a topic needs at least this many threads to be reported\nconst MIN_GROUP_SIZE = 2;\n// shared keywords needed for an article to cover a topic\nconst ARTICLE_MATCH_MIN = 2;\n// how many gaps the report lists\nconst TOP_GAPS = 5;\n// email for the report; blank skips email\nconst REPORT_TO = '';\n// channel for the report; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_gmail: USE_GMAIL,\n    support_address: SUPPORT_ADDRESS,\n    lookback_days: LOOKBACK_DAYS,\n    max_threads: MAX_THREADS,\n    help_articles: HELP_ARTICLES,\n    extra_stopwords: EXTRA_STOPWORDS,\n    similarity: SIMILARITY,\n    min_group_size: MIN_GROUP_SIZE,\n    article_match_min: ARTICLE_MATCH_MIN,\n    top_gaps: TOP_GAPS,\n    report_to: REPORT_TO,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    email_enabled: REPORT_TO.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "a810e91f-6989-456f-accc-7ccc49a6a810",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "a6e9076b-2d9c-43fb-aabc-8abc1c92a6e9",
+      "name": "Every Monday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "ec6857ef-2c0d-433f-ac77-1c773836ec68",
+      "name": "Sample mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b0b4d85-0807-45f5-a03b-203b1f705b0b",
+              "leftValue": "={{ !$('config').first().json.use_gmail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "7b0935bf-d9ce-400f-a679-e67939067b09",
+      "name": "List last week support emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ 'to:' + $('config').first().json.support_address + ' newer_than:' + $('config').first().json.lookback_days + 'd -from:me -category:promotions' }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "={{ $('config').first().json.max_threads }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "95efa906-f5e1-4326-ab3a-bb3a999595ef",
+      "name": "Split into message ids",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "892cffa7-1bd3-4177-a812-8812a0be892c",
+      "name": "Fetch subject and snippet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "metadata"
+            },
+            {
+              "name": "metadataHeaders",
+              "value": "Subject"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "0ebdef85-831b-47f5-a5f3-05f32d700ebd",
+      "name": "Read Gmail messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Message metadata -> subject, snippet and thread. Only the first message seen per\n// thread counts, so a long back-and-forth is one question, not ten.\nconst seen = new Set(), out = [];\nfor (const { json: m } of $input.all()) {\n  if (!m.threadId || seen.has(m.threadId)) continue;\n  seen.add(m.threadId);\n  const subject = (m.payload?.headers || []).find(h => h.name.toLowerCase() === 'subject')?.value || '';\n  out.push({ json: { thread_id: m.threadId, subject, snippet: m.snippet || '' } });\n}\nreturn out;\n"
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "9e9b30f7-fa82-49c7-a53f-953f300e9e9b",
+      "name": "Load sample support emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GMAIL is true. Sixteen messages in 15 threads across seven topics; two topics have articles.\nconst rows = [\n  ['t01', 'Password reset link expired', 'The reset link in your email says expired every time I click it'],\n  ['t02', 'Re: cannot reset password', 'I requested a password reset twice and nothing arrived'],\n  ['t03', 'Locked out after password reset', 'Did a password reset yesterday and now login says locked'],\n  ['t04', 'Fwd: password reset not working', 'Reset password email never shows up, checked spam'],\n  ['t05', 'How do I export to CSV?', 'I need to export my contacts to a CSV file for our CRM'],\n  ['t06', 'CSV export missing columns', 'The export CSV does not include the phone column'],\n  ['t07', 'Export all data as CSV', 'Is there a way to export everything to CSV at once'],\n  ['t08', 'VAT number on invoice', 'Our invoice is missing the VAT number, we need it for accounting'],\n  ['t09', 'Re: [#4471] Invoice VAT', 'Can you reissue the invoice with our VAT number please'],\n  ['t10', 'Add VAT ID to invoices', 'Where do I add a VAT ID so invoices show it'],\n  ['t11', 'Cancel my subscription', 'Please cancel my subscription at the end of this month'],\n  ['t12', 'How to pause over summer', 'Can I pause my subscription instead of cancel for 2 months'],\n  ['t13', 'Zapier integration trigger', 'Does the Zapier integration have a trigger for new orders'],\n  ['t14', 'Zapier zap not firing', 'My Zapier zap stopped firing for new orders since Friday'],\n  ['t15', 'Dark mode?', 'Any plans for a dark mode in the dashboard'],\n  ['t02', 'Re: Re: Re: cannot reset password', 'Thanks it worked after all'],\n];\n// Same shape as the Gmail metadata response; the last row is a reply on thread t02.\nreturn rows.map(([threadId, subject, snippet], i) => ({ json: { id: 'sample-' + (i + 1), threadId, snippet, payload: { headers: [{ name: 'Subject', value: subject }] } } }));\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "521dd618-affa-4e98-aa1a-2a1aad4b521d",
+      "name": "Combine email sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1392,
+        208
+      ]
+    },
+    {
+      "id": "748f299b-dbf3-472b-a7e3-a7e3e702748f",
+      "name": "Reduce each question to keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Lower-case, drop Re:/Fwd: prefixes and [#1234] ticket tags, remove stopwords and\n// short words, and strip common endings so \"exports\" and \"exporting\" match \"export\".\nconst cfg = $('config').first().json;\nconst STOP = new Set(('a an and are as at be been but by can cannot could did do does for from get got had has have how i if in into is it its just me my need no not now of on or our out please so some still than thanks that the their them then there this to too up us use was way we what when where which why will with would yes yesterday you your hi hello team help issue problem question any every everything all again since after before instead time month months day days new set nothing never says said').split(' ').concat(cfg.extra_stopwords));\nconst stem = w => w.length > 6 && w.endsWith('ing') ? w.slice(0, -3) : w.length > 5 && w.endsWith('ed') ? w.slice(0, -2) : w.length > 4 && /(ss|x|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w;\nconst out = [];\nfor (const { json: e } of $input.all()) {\n  const subject = e.subject.replace(/^((re|fw|fwd)\\s*:\\s*)+/i, '').replace(/\\[#?\\d+\\]/g, '').trim();\n  const text = (subject + ' ' + e.snippet.slice(0, 200)).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ');\n  const raw = text.split(/\\s+/).filter(w => w.length > 2 && !/^\\d+$/.test(w) && !STOP.has(w));\n  const forms = {};\n  for (const w of raw) forms[stem(w)] ||= w;\n  out.push({ json: { thread_id: e.thread_id, subject, words: Object.keys(forms), forms } });\n}\nreturn out;\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "3c81ce98-630d-4f18-aa52-aa5269cb3c81",
+      "name": "Group similar questions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Greedy grouping: each question joins the group whose core keywords (in at least\n// half its members) it overlaps most, if it shares 2+ words and the overlap\n// (shared / smaller set) reaches SIMILARITY. Labels use the words as written.\nconst cfg = $('config').first().json;\nconst qs = $input.all().map(i => i.json).filter(q => q.words.length).sort((a, b) => b.words.length - a.words.length);\nconst forms = Object.assign({}, ...qs.map(q => q.forms));\nconst jac = (a, b) => { const B = new Set(b); const inter = a.filter(w => B.has(w)).length; return inter < 2 ? 0 : inter / (Math.min(a.length, b.length) || 1); };\nconst groups = [];\nfor (const q of qs) {\n  let best = null, bestScore = 0;\n  for (const g of groups) {\n    const core = Object.entries(g.counts).filter(([, n]) => n >= Math.max(1, g.items.length / 2)).map(([w]) => w);\n    const s = jac(q.words, core);\n    if (s > bestScore) { best = g; bestScore = s; }\n  }\n  if (best && bestScore >= cfg.similarity) { best.items.push(q); for (const w of q.words) best.counts[w] = (best.counts[w] || 0) + 1; }\n  else groups.push({ items: [q], counts: Object.fromEntries(q.words.map(w => [w, 1])) });\n}\nconst topics = groups.map(g => {\n  const top = Object.entries(g.counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5).map(([w]) => w);\n  return { label: top.slice(0, 3).map(w => forms[w] || w).join(' / '), keywords: top, size: g.items.length, examples: g.items.slice(0, 3).map(q => q.subject) };\n}).sort((a, b) => b.size - a.size);\nreturn [{ json: { topics, questions: qs.length } }];\n"
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "abf8ae2e-4126-4bce-a323-1323d32dabf8",
+      "name": "Compare with help articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A topic is covered when an article shares ARTICLE_MATCH_MIN keywords with it.\n// Covered topics that still reach MIN_GROUP_SIZE are reported as \"still asked\".\nconst cfg = $('config').first().json;\nconst stem = w => { w = w.toLowerCase(); return w.length > 6 && w.endsWith('ing') ? w.slice(0, -3) : w.length > 5 && w.endsWith('ed') ? w.slice(0, -2) : w.length > 4 && /(ss|x|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w; };\nconst articles = cfg.help_articles.map(a => ({ ...a, stems: a.keywords.map(stem) }));\nconst { topics, questions } = $input.first().json;\nconst gaps = [], stillAsked = [], small = [];\nfor (const t of topics) {\n  if (t.size < cfg.min_group_size) { small.push(t.label); continue; }\n  const match = articles.map(a => ({ a, n: t.keywords.filter(k => a.stems.includes(k)).length })).sort((x, y) => y.n - x.n)[0];\n  if (match && match.n >= cfg.article_match_min) stillAsked.push({ ...t, article: match.a.title, url: match.a.url });\n  else gaps.push(t);\n}\nreturn [{ json: { gaps: gaps.slice(0, cfg.top_gaps), more_gaps: Math.max(0, gaps.length - cfg.top_gaps), still_asked: stillAsked, one_offs: small.length, questions } }];\n"
+      },
+      "position": [
+        2304,
+        208
+      ]
+    },
+    {
+      "id": "6b5351cb-72e1-405b-a9df-19dfa0326b53",
+      "name": "Write the gap report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain text that reads the same in an email and in Slack.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst lines = [\n  'Help center gaps, last ' + cfg.lookback_days + ' days (' + d.questions + ' support threads)',\n  '',\n  d.gaps.length ? 'No article yet:' : 'No gaps this week: every repeated question has an article.',\n  ...d.gaps.map((g, i) => (i + 1) + '. ' + g.label + ' (' + g.size + ' threads), e.g. \"' + g.examples.join('\", \"') + '\"'),\n  ...(d.more_gaps ? ['...and ' + d.more_gaps + ' more smaller gaps.'] : []),\n  ...(d.still_asked.length ? ['', 'Article exists but people still ask:'] : []),\n  ...d.still_asked.map(s => '- ' + s.label + ' (' + s.size + ' threads) -> ' + s.article + ' ' + s.url),\n  '', d.one_offs + ' one-off questions were not grouped.',\n];\nreturn [{ json: { text: lines.join('\\n'), subject: 'Help center gaps: ' + d.gaps.length + ' topics without an article', gaps: d.gaps.length } }];\n"
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "81f502bf-21bc-4d0f-a712-a712720681f5",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "e67fb55d-1800-4a4d-adb9-5db95ef8e67f",
+      "name": "STOP: dry run - report not sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        544
+      ]
+    },
+    {
+      "id": "e7ef15f4-ad1a-41b4-a14c-514c16d7e7ef",
+      "name": "Report address set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f01f7fe4-1b36-40a4-aa3c-6a3c1047f01f",
+              "leftValue": "={{ $('config').first().json.email_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "69ab24d2-78d9-4732-a313-a313ec4169ab",
+      "name": "STOP: no report address",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        384
+      ]
+    },
+    {
+      "id": "a62290ea-c2aa-4bca-a44b-d44b7c49a622",
+      "name": "Email the gap report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $('config').first().json.report_to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3216,
+        208
+      ]
+    },
+    {
+      "id": "e4474339-234a-4b69-a6b4-26b4d2f4e447",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "01235ab7-eea3-4787-a4b3-54b3784e0123",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        544
+      ]
+    },
+    {
+      "id": "7d5c89fb-f920-498b-a9e3-89e39ba27d5c",
+      "name": "Post the gap report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3216,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sample mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample mode?": {
+      "main": [
+        [
+          {
+            "node": "Load sample support emails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List last week support emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List last week support emails": {
+      "main": [
+        [
+          {
+            "node": "Split into message ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into message ids": {
+      "main": [
+        [
+          {
+            "node": "Fetch subject and snippet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample support emails": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch subject and snippet": {
+      "main": [
+        [
+          {
+            "node": "Combine email sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine email sources": {
+      "main": [
+        [
+          {
+            "node": "Read Gmail messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Gmail messages": {
+      "main": [
+        [
+          {
+            "node": "Reduce each question to keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reduce each question to keywords": {
+      "main": [
+        [
+          {
+            "node": "Group similar questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group similar questions": {
+      "main": [
+        [
+          {
+            "node": "Compare with help articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare with help articles": {
+      "main": [
+        [
+          {
+            "node": "Write the gap report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the gap report": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Report address set?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - report not sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report address set?": {
+      "main": [
+        [
+          {
+            "node": "Email the gap report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no report address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the gap report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

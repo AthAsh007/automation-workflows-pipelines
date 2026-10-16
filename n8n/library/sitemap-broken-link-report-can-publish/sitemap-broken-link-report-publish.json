@@ -1,0 +1,858 @@
+{
+  "name": "Check a sitemap for broken pages and email a weekly report with Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Check a sitemap for broken pages and email a weekly report with Gmail\n\n**Who's it for**\nSite owners and marketers who publish often and only learn about a broken page when a customer sends a screenshot. You get one email a week, and only when the list of problems changed.\n\n**How it works**\n1. Every Monday at 07:00 it reads each sitemap in `SITEMAP_URLS`, or a sample sitemap until live checks are on.\n2. Page URLs matching `EXCLUDE_PATTERNS` are dropped and the 200 most recently modified are kept.\n3. Each page is requested without following redirects and sorted into ok, redirect, client error (4xx), server error (5xx) or unreachable (timeout or DNS).\n4. Results are compared with last week. If a page newly broke or got fixed, an HTML email lists new problems first, then fixes, then problems that remain.\n\n**How to set up**\n1. Run it once as imported. It checks the sample sitemap and stops at `STOP: preview - nothing sent`.\n2. Put your sitemap address in `SITEMAP_URLS` and set `USE_LIVE_CHECKS = true`. For a sitemap index, list the child sitemaps instead.\n3. Connect Gmail to `Email the report` and set `REPORT_TO`.\n4. Put your address in `TEST_EMAIL` to receive a test report. Set `TEST_RUN = false` to send to `REPORT_TO` and save the weekly baseline.\n\n**Requirements**\n- A public XML sitemap\n- A Gmail account\n\n**How to customize**\n- `MAX_URLS` caps the pages checked per run.\n- `REPORT_REDIRECTS` decides whether redirects count as problems.\n- `ALWAYS_SEND` true sends the report every week, changed or not.",
+        "height": 912,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "4a1a2675-5717-4c4e-9a00-4a1a267513e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Monday at 07:00 or by hand. Sitemaps, exclusions, the URL cap and the recipient live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "44378728-5717-4c4e-9a00-443787281000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the sitemap\n\n`Pick URLs to check` drops excluded paths and keeps the most recently modified pages, so a cap of 200 still covers what changed lately. A sitemap index is reported instead of producing an empty run.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "453788bb-5717-4c4e-9a00-453788bb1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Request every page\n\nRedirects are not followed, so a 301 in the sitemap is visible. A 404 or timeout continues as data instead of stopping the run. `Load sample page results` returns the same error shapes.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "46378a4e-5717-4c4e-9a00-46378a4e1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Compare with last week\n\nProblems are compared by class per URL, so a page that stays broken is listed once under still broken, and the email only goes out when something new broke or got fixed.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2704,
+        0
+      ],
+      "id": "47378be1-5717-4c4e-9a00-47378be11003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Send and save the baseline\n\nNothing is emailed in preview. A test send goes to `TEST_EMAIL` and keeps last week's baseline, so the live run still sees the same changes.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3616,
+        0
+      ],
+      "id": "48378d74-5717-4c4e-9a00-48378d741004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "58e9f136-335c-4c56-a041-5041e50558e9",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CHECK A SITEMAP FOR BROKEN PAGES AND EMAIL A WEEKLY REPORT WITH GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_CHECKS false -> SAMPLE sitemap and SAMPLE page results.\n// The report is emailed only when problems changed since the last live run.\n\n// set true to fetch the sitemap and request every page (public GETs)\nconst USE_LIVE_CHECKS = false;\n// sitemaps to read; list child sitemaps rather than an index\nconst SITEMAP_URLS = [\n  \"https://www.yourcompany.example/sitemap.xml\"\n];\n// URLs containing any of these are not checked\nconst EXCLUDE_PATTERNS = [\n  \"/tag/\",\n  \"/author/\",\n  \"?\"\n];\n// most recently modified pages checked per run\nconst MAX_URLS = 200;\n// true -> redirects are listed as problems (sitemaps should list final URLs)\nconst REPORT_REDIRECTS = true;\n// true -> email every week even when nothing changed\nconst ALWAYS_SEND = false;\n// who gets the report\nconst REPORT_TO = 'web-team@yourcompany.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_checks: USE_LIVE_CHECKS,\n    sitemap_urls: SITEMAP_URLS,\n    exclude_patterns: EXCLUDE_PATTERNS,\n    max_urls: MAX_URLS,\n    report_redirects: REPORT_REDIRECTS,\n    always_send: ALWAYS_SEND,\n    report_to: REPORT_TO,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "a7ea0b42-df51-4aa2-a6de-26de6e31a7ea",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "0718f81f-2633-446f-a805-0805f0a60718",
+      "name": "Every Monday at 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "e85c560a-f4a8-46ea-afb8-0fb84d29e85c",
+      "name": "Use the sample sitemap?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "05318e67-2db3-4437-a25d-e25db0fe0531",
+              "leftValue": "={{ $('config').first().json.use_live_checks }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "99052fed-d228-47dd-ae34-2e34b3c89905",
+      "name": "Load sample sitemap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_CHECKS is true. Same body the HTTP node returns: XML text in \"data\".\nconst d = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst u = (path, days) => '<url><loc>https://www.yourcompany.example' + path + '</loc><lastmod>' + d(days) + '</lastmod></url>';\nconst xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">' +\n  [u('/', 1), u('/pricing', 3), u('/blog/onboarding-emails', 5), u('/blog/old-launch-post', 40), u('/integrations/legacy-crm', 90),\n   u('/careers', 12), u('/blog/tag/email', 2), u('/docs/api', 7), u('/case-studies/harbour-dental', 20)].join('') + '</urlset>';\nreturn [{ json: { data: xml } }];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "65f635e8-a38d-4d68-a4a5-f4a584db65f6",
+      "name": "List sitemaps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per sitemap file.\nreturn $('config').first().json.sitemap_urls.map(url => ({ json: { url } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "fa232b44-d560-4e04-af64-9f64d8e7fa23",
+      "name": "Fetch the sitemap",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/xml,text/xml"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "f559ad0c-9b5f-414c-a99d-999d2adff559",
+      "name": "Combine sitemap sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "866c483e-e855-40de-ad85-ad8545bd866c",
+      "name": "Pick URLs to check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// <loc> + <lastmod> from every sitemap, minus EXCLUDE_PATTERNS, newest first,\n// capped at MAX_URLS. A sitemap index is reported rather than silently empty.\nconst cfg = $('config').first().json;\nconst all = [], notes = [];\nfor (const { json } of $input.all()) {\n  const xml = typeof json.data === 'string' ? json.data : '';\n  if (/<sitemapindex/i.test(xml)) { notes.push('a sitemap index was found; list its child sitemaps in SITEMAP_URLS'); continue; }\n  for (const m of xml.matchAll(/<url>([\\s\\S]*?)<\\/url>/g)) {\n    const loc = (m[1].match(/<loc>\\s*([^<\\s]+)\\s*<\\/loc>/) || [])[1];\n    const lastmod = (m[1].match(/<lastmod>\\s*([^<\\s]+)\\s*<\\/lastmod>/) || [])[1] || '';\n    if (loc) all.push({ url: loc.replace(/&amp;/g, '&'), lastmod });\n  }\n}\nconst unique = [...new Map(all.map(x => [x.url, x])).values()];\nconst kept = unique.filter(x => !cfg.exclude_patterns.some(p => x.url.includes(p))).sort((a, b) => b.lastmod.localeCompare(a.lastmod));\nreturn [{ json: { urls: kept.slice(0, cfg.max_urls), found: unique.length, excluded: unique.length - kept.length, capped: Math.max(0, kept.length - cfg.max_urls), notes } }];\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "110b43cb-f671-425b-aa20-0a209e32110b",
+      "name": "One item per page",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "urls",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "275bb631-f20d-40e1-a8c1-28c1c43c275b",
+      "name": "Use sample page results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f2d8521c-1264-415c-a2d5-52d5d86ff2d8",
+              "leftValue": "={{ $('config').first().json.use_live_checks }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "d3d0ead3-dfc5-46e3-a83c-d83ce80ad3d0",
+      "name": "Load sample page results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_CHECKS is true: what the page request returns for each case.\nconst cases = { '/blog/old-launch-post': { error: { message: 'Request failed with status code 404' } },\n  '/integrations/legacy-crm': { error: { message: 'Request failed with status code 301' } },\n  '/careers': { error: { message: 'Request failed with status code 503' } },\n  '/docs/api': { error: { message: 'timeout of 15000ms exceeded' } } };\nreturn $input.all().map(({ json }) => {\n  const path = new URL(json.url).pathname;\n  return { json: { url: json.url, ...(cases[path] || { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '' }) } };\n});\n"
+      },
+      "position": [
+        2064,
+        176
+      ]
+    },
+    {
+      "id": "fd1f33d5-5ad5-4345-a124-812463c0fd1f",
+      "name": "Request each page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; sitemap-checker/1.0)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        2064,
+        352
+      ]
+    },
+    {
+      "id": "0e7562cf-7756-481f-a45b-f45b7c560e75",
+      "name": "Read page responses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pair each response with its URL by position. Errors carry the status code in\n// their message; anything without one is unreachable.\nconst pages = $('One item per page').all();\nreturn $input.all().map((it, i) => ({ json: { url: pages[i].json.url, statusCode: it.json.statusCode, error: it.json.error } }));\n"
+      },
+      "position": [
+        2288,
+        352
+      ]
+    },
+    {
+      "id": "eb7900f6-08f7-4016-a455-34553e45eb79",
+      "name": "Combine page results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2512,
+        176
+      ]
+    },
+    {
+      "id": "9c74aa18-ac36-4298-a432-e432894b9c74",
+      "name": "Classify and compare with last week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Classes: ok, redirect, client error, server error, unreachable. \"Changed\" means\n// a page newly has a problem or a previous problem is gone.\nconst cfg = $('config').first().json;\nconst prev = $getWorkflowStaticData('global').last || {};\nconst classify = j => {\n  const err = j.error ? String(j.error.message || j.error) : '';\n  const code = j.statusCode || Number((err.match(/status code (\\d{3})/) || [])[1] || 0);\n  if (!code) return { cls: 'unreachable', code: 0, detail: /timeout/i.test(err) ? 'timed out' : err.slice(0, 80) || 'no response' };\n  if (code < 300) return { cls: 'ok', code };\n  if (code < 400) return { cls: cfg.report_redirects ? 'redirect' : 'ok', code };\n  return { cls: code < 500 ? 'client error' : 'server error', code };\n};\nconst now = {}, rows = [];\nfor (const { json } of $input.all()) { const c = classify(json); now[json.url] = c.cls; rows.push({ url: json.url, ...c }); }\nconst problems = rows.filter(r => r.cls !== 'ok');\nconst fresh = problems.filter(r => prev[r.url] !== r.cls);\nconst ongoing = problems.filter(r => prev[r.url] === r.cls);\nconst fixed = Object.entries(prev).filter(([u, c]) => c !== 'ok' && now[u] === 'ok').map(([url, was]) => ({ url, was }));\nconst counts = rows.reduce((a, r) => (a[r.cls] = (a[r.cls] || 0) + 1, a), {});\nreturn [{ json: { checked: rows.length, counts, fresh, ongoing, fixed, changed: fresh.length > 0 || fixed.length > 0, state: now } }];\n"
+      },
+      "position": [
+        2752,
+        176
+      ]
+    },
+    {
+      "id": "a2848d2f-5b79-447f-a583-45836ff6a284",
+      "name": "Build the email report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain HTML, new problems first. Subject carries the counts so the inbox says enough.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst sm = $('Pick URLs to check').first().json;\nconst li = x => '<li><a href=\"' + x.url + '\">' + x.url + '</a> - ' + x.cls + (x.code ? ' (' + x.code + ')' : '') + (x.detail ? ', ' + x.detail : '') + '</li>';\nconst section = (title, list, fmt) => list.length ? '<h3>' + title + ' (' + list.length + ')</h3><ul>' + list.map(fmt).join('') + '</ul>' : '';\nconst html = '<p>' + r.checked + ' pages checked from ' + sm.found + ' in the sitemap (' + sm.excluded + ' excluded' + (sm.capped ? ', ' + sm.capped + ' over MAX_URLS' : '') + ').</p>' +\n  section('New problems', r.fresh, li) + section('Fixed since last week', r.fixed, x => '<li>' + x.url + ' (was ' + x.was + ')</li>') + section('Still broken', r.ongoing, li) +\n  (sm.notes.length ? '<p>' + sm.notes.join('<br>') + '</p>' : '');\nconst subject = 'Sitemap check: ' + r.fresh.length + ' new problem' + (r.fresh.length === 1 ? '' : 's') + ', ' + r.fixed.length + ' fixed, ' + r.ongoing.length + ' still broken';\nreturn [{ json: { subject, html, send: r.changed || cfg.always_send, send_to: cfg.mode === 'test' ? cfg.test_email : cfg.report_to } }];\n"
+      },
+      "position": [
+        2976,
+        176
+      ]
+    },
+    {
+      "id": "9522b9d7-260a-4ca7-a1ce-a1cefa2e9522",
+      "name": "Anything changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "82aad604-8a21-4cc4-aab6-cab6262782aa",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3200,
+        176
+      ]
+    },
+    {
+      "id": "528c4d9d-f66b-4e8d-ae5b-ce5b2db8528c",
+      "name": "STOP: nothing changed since last week",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3424,
+        352
+      ]
+    },
+    {
+      "id": "b2d0872d-02bc-4b1d-a1a4-f1a45988b2d0",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3664,
+        176
+      ]
+    },
+    {
+      "id": "99bb1b96-3ba1-48b6-a657-c657d8a599bb",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3888,
+        352
+      ]
+    },
+    {
+      "id": "efe917cf-ebe3-4d1f-a53a-e53a3156efe9",
+      "name": "Email the report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3888,
+        176
+      ]
+    },
+    {
+      "id": "64e52928-9a7d-4ca8-a34a-234a0e9b64e5",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4112,
+        176
+      ]
+    },
+    {
+      "id": "f151349e-0cf6-4f3e-aa1c-2a1c475df151",
+      "name": "STOP: test send - baseline kept",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        4336,
+        352
+      ]
+    },
+    {
+      "id": "ca30e577-a6d4-4647-ad4d-3d4d408eca30",
+      "name": "Save this week as the baseline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: next week compares against these classes.\nconst store = $getWorkflowStaticData('global');\nstore.last = $('Classify and compare with last week').first().json.state;\nstore.saved_at = new Date().toISOString();\nreturn [{ json: { saved: Object.keys(store.last).length } }];\n"
+      },
+      "position": [
+        4336,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday at 07:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use the sample sitemap?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use the sample sitemap?": {
+      "main": [
+        [
+          {
+            "node": "Load sample sitemap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List sitemaps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List sitemaps": {
+      "main": [
+        [
+          {
+            "node": "Fetch the sitemap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample sitemap": {
+      "main": [
+        [
+          {
+            "node": "Combine sitemap sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch the sitemap": {
+      "main": [
+        [
+          {
+            "node": "Combine sitemap sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine sitemap sources": {
+      "main": [
+        [
+          {
+            "node": "Pick URLs to check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick URLs to check": {
+      "main": [
+        [
+          {
+            "node": "One item per page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per page": {
+      "main": [
+        [
+          {
+            "node": "Use sample page results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample page results?": {
+      "main": [
+        [
+          {
+            "node": "Load sample page results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request each page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request each page": {
+      "main": [
+        [
+          {
+            "node": "Read page responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample page results": {
+      "main": [
+        [
+          {
+            "node": "Combine page results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read page responses": {
+      "main": [
+        [
+          {
+            "node": "Combine page results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine page results": {
+      "main": [
+        [
+          {
+            "node": "Classify and compare with last week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify and compare with last week": {
+      "main": [
+        [
+          {
+            "node": "Build the email report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the email report": {
+      "main": [
+        [
+          {
+            "node": "Anything changed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything changed?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing changed since last week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the report": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Save this week as the baseline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - baseline kept",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

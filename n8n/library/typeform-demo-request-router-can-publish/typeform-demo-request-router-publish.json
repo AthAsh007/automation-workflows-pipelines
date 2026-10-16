@@ -1,0 +1,550 @@
+{
+  "name": "Route Typeform demo requests to Airtable by company size and region",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Route Typeform demo requests to Airtable by company size and region\n\n**Who's it for**\nSales and marketing teams that collect demo requests in Typeform and sort them by hand into a shared Airtable base. Each request lands with the right owner within seconds, and the requester hears back straight away.\n\n**How it works**\n1. Typeform posts each submission to the webhook. A manual run uses a sample submission.\n2. Answers are read by field ref, not by position, so reordering the form does not break anything. Company size picks the tier: SMB under 50, Mid-market up to 999, Enterprise from 1,000.\n3. Country picks the region (AMER, EMEA, APAC), and `ROUTING` picks the owner for that tier and region. SMB requests go to self-serve with a booking link.\n4. Requests with no valid email, or from a disposable domain, are rejected. Personal email addresses are flagged. The confirmation goes out through Gmail and the request is added to Airtable.\n\n**How to set up**\n1. Run it once from `Run manually`. It routes a sample request and stops at `STOP: preview - nothing sent`.\n2. In Typeform, set a ref on each question that matches `FIELD_REFS`, then add the production URL of `Typeform demo request` as a webhook.\n3. Add an Airtable token credential to `Add the request to Airtable` and fill `AIRTABLE_BASE_ID`. Connect Gmail.\n4. Put your address in `TEST_EMAIL` to receive confirmations yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Typeform account with webhooks\n- An Airtable base with a Demo requests table\n- A Gmail account\n\n**How to customize**\n- `SIZE_TIERS` and `REGIONS` change the cut-offs and country lists.\n- `ROUTING` maps each tier and region to an owner and meeting link.\n- `FIELD_REFS` matches your own question refs.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "b6e94641-5717-4c4e-9a00-b6e9464113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nTypeform posts to the webhook on each submission; `Run manually` replays a sample. Tiers, regions and the routing table all live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e4786d74-5717-4c4e-9a00-e4786d741000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read and route\n\nAnswers are matched by field ref, so the form can be reworded without touching the workflow. `Valid request?` rejects missing and disposable emails before anything is sent.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "e5786f07-5717-4c4e-9a00-e5786f071001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Confirm to the requester\n\nThe email names the next step for that tier, a group demo for SMB or a named owner for larger teams. A test send goes to `TEST_EMAIL` with the real address in the subject.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "e678709a-5717-4c4e-9a00-e678709a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Record in Airtable\n\nOnly a live run writes to Airtable, and only when `AIRTABLE_BASE_ID` is set. Typecast lets Airtable create new select options such as a new region.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "e778722d-5717-4c4e-9a00-e778722d1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "236a82bf-cd79-4d0f-ac67-9c67f206236a",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ROUTE TYPEFORM DEMO REQUESTS TO AIRTABLE BY COMPANY SIZE AND REGION - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE submission. AIRTABLE_BASE_ID blank -> nothing is written to Airtable.\n// Routing is a table lookup on tier and region; * matches any region.\n\n// our field -> Typeform question ref\nconst FIELD_REFS = {\n  first_name: \"first_name\",\n  last_name: \"last_name\",\n  email: \"work_email\",\n  company: \"company\",\n  size: \"company_size\",\n  country: \"country\",\n  use_case: \"use_case\"\n};\n// checked top to bottom on the lower bound of the size answer\nconst SIZE_TIERS = [\n  {\n    tier: \"Enterprise\",\n    min: 1000\n  },\n  {\n    tier: \"Mid-market\",\n    min: 50\n  },\n  {\n    tier: \"SMB\",\n    min: 0\n  }\n];\n// region -> country names as they appear in the form\nconst REGIONS = {\n  AMER: [\n    \"US\",\n    \"United States\",\n    \"Canada\",\n    \"Mexico\",\n    \"Brazil\",\n    \"Argentina\",\n    \"Chile\",\n    \"Colombia\"\n  ],\n  EMEA: [\n    \"United Kingdom\",\n    \"Ireland\",\n    \"Germany\",\n    \"France\",\n    \"Spain\",\n    \"Italy\",\n    \"Netherlands\",\n    \"Sweden\",\n    \"Norway\",\n    \"Denmark\",\n    \"Poland\",\n    \"Austria\",\n    \"Switzerland\",\n    \"South Africa\",\n    \"United Arab Emirates\",\n    \"Israel\"\n  ],\n  APAC: [\n    \"Australia\",\n    \"New Zealand\",\n    \"Japan\",\n    \"Singapore\",\n    \"India\",\n    \"South Korea\",\n    \"Indonesia\",\n    \"Philippines\"\n  ]\n};\n// 'tier|region' -> owner; 'tier|*' is the fallback for that tier\nconst ROUTING = {\n  \"Enterprise|AMER\": {\n    owner: \"Maya Ortiz\",\n    email: \"maya@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/maya\"\n  },\n  \"Enterprise|EMEA\": {\n    owner: \"Lena Fox\",\n    email: \"lena@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/lena\"\n  },\n  \"Enterprise|*\": {\n    owner: \"Ravi Shah\",\n    email: \"ravi@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/ravi\"\n  },\n  \"Mid-market|*\": {\n    owner: \"Theo Grant\",\n    email: \"theo@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/theo\"\n  },\n  \"SMB|*\": {\n    owner: \"Self-serve team\",\n    email: \"hello@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/group-demo\"\n  }\n};\n// accepted but flagged as personal\nconst FREE_EMAIL_DOMAINS = [\n  \"gmail.com\",\n  \"outlook.com\",\n  \"yahoo.com\",\n  \"hotmail.com\",\n  \"icloud.com\",\n  \"proton.me\"\n];\n// disposable domains; the request is rejected\nconst BLOCKED_DOMAINS = [\n  \"mailinator.com\",\n  \"tempmail.dev\",\n  \"guerrillamail.com\"\n];\n// Airtable base id (starts with app); blank skips the write\nconst AIRTABLE_BASE_ID = '';\n// table that receives each request\nconst AIRTABLE_TABLE = 'Demo requests';\n// sign-off on the confirmation\nconst SENDER_NAME = 'The Fieldnote team';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    field_refs: FIELD_REFS,\n    size_tiers: SIZE_TIERS,\n    regions: REGIONS,\n    routing: ROUTING,\n    free_email_domains: FREE_EMAIL_DOMAINS,\n    blocked_domains: BLOCKED_DOMAINS,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "1f1e749f-1956-48ef-ab86-eb86e9261f1e",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "1a45550f-775c-465f-a35b-e35b91161a45",
+      "name": "Typeform demo request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "132a3442-290f-43a2-a107-21075b31132a",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "typeform-demo-request",
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "daad7ec6-a36a-4ce6-a729-b729bcd5daad",
+      "name": "Read answers by field ref",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Typeform answers are typed (text, email, choice, number...). Each is read by its\n// field ref through FIELD_REFS, so question order and wording can change freely.\nconst cfg = $('config').first().json;\nlet body = null;\ntry { body = $('Typeform demo request').first().json.body; } catch (e) { body = null; }\nif (!body) body = { event_id: 'sample', form_response: { submitted_at: new Date().toISOString(), hidden: { utm_source: 'newsletter' }, answers: [\n  { type: 'text', text: 'Dana', field: { ref: 'first_name' } }, { type: 'text', text: 'Cole', field: { ref: 'last_name' } },\n  { type: 'email', email: 'dana@pinecrest-health.example', field: { ref: 'work_email' } }, { type: 'text', text: 'Pinecrest Health', field: { ref: 'company' } },\n  { type: 'choice', choice: { label: '201-1000' }, field: { ref: 'company_size' } }, { type: 'choice', choice: { label: 'Canada' }, field: { ref: 'country' } },\n  { type: 'long_text', text: 'Scheduling for 14 clinics, currently on paper', field: { ref: 'use_case' } },\n] } };\nconst fr = body.form_response || {};\nconst byRef = {};\nfor (const a of fr.answers || []) {\n  const v = a.type === 'choice' ? a.choice?.label ?? a.choice?.other : a.type === 'choices' ? (a.choices?.labels || []).join(', ') : a[a.type] ?? a.text;\n  byRef[a.field?.ref] = v;\n}\nconst get = k => String(byRef[cfg.field_refs[k]] ?? '').trim();\nreturn [{ json: { event_id: body.event_id || '', submitted_at: fr.submitted_at, first_name: get('first_name'), last_name: get('last_name'), email: get('email').toLowerCase(),\n  company: get('company'), size_answer: get('size'), country: get('country'), use_case: get('use_case'), utm_source: fr.hidden?.utm_source || '' } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "890c6913-ec53-4123-a2e9-02e950ca890c",
+      "name": "Route by size and region",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Size answers look like \"51-200\", \"1000+\" or a bare number; the lower bound decides\n// the tier. Region comes from the country list, owner from ROUTING with a * fallback.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst low = (() => { const m = r.size_answer.replace(/,/g, '').match(/\\d+/); return m ? Number(m[0]) : null; })();\nconst tier = low === null ? 'SMB' : cfg.size_tiers.find(t => low >= t.min).tier;\nconst region = Object.keys(cfg.regions).find(k => cfg.regions[k].some(c => c.toLowerCase() === r.country.toLowerCase())) || 'Other';\nconst route = cfg.routing[tier + '|' + region] || cfg.routing[tier + '|*'];\nconst domain = r.email.split('@')[1] || '';\nconst flags = [];\nif (low === null) flags.push('no company size, treated as SMB');\nif (region === 'Other') flags.push('country not in REGIONS');\nif (cfg.free_email_domains.includes(domain)) flags.push('personal email address');\nconst reject = !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(r.email) ? 'no valid email' : cfg.blocked_domains.includes(domain) ? 'disposable email domain' : '';\nreturn [{ json: { ...r, tier, region, owner: route.owner, owner_email: route.email, meeting_link: route.link, flags, reject } }];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "368264f1-bfa4-43a1-ae37-0e37187c3682",
+      "name": "Valid request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f3f5de0b-614e-489b-aa1b-7a1b76f2f3f5",
+              "leftValue": "={{ $json.reject === '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "505cadc8-242f-4f48-ab8b-ab8b15fb505c",
+      "name": "STOP: rejected request",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1184,
+        352
+      ]
+    },
+    {
+      "id": "fd8af47c-0945-45bc-aa09-fa093b0ffd8a",
+      "name": "Write the confirmation email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SMB gets a group demo link straight away; larger tiers are told who will reach out.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst next = r.tier === 'SMB'\n  ? 'The quickest way to see it is our live group demo. Pick a slot that suits you: ' + r.meeting_link\n  : r.owner + ' looks after ' + r.tier.toLowerCase() + ' teams in ' + r.region + ' and will be in touch within one business day. If you would rather pick a time now: ' + r.meeting_link;\nconst body = ['Hi ' + (r.first_name || 'there') + ',', '', 'Thanks for asking for a demo' + (r.company ? ' for ' + r.company : '') + '.', '', next, '', cfg.sender_name].join('\\n');\nreturn [{ json: { ...r, subject: 'Your demo request' + (r.company ? ' for ' + r.company : ''), body, send_to: cfg.mode === 'test' ? cfg.test_email : r.email } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "cf39a2b0-188e-4bb0-ac48-5c48faf3cf39",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "a94765c7-7939-4d97-a8f2-08f2c19ea947",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "e5165419-718e-4649-a3e6-43e62114e516",
+      "name": "Send the confirmation",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $('Write the confirmation email').first().json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $('Write the confirmation email').first().json.email + '] ' : '') + $('Write the confirmation email').first().json.subject }}",
+        "emailType": "text",
+        "message": "={{ $('Write the confirmation email').first().json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "733af53f-1c37-478f-a634-e6341486733a",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "4b7ddaa7-ba3e-4c77-ac97-dc97dbbe4b7d",
+      "name": "STOP: test send - Airtable untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        352
+      ]
+    },
+    {
+      "id": "2ea6f7af-651b-46ff-a13f-c13f4a762ea6",
+      "name": "Airtable base set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dbbc4545-61bc-41b5-a838-483880b0dbbc",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "d354f2e1-50df-4691-ab8a-7b8a7decd354",
+      "name": "STOP: no Airtable base",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "df8191dd-8302-4ecd-a786-17864778df81",
+      "name": "Add the request to Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, records: [{ fields: (r => ({ Name: (r.first_name + ' ' + r.last_name).trim(), Email: r.email, Company: r.company, 'Company size': r.size_answer, Tier: r.tier, Country: r.country, Region: r.region, Owner: r.owner, 'Use case': r.use_case, Source: r.utm_source, Flags: r.flags.join('; '), 'Submitted at': r.submitted_at, 'Typeform event': r.event_id }))($('Write the confirmation email').first().json) }] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Typeform demo request": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read answers by field ref",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read answers by field ref": {
+      "main": [
+        [
+          {
+            "node": "Route by size and region",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by size and region": {
+      "main": [
+        [
+          {
+            "node": "Valid request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid request?": {
+      "main": [
+        [
+          {
+            "node": "Write the confirmation email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: rejected request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the confirmation email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the confirmation": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Airtable base set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - Airtable untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable base set?": {
+      "main": [
+        [
+          {
+            "node": "Add the request to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Airtable base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

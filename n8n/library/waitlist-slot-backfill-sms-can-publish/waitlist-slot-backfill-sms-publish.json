@@ -1,0 +1,919 @@
+{
+  "name": "Offer cancelled appointment slots to a waitlist by Twilio SMS",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Offer cancelled appointment slots to a waitlist by Twilio SMS\n\n**Who's it for**\nClinics, salons and trainers who keep a waitlist but fill a late cancellation by ringing round. The gap is offered to three people by text within a minute, and the first to answer gets it.\n\n**How it works**\n1. Your booking tool posts each cancellation to `Receive a cancellation`. A manual run uses a sample cancellation.\n2. The Waitlist and Offers tabs are read. A person is eligible when they are waiting, want this service (or Any), are available on that date and time of day, have a valid mobile number and have not been offered this slot before.\n3. The longest-waiting `OFFER_TO_FIRST_N` people get a text and one row each on the Offers tab.\n4. Twilio posts replies to `Receive an SMS reply`. The first YES inside `OFFER_EXPIRY_MINUTES` wins: they get a confirmation, the other people offered that slot are told it has gone, and a NO is marked declined.\n5. Every decision is written back to the Offers tab by Offer ID, so the sheet shows who was offered what and who won.\n\n**How to set up**\n1. Run it once as imported. It offers a sample slot to sample waitlist entries and stops at `STOP: preview - nothing sent`.\n2. Create Waitlist (Name, Phone, Service, Preferred time, Available from, Available until, Added, Status) and Offers tabs, connect Google Sheets and set `WAITLIST_SHEET_ID`.\n3. Add a Twilio credential, set `TWILIO_FROM`, and set that number's incoming message webhook to the production URL of `Receive an SMS reply`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_PHONE` to your mobile. Set `TEST_RUN = false` to text the waitlist.\n\n**Requirements**\n- A Google Sheet with Waitlist and Offers tabs\n- A Twilio account with an SMS number\n- A booking tool that can call a webhook on cancellation\n\n**How to customize**\n- `OFFER_TO_FIRST_N` sets how many people hear about each slot.\n- `OFFER_EXPIRY_MINUTES` sets how long a YES still counts.\n- `TIME_OF_DAY` sets the hour boundaries for Morning, Afternoon and Evening.",
+        "height": 1072,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "964652b0-5717-4c4e-9a00-964652b013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nTwo webhooks share one workflow: the booking tool calls `Receive a cancellation` and Twilio calls `Receive an SMS reply`. Keeping both together means the offer and the reply rules read the same `config`.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "26352f65-5717-4c4e-9a00-26352f651000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the event\n\n`Read the incoming event` turns either webhook body into one event shape and rejects a body with no slot or no sender. A manual run falls through to `Load sample cancellation`.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "25352dd2-5717-4c4e-9a00-25352dd21001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read waitlist and offers\n\nBoth events need the Offers tab: a cancellation to avoid offering the same slot twice, a reply to find the open offer. The sample rows include an open offer, so the reply path can be tested with no sheet.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "24352c3f-5717-4c4e-9a00-24352c3f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Decide the texts\n\nThe first YES wins because `Settle the reply` checks the Offers tab for a winner before confirming. Late or expired replies get a polite no. Both branches return texts and rows in one shape.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "23352aac-5717-4c4e-9a00-23352aac1003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Text and record\n\nNothing is texted while `TEST_RUN` is true and `TEST_EMAIL` is blank. Test texts go to `TEST_PHONE` and the Offers tab is written only on a live run, so tests never claim a slot.",
+        "height": 704,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        0
+      ],
+      "id": "22352919-5717-4c4e-9a00-223529191004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "49c043e4-2c01-44a4-a8fd-c8fd5c4749c0",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// OFFER CANCELLED APPOINTMENT SLOTS TO A WAITLIST BY TWILIO SMS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// WAITLIST_SHEET_ID blank -> SAMPLE waitlist and offers so both the cancellation and the reply path run before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) texts TEST_PHONE only and writes nothing.\n\n// Google Sheets id with Waitlist and Offers tabs; blank uses sample rows\nconst WAITLIST_SHEET_ID = '';\n// IANA timezone for slot times and time-of-day matching\nconst TIMEZONE = 'America/New_York';\n// shown in every text\nconst BUSINESS_NAME = 'Lumen Physio';\n// your Twilio sending number in E.164\nconst TWILIO_FROM = '';\n// people texted per cancelled slot, longest waiting first\nconst OFFER_TO_FIRST_N = 3;\n// a YES after this long no longer wins the slot\nconst OFFER_EXPIRY_MINUTES = 180;\n// slots starting sooner than this are not offered\nconst MIN_NOTICE_MINUTES = 60;\n// hour ranges [from, to) for preferred times\nconst TIME_OF_DAY = {\n  Morning: [\n    6,\n    12\n  ],\n  Afternoon: [\n    12,\n    17\n  ],\n  Evening: [\n    17,\n    22\n  ]\n};\n// test mode texts this number instead of the waitlist; ships blank\nconst TEST_PHONE = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    waitlist_sheet_id: WAITLIST_SHEET_ID,\n    timezone: TIMEZONE,\n    business_name: BUSINESS_NAME,\n    twilio_from: TWILIO_FROM,\n    offer_to_first_n: OFFER_TO_FIRST_N,\n    offer_expiry_minutes: OFFER_EXPIRY_MINUTES,\n    min_notice_minutes: MIN_NOTICE_MINUTES,\n    time_of_day: TIME_OF_DAY,\n    test_phone: TEST_PHONE,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: WAITLIST_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "9320ee90-6b77-4190-ae1d-ee1d98139320",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "364767f7-0f93-40c7-a739-7739130e3647",
+      "name": "Receive a cancellation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "a1f594da-94fc-44ba-a32d-432dadf9a1f5",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slot-cancelled",
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "1f7872a3-eb7b-4db3-ae3b-6e3bac9a1f78",
+      "name": "Receive an SMS reply",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "9d67fd24-9648-49e4-a1e3-11e3b0079d67",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "waitlist-sms-reply",
+        "options": {}
+      },
+      "position": [
+        48,
+        544
+      ]
+    },
+    {
+      "id": "7c4d15e7-a747-43b7-a688-6688987e7c4d",
+      "name": "Read the incoming event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Which trigger fired decides the event. Twilio sends From/Body; the booking tool\n// sends slot_id/service/starts_at. A manual run has neither.\nlet reply = null, cancel = null;\ntry { reply = $('Receive an SMS reply').first().json.body; } catch (e) { reply = null; }\ntry { cancel = $('Receive a cancellation').first().json.body; } catch (e) { cancel = null; }\nif (reply && reply.From) return [{ json: { type: 'reply', from: String(reply.From), text: String(reply.Body || '').trim(), sid: reply.MessageSid || '' } }];\nif (cancel && cancel.slot_id && cancel.starts_at) return [{ json: { type: 'cancellation', slot: {\n  id: String(cancel.slot_id), service: cancel.service || '', starts_at: cancel.starts_at, provider: cancel.provider || '' } } }];\nreturn [{ json: { type: 'none' } }];\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "e8034912-c6ad-4772-a153-a153cf01e803",
+      "name": "Event received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "befd7cad-6c5b-489d-a0ac-c0ac9f08befd",
+              "leftValue": "={{ $json.type !== 'none' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "1c87c7a7-de1f-4977-a406-8406c8be1c87",
+      "name": "Load sample cancellation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run: a Physio slot tomorrow at 10:30 in TIMEZONE.\nconst cfg = $('config').first().json;\nconst tz = cfg.timezone;\nconst parts = t => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(t)).map(p => [p.type, p.value]));\nconst offset = t => { const p = parts(t); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - t; };\nconst p = parts(Date.now());\nconst wall = Date.UTC(+p.year, +p.month - 1, +p.day + 1, 10, 30);\nconst starts = new Date(wall - offset(wall)).toISOString();\nreturn [{ json: { type: 'cancellation', slot: { id: 'SLOT-2041', service: 'Physio', starts_at: starts, provider: 'Dana' } } }];\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "5a2a9a01-2e75-43b1-ae5b-9e5b2ccc5a2a",
+      "name": "Combine event sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "13455fd5-2a05-4f45-a06e-606ea7c01345",
+      "name": "Waitlist sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e204c868-c65f-47e8-a7c4-77c4735be204",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "31b7c97d-ae29-446d-a440-e44041d831b7",
+      "name": "Read the Waitlist tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.waitlist_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Waitlist"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "f6d8826f-8931-45bf-adaa-fdaa7eb6f6d8",
+      "name": "Read the Offers tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.waitlist_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Offers"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "d5207143-605b-4a53-a23b-d23be9fad520",
+      "name": "Load sample waitlist and offers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until WAITLIST_SHEET_ID is set. Waitlist rows cover each eligibility rule; Offers\n// rows include an open offer for SLOT-OLD-77 so the reply path has something to settle.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\nconst minsAgo = n => new Date(Date.now() - n * 6e4).toISOString();\nconst W = (Name, Phone, Service, pref, added, Status = 'waiting', from = '', until = '') =>\n  ({ Name, Phone, Service, 'Preferred time': pref, 'Available from': from, 'Available until': until, Added: day(-added), Status });\nconst O = (slot, phone, name, status, sent) => ({ 'Offer ID': slot + ':' + phone, 'Slot ID': slot, Phone: phone, Name: name, Service: 'Physio',\n  'Starts at': new Date(Date.now() + 5 * 36e5).toISOString(), Provider: 'Marco', Status: status, 'Sent at': minsAgo(sent), 'Updated at': minsAgo(sent) });\nreturn [\n  W('Rosa Diaz', '(212) 555-0119', 'Physio', 'Morning', 20),\n  W('Ken Ito', '212-555-0165', 'Massage', 'Any', 25),\n  W('Mia Novak', '212-555-0131', 'Physio', 'Evening', 18),\n  W('Joel Grant', '212-555-0177', 'Physio', 'Any', 30),\n  W('Ana Ruiz', '212-555-0188', 'Physio', 'Any', 10, 'waiting', '', day(-1)),\n  W('Lee Chen', '+1 917 555 0123', 'physio', 'Morning', 5),\n  W('Dana Okafor', '646.555.0144', 'Any', 'Any', 2),\n  W('Tom Becker', '212-555-0190', 'Physio', 'Any', 40, 'booked'),\n  W('Sam Patel', '12345', 'Physio', 'Any', 35),\n  O('SLOT-2041', '+12125550177', 'Joel Grant', 'lost', 600),\n  O('SLOT-OLD-77', '+12125550150', 'Priya Natarajan', 'offered', 40),\n  O('SLOT-OLD-77', '+12125550151', 'Marco Lindqvist', 'offered', 40),\n  O('SLOT-OLD-77', '+12125550152', 'Omar Haddad', 'declined', 40),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1648,
+        544
+      ]
+    },
+    {
+      "id": "fc9c87f8-eac6-4a78-abc9-bbc9ff6bfc9c",
+      "name": "Combine waitlist data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 3
+      },
+      "position": [
+        1872,
+        208
+      ]
+    },
+    {
+      "id": "4ab91977-1194-4a47-a237-82373c8e4ab9",
+      "name": "Cancellation or reply?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "349ab3bb-8516-474b-aad8-6ad8c3e2349a",
+                    "leftValue": "={{ $('Combine event sources').first().json.type }}",
+                    "rightValue": "cancellation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancellation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "12e71adc-dabf-4e1c-a4f5-a4f552af12e7",
+                    "leftValue": "={{ $('Combine event sources').first().json.type }}",
+                    "rightValue": "reply",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reply"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "c7f0a0d2-2280-4332-a660-16609041c7f0",
+      "name": "STOP: unknown event",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        544
+      ]
+    },
+    {
+      "id": "5d01a0a9-e55e-45d9-a3f2-03f2c3e45d01",
+      "name": "Pick who gets the offer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Eligible = waiting, right service (or Any), available that date, right time of day,\n// valid mobile, and no Offers row for this slot and number. Longest waiting first.\nconst cfg = $('config').first().json;\n\nconst toE164 = raw => {\n  let s = String(raw || '').trim().replace(/[^\\d+]/g, '');\n  if (s.startsWith('00')) s = '+' + s.slice(2);\n  if (!s.startsWith('+')) s = s.length === 10 ? '+1' + s : s.length === 11 && s.startsWith('1') ? '+' + s : '';\n  return /^\\+[1-9]\\d{9,14}$/.test(s) ? s : '';\n};\nconst when = iso => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: cfg.timezone });\nconst { slot } = $('Combine event sources').first().json;\nconst rows = $input.all().map(i => i.json);\nconst waitlist = rows.filter(r => r.Name && 'Preferred time' in r);\nconst offered = new Set(rows.filter(r => r['Offer ID']).map(r => r['Slot ID'] + ':' + r.Phone));\nconst startMs = new Date(slot.starts_at).getTime();\nconst slotDate = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timezone }).format(new Date(startMs));\nconst hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, hour: '2-digit', hourCycle: 'h23' }).format(new Date(startMs))) % 24;\nconst tod = Object.entries(cfg.time_of_day).find(([, [a, b]]) => hour >= a && hour < b)?.[0] || 'Any';\nconst eligible = [], skipped = [];\nif (startMs - Date.now() < cfg.min_notice_minutes * 6e4) skipped.push({ name: slot.id, reason: 'slot starts too soon to fill' });\nelse for (const w of waitlist) {\n  const phone = toE164(w.Phone);\n  const svc = String(w.Service || '').trim().toLowerCase();\n  const pref = String(w['Preferred time'] || 'Any').trim();\n  const reason =\n    String(w.Status || '').trim().toLowerCase() !== 'waiting' ? 'status ' + String(w.Status).toLowerCase() :\n    svc !== 'any' && svc !== String(slot.service).toLowerCase() ? 'wants ' + w.Service :\n    w['Available from'] && slotDate < String(w['Available from']).slice(0, 10) ? 'not available until ' + w['Available from'] :\n    w['Available until'] && slotDate > String(w['Available until']).slice(0, 10) ? 'only available until ' + w['Available until'] :\n    pref !== 'Any' && pref !== tod ? 'prefers ' + pref + ', slot is ' + tod :\n    !phone ? 'no valid mobile number' :\n    offered.has(slot.id + ':' + phone) ? 'already offered this slot' : '';\n  if (reason) skipped.push({ name: w.Name, reason });\n  else eligible.push({ name: w.Name, phone, added: String(w.Added || '') });\n}\neligible.sort((a, b) => a.added.localeCompare(b.added));\nconst chosen = eligible.slice(0, cfg.offer_to_first_n);\nfor (const e of eligible.slice(cfg.offer_to_first_n)) skipped.push({ name: e.name, reason: 'waitlisted behind the first ' + cfg.offer_to_first_n });\nconst now = new Date().toISOString();\nconst texts = chosen.map(c => ({ phone: c.phone, name: c.name, body: 'Hi ' + c.name.split(' ')[0] + ', a ' + slot.service + ' slot just opened at ' + cfg.business_name + ': ' +\n  when(slot.starts_at) + (slot.provider ? ' with ' + slot.provider : '') + '. Reply YES to take it. First YES gets it. Reply STOP to opt out.' }));\nconst rowsOut = chosen.map(c => ({ 'Offer ID': slot.id + ':' + c.phone, 'Slot ID': slot.id, Phone: c.phone, Name: c.name, Service: slot.service,\n  'Starts at': slot.starts_at, Provider: slot.provider, Status: 'offered', 'Sent at': now, 'Updated at': now }));\nreturn [{ json: { event: 'cancellation', slot_id: slot.id, texts, rows: rowsOut, skipped } }];\n"
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "8c1c6ab2-1651-4712-a419-34193f618c1c",
+      "name": "Settle the reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// First YES inside OFFER_EXPIRY_MINUTES wins; everyone else offered that slot is told.\n// A YES for a slot already won, or an expired offer, gets a polite \"gone\" reply.\nconst cfg = $('config').first().json;\n\nconst toE164 = raw => {\n  let s = String(raw || '').trim().replace(/[^\\d+]/g, '');\n  if (s.startsWith('00')) s = '+' + s.slice(2);\n  if (!s.startsWith('+')) s = s.length === 10 ? '+1' + s : s.length === 11 && s.startsWith('1') ? '+' + s : '';\n  return /^\\+[1-9]\\d{9,14}$/.test(s) ? s : '';\n};\nconst when = iso => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: cfg.timezone });\nconst ev = $('Combine event sources').first().json;\nconst offers = $input.all().map(i => i.json).filter(r => r['Offer ID']);\nconst from = toE164(ev.from);\nconst word = ev.text.toLowerCase();\nconst intent = /^(yes|y|yes please|ok|okay|book|book it)\\b/.test(word) ? 'yes' : /^(stop|unsubscribe)\\b/.test(word) ? 'stop' : /^(no|n|no thanks)\\b/.test(word) ? 'no' : 'unclear';\nconst mine = offers.filter(o => o.Phone === from).sort((a, b) => String(b['Sent at']).localeCompare(String(a['Sent at'])));\nconst open = mine.find(o => o.Status === 'offered');\nconst now = new Date().toISOString();\nconst texts = [], rows = [];\nlet outcome;\nif (!open) {\n  outcome = mine.length ? 'no open offer (' + mine[0].Status + ')' : 'number not on any offer';\n  if (mine.length && intent === 'yes') texts.push({ phone: from, name: mine[0].Name, body: 'Sorry, that slot has already been taken. You are still on the waitlist.' });\n} else if (intent === 'no' || intent === 'stop') {\n  outcome = 'declined';\n  rows.push({ ...open, Status: intent === 'stop' ? 'opted out' : 'declined', 'Updated at': now });\n  if (intent === 'no') texts.push({ phone: from, name: open.Name, body: 'No problem. You stay on the waitlist for the next opening.' });\n} else if (intent !== 'yes') {\n  outcome = 'unclear reply';\n  texts.push({ phone: from, name: open.Name, body: 'Sorry, we did not catch that. Reply YES to take the slot or NO to pass.' });\n} else {\n  const slotRows = offers.filter(o => o['Slot ID'] === open['Slot ID']);\n  const won = slotRows.find(o => o.Status === 'won');\n  const expired = Date.now() - new Date(open['Sent at']).getTime() > cfg.offer_expiry_minutes * 6e4;\n  if (won || expired) {\n    outcome = won ? 'too late, ' + won.Name + ' won' : 'offer expired';\n    rows.push({ ...open, Status: won ? 'lost' : 'expired', 'Updated at': now });\n    texts.push({ phone: from, name: open.Name, body: 'Sorry, that slot has gone. You are still on the waitlist and we will text you about the next one.' });\n  } else {\n    outcome = 'won';\n    rows.push({ ...open, Status: 'won', 'Updated at': now });\n    texts.push({ phone: from, name: open.Name, body: 'You are booked: ' + open.Service + ' at ' + cfg.business_name + ', ' + when(open['Starts at']) + (open.Provider ? ' with ' + open.Provider : '') + '. See you then.' });\n    for (const o of slotRows.filter(o => o.Status === 'offered' && o.Phone !== from)) {\n      rows.push({ ...o, Status: 'lost', 'Updated at': now });\n      texts.push({ phone: o.Phone, name: o.Name, body: 'The ' + o.Service + ' slot on ' + when(o['Starts at']) + ' has been taken. You are still on the waitlist.' });\n    }\n  }\n}\nreturn [{ json: { event: 'reply', from, intent, outcome, slot_id: open ? open['Slot ID'] : '', texts, rows, skipped: [] } }];\n"
+      },
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "89099d89-b18a-4cb9-a42a-e42a3a048909",
+      "name": "Combine planned texts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2560,
+        208
+      ]
+    },
+    {
+      "id": "be24223c-ee0e-477c-ab81-1b810f4fbe24",
+      "name": "Split into texts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per text; test mode sends every one to TEST_PHONE.\nconst cfg = $('config').first().json;\nconst plan = $input.first().json;\nreturn plan.texts.map(t => ({ json: { ...t, send_to: cfg.mode === 'test' ? cfg.test_phone : t.phone } })).filter(t => t.json.send_to);\n"
+      },
+      "position": [
+        2784,
+        208
+      ]
+    },
+    {
+      "id": "fc2726e7-c616-44b7-aa0e-6a0eed7efc27",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3024,
+        208
+      ]
+    },
+    {
+      "id": "ce939750-78c0-4e50-ab86-1b86d253ce93",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3248,
+        384
+      ]
+    },
+    {
+      "id": "c342ba39-bb66-4269-a54b-b54b21f4c342",
+      "name": "Text with Twilio",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "parameters": {
+        "from": "={{ $('config').first().json.twilio_from }}",
+        "to": "={{ $json.send_to }}",
+        "message": "={{ ($('config').first().json.mode === 'test' ? '[TEST for ' + $json.phone + '] ' : '') + $json.body }}",
+        "options": {}
+      },
+      "position": [
+        3248,
+        208
+      ]
+    },
+    {
+      "id": "c2f4074e-d7ee-4aee-a091-50917b0dc2f4",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3456,
+        208
+      ]
+    },
+    {
+      "id": "53cfe320-c0f6-4920-a910-491002e353cf",
+      "name": "STOP: test send - Offers tab untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3680,
+        384
+      ]
+    },
+    {
+      "id": "934cf25c-1085-4d9c-a0e7-10e7062f934c",
+      "name": "Shape the Offers rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The rows decided above, once, after the texts went out.\nreturn $('Combine planned texts').first().json.rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        3680,
+        208
+      ]
+    },
+    {
+      "id": "80c858fc-62b8-423c-ae03-ee03eb8f80c8",
+      "name": "Update the Offers tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.waitlist_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Offers"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Offer ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3904,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive a cancellation": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive an SMS reply": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the incoming event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the incoming event": {
+      "main": [
+        [
+          {
+            "node": "Event received?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Event received?": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample cancellation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample cancellation": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine event sources": {
+      "main": [
+        [
+          {
+            "node": "Waitlist sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Waitlist sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Waitlist tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read the Offers tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample waitlist and offers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Waitlist tab": {
+      "main": [
+        [
+          {
+            "node": "Combine waitlist data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Offers tab": {
+      "main": [
+        [
+          {
+            "node": "Combine waitlist data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Load sample waitlist and offers": {
+      "main": [
+        [
+          {
+            "node": "Combine waitlist data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Combine waitlist data": {
+      "main": [
+        [
+          {
+            "node": "Cancellation or reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancellation or reply?": {
+      "main": [
+        [
+          {
+            "node": "Pick who gets the offer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Settle the reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unknown event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick who gets the offer": {
+      "main": [
+        [
+          {
+            "node": "Combine planned texts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settle the reply": {
+      "main": [
+        [
+          {
+            "node": "Combine planned texts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine planned texts": {
+      "main": [
+        [
+          {
+            "node": "Split into texts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into texts": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Text with Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text with Twilio": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Shape the Offers rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - Offers tab untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the Offers rows": {
+      "main": [
+        [
+          {
+            "node": "Update the Offers tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,565 @@
+{
+  "name": "Send 24-hour and 2-hour appointment reminders from Google Calendar via Twilio SMS",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send 24-hour and 2-hour appointment reminders from Google Calendar via Twilio SMS\n\n**Who's it for**\nClinics, salons, tutors and repair shops that book clients into a Google Calendar and lose hours each week to no-shows. Each client gets a text the day before and again two hours before.\n\n**How it works**\n1. Every 15 minutes it reads appointments starting in the next 26 hours, or 8 sample appointments until Google Calendar is connected.\n2. Cancelled events, all-day events and blocks like Lunch are skipped. The phone number is read from a \"Phone:\" line in the description or from an attendee name, then normalised to E.164.\n3. An appointment 2.5 to 24 hours away is due its 24-hour reminder, one 15 minutes to 2 hours away its 2-hour reminder. Each reminder is sent once; the event id, start time and type are remembered in workflow static data.\n4. Numbers on `OPT_OUT_NUMBERS` and events marked \"no sms\" are skipped. During quiet hours (21:00 to 08:00 by default) reminders wait for the next run.\n\n**How to set up**\n1. Run it once as imported. It previews against sample appointments and stops at `STOP: preview - nothing sent`.\n2. Add a Google Calendar credential to `Fetch upcoming events from Google Calendar`, set `CALENDAR_ID` and set `USE_GOOGLE_CALENDAR = true`.\n3. Add a Twilio credential to `Text the reminder with Twilio` and set `TWILIO_FROM` to your Twilio number.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_PHONE` to your own mobile: every text goes to you. Set `TEST_RUN = false` to text customers.\n\n**Requirements**\n- A Google Calendar with client appointments\n- A Twilio account with an SMS-capable number\n\n**How to customize**\n- `BUSINESS_NAME`, `CONTACT_PHONE` and `TIMEZONE` fill in the text message.\n- `QUIET_START_HOUR` and `QUIET_END_HOUR` set when no texts go out.\n- `DEFAULT_COUNTRY_CODE` decides how local numbers without a + are read.",
+        "height": 1088,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "eed6b32d-5717-4c4e-9a00-eed6b32d13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 15 minutes, often enough that the 2-hour reminder lands between 1h45 and 2h before. Quiet hours, the opt-out list and the message details all live in `config`.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ebe35d70-5717-4c4e-9a00-ebe35d701000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the next 26 hours\n\nOne events.list call with singleEvents expands recurring bookings into real dates. `Load sample appointments` returns the same shape with start times relative to now, so each reminder rule has a case.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "ece35f03-5717-4c4e-9a00-ece35f031001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Decide who gets a text\n\nA number that cannot be read as E.164 is held, never guessed. Opt-outs are checked after normalising, so (212) 555-0177 and +12125550177 count as the same person. Quiet hours hold texts for the next run.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "ede36096-5717-4c4e-9a00-ede360961002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and remember\n\nNothing is texted while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test send goes to `TEST_PHONE` and is not remembered, so the customer still gets the real reminder after going live.",
+        "height": 560,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        0
+      ],
+      "id": "eee36229-5717-4c4e-9a00-eee362291003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "3fd52914-0e17-4ad4-abd4-6bd4f9b73fd5",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND 24-HOUR AND 2-HOUR APPOINTMENT REMINDERS FROM GOOGLE CALENDAR VIA TWILIO SMS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_GOOGLE_CALENDAR false -> SAMPLE appointments so the run works before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) texts TEST_PHONE instead of the customer.\n\n// set true after adding the Google Calendar credential\nconst USE_GOOGLE_CALENDAR = false;\n// calendar id; 'primary' is the connected account's main calendar\nconst CALENDAR_ID = 'primary';\n// IANA timezone for quiet hours and the time shown in the text\nconst TIMEZONE = 'America/New_York';\n// shown in every text\nconst BUSINESS_NAME = 'Lumen Physio';\n// number clients call to reschedule\nconst CONTACT_PHONE = '(212) 555-0100';\n// your Twilio sending number in E.164, e.g. +15555550100\nconst TWILIO_FROM = '';\n// country code added to numbers written without + (1 = US/Canada)\nconst DEFAULT_COUNTRY_CODE = '1';\n// no texts from this hour (24h clock, TIMEZONE)\nconst QUIET_START_HOUR = 21;\n// texts resume at this hour\nconst QUIET_END_HOUR = 8;\n// events whose title contains one of these are not appointments\nconst SKIP_TITLE_WORDS = [\n  \"lunch\",\n  \"block\",\n  \"busy\",\n  \"admin\"\n];\n// E.164 numbers that replied STOP or asked not to be texted\nconst OPT_OUT_NUMBERS = [\n  \"+12125550177\"\n];\n// hard ceiling on texts per run\nconst MAX_SMS_PER_RUN = 30;\n// test mode texts this number instead of the customer; ships blank\nconst TEST_PHONE = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_google_calendar: USE_GOOGLE_CALENDAR,\n    calendar_id: CALENDAR_ID,\n    timezone: TIMEZONE,\n    business_name: BUSINESS_NAME,\n    contact_phone: CONTACT_PHONE,\n    twilio_from: TWILIO_FROM,\n    default_country_code: DEFAULT_COUNTRY_CODE,\n    quiet_start_hour: QUIET_START_HOUR,\n    quiet_end_hour: QUIET_END_HOUR,\n    skip_title_words: SKIP_TITLE_WORDS,\n    opt_out_numbers: OPT_OUT_NUMBERS,\n    max_sms_per_run: MAX_SMS_PER_RUN,\n    test_phone: TEST_PHONE,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "id": "35d3dfc0-ee7f-43c0-a002-0002224335d3",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "id": "3b7845b8-81a4-4c38-acb7-7cb7c3ab3b78",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        400
+      ]
+    },
+    {
+      "id": "612deadb-83cd-446b-a62e-362ed9c2612d",
+      "name": "Google Calendar connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6b9740ec-7bf7-4f2c-abc7-fbc716ff6b97",
+              "leftValue": "={{ $('config').first().json.use_google_calendar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "id": "86b8a908-ae49-4688-a77d-877dc7bb86b8",
+      "name": "Fetch upcoming events from Google Calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($('config').first().json.calendar_id) + '/events' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeMin",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "timeMax",
+              "value": "={{ new Date(Date.now() + 26 * 36e5).toISOString() }}"
+            },
+            {
+              "name": "singleEvents",
+              "value": "true"
+            },
+            {
+              "name": "orderBy",
+              "value": "startTime"
+            },
+            {
+              "name": "maxResults",
+              "value": "250"
+            },
+            {
+              "name": "showDeleted",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        224
+      ]
+    },
+    {
+      "id": "d7f3c69e-b85f-413e-a460-3460e55dd7f3",
+      "name": "Load sample appointments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_GOOGLE_CALENDAR is true. Same shape as the events.list response.\nconst at = h => ({ dateTime: new Date(Date.now() + h * 36e5).toISOString() });\nconst ev = (id, summary, h, description, extra = {}) => ({ id, status: 'confirmed', summary, description, start: at(h), end: at(h + 1), ...extra });\nreturn [{ json: { items: [\n  ev('evt1', 'Physio assessment - Sam Patel', 23.5, 'Client: Sam Patel\\nPhone: (212) 555-0142'),\n  ev('evt2', 'Follow-up - Rosa Diaz', 1.5, 'Returning client', { attendees: [{ email: 'rosa@mail.example', displayName: 'Rosa Diaz 646-555-0119' }] }),\n  ev('evt3', 'Sports massage - Ken Ito', 25, 'Phone: 212 555 0165'),\n  ev('evt4', 'Initial consult - Mia Novak', 23, 'Booked by phone, number not taken'),\n  ev('evt5', 'Physio review - Joel Grant', 20, 'Phone: 212-555-0177'),\n  ev('evt6', 'Rehab session - Ana Ruiz', 22, 'Phone: 212-555-0188', { status: 'cancelled' }),\n  { id: 'evt7', status: 'confirmed', summary: 'Clinic training day', start: { date: new Date().toISOString().slice(0, 10) }, end: { date: new Date().toISOString().slice(0, 10) } },\n  ev('evt8', 'Lunch', 22, ''),\n  ev('evt9', 'Pilates 1:1 - Lee Chen', 1, 'Phone: +1 (917) 555-0123\\nno sms please, prefers email'),\n] } }];\n"
+      },
+      "position": [
+        736,
+        400
+      ]
+    },
+    {
+      "id": "0c6cfd91-135b-4a41-abf9-8bf9c4dc0c6c",
+      "name": "Combine event sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        224
+      ]
+    },
+    {
+      "id": "e6a134de-0724-4b7e-abd3-5bd3d51de6a1",
+      "name": "Pick reminders due now",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Which reminder is due depends only on hours until the start:\n//   24h reminder: 2.5h < start <= 24h      2h reminder: 0.25h < start <= 2h\n// Each (event, start, type) is sent once; keys live in workflow static data.\nconst cfg = $('config').first().json;\nconst sent = $getWorkflowStaticData('global').sms_sent || {};\nconst now = Date.now();\nconst tz = cfg.timezone;\nconst hourNow = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date(now))) % 24;\nconst quiet = cfg.quiet_start_hour > cfg.quiet_end_hour\n  ? hourNow >= cfg.quiet_start_hour || hourNow < cfg.quiet_end_hour\n  : hourNow >= cfg.quiet_start_hour && hourNow < cfg.quiet_end_hour;\nconst ymd = t => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(t));\nconst toE164 = raw => {\n  if (!raw) return '';\n  let s = String(raw).trim().replace(/[^\\d+]/g, '');\n  if (s.startsWith('00')) s = '+' + s.slice(2);\n  if (!s.startsWith('+')) {\n    // North American numbers are 10 digits (or 11 with the leading 1); elsewhere a\n    // single trunk 0 is dropped before the country code is added.\n    const cc = String(cfg.default_country_code);\n    if (cc === '1') s = s.length === 10 ? '+1' + s : s.length === 11 && s.startsWith('1') ? '+' + s : '';\n    else s = '+' + cc + s.replace(/^0/, '');\n  }\n  return /^\\+[1-9]\\d{7,14}$/.test(s) && !(s.startsWith('+1') && s.length !== 12) ? s : '';\n};\nconst findPhone = e => {\n  const m = (e.description || '').match(/(?:phone|tel|mobile|cell)\\s*[:#]?\\s*([+()\\d][\\d ()+.-]{6,}\\d)/i);\n  if (m) return m[1];\n  for (const a of e.attendees || []) { const d = (a.displayName || '').match(/([+(]?\\d[\\d ()+.-]{6,}\\d)/); if (d) return d[1]; }\n  return '';\n};\nconst due = [], held = [];\nlet looked = 0;\nfor (const { json } of $input.all()) for (const e of json.items || []) {\n  looked++;\n  const title = e.summary || '';\n  if (e.status === 'cancelled') continue;\n  if (!e.start?.dateTime) continue;\n  if (cfg.skip_title_words.some(w => title.toLowerCase().includes(w))) continue;\n  const start = new Date(e.start.dateTime).getTime();\n  const hours = (start - now) / 36e5;\n  const type = hours > 2.5 && hours <= 24 ? '24h' : hours > 0.25 && hours <= 2 ? '2h' : '';\n  if (!type) { held.push({ event: title, reason: 'no reminder due yet (' + hours.toFixed(1) + 'h away)' }); continue; }\n  const key = e.id + '|' + e.start.dateTime + '|' + type;\n  if (sent[key]) continue;\n  const phone = toE164(findPhone(e));\n  const client = (title.split(' - ')[1] || '').trim();\n  const reason = !phone ? 'no valid phone number' :\n    /no sms|no text/i.test(e.description || '') ? 'marked no sms' :\n    cfg.opt_out_numbers.includes(phone) ? 'on OPT_OUT_NUMBERS' :\n    quiet ? 'quiet hours, next run after ' + cfg.quiet_end_hour + ':00' : '';\n  if (reason) { held.push({ event: title, reason }); continue; }\n  const when = ymd(start) === ymd(now) ? 'today' : 'tomorrow';\n  const time = new Date(start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });\n  const service = title.split(' - ')[0];\n  const text = 'Hi ' + (client.split(' ')[0] || 'there') + ', a reminder of your ' + service + ' at ' + cfg.business_name + ' ' + when + ' at ' + time +\n    '. To reschedule call ' + cfg.contact_phone + '. Reply STOP to opt out.';\n  due.push({ key, event_id: e.id, client, phone, type, hours: Number(hours.toFixed(2)), text, segments: Math.ceil(text.length / 153) || 1,\n    send_to: cfg.mode === 'test' ? cfg.test_phone : phone });\n}\ndue.sort((a, b) => a.hours - b.hours);\nconst ready = due.filter(d => d.send_to);\nfor (const d of due.filter(d => !d.send_to)) held.push({ event: d.client, reason: 'test mode needs TEST_PHONE' });\nfor (const d of ready.slice(cfg.max_sms_per_run)) held.push({ event: d.client, reason: 'over MAX_SMS_PER_RUN, next run' });\nreturn [{ json: { reminders: ready.slice(0, cfg.max_sms_per_run), held, quiet, looked } }];\n"
+      },
+      "position": [
+        1200,
+        224
+      ]
+    },
+    {
+      "id": "b56c3325-66ee-4995-a7c2-77c29bd0b56c",
+      "name": "Split into text messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per text so each Twilio call and its sent marker line up by index.\nreturn $input.first().json.reminders.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "id": "78eb7c0c-f706-404c-a9ea-b9ea91df78eb",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Execution log line: what was texted and what was held back.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst text = [\n  'Appointment reminders (' + cfg.mode + '): ' + r.looked + ' events read, ' + r.reminders.length + ' text(s)' + (r.quiet ? ', quiet hours' : '') + '.',\n  ...r.reminders.map(x => '- ' + x.type + ' to ' + x.client + ' (' + x.hours + 'h before)'),\n  ...r.held.map(h => '- held ' + h.event + ': ' + h.reason),\n].join('\\n');\nreturn [{ json: { text, sent: r.reminders.length, held: r.held.length } }];\n"
+      },
+      "position": [
+        1424,
+        400
+      ]
+    },
+    {
+      "id": "543ceff7-0b9e-48c7-a5dc-b5dcdb0e543c",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1664,
+        224
+      ]
+    },
+    {
+      "id": "ca21c520-d165-4b20-a631-963150e3ca21",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1888,
+        400
+      ]
+    },
+    {
+      "id": "2fd76264-bce8-4b24-a7c6-f7c6cec72fd7",
+      "name": "Text the reminder with Twilio",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "parameters": {
+        "from": "={{ $('config').first().json.twilio_from }}",
+        "to": "={{ $json.send_to }}",
+        "message": "={{ ($('config').first().json.mode === 'test' ? '[TEST for ' + $json.phone + '] ' : '') + $json.text }}",
+        "options": {}
+      },
+      "position": [
+        1888,
+        224
+      ]
+    },
+    {
+      "id": "73a6e35e-b50c-41fe-aa3c-2a3c9b9d73a6",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        224
+      ]
+    },
+    {
+      "id": "0d732762-ac49-4cc2-a8b6-18b6e9110d73",
+      "name": "STOP: test send - nothing remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        400
+      ]
+    },
+    {
+      "id": "031921ae-a5ad-474e-aeb7-feb76ead0319",
+      "name": "Remember sent reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Store the key of every text Twilio accepted, so the next run never repeats it.\n// Keys older than 3 days are pruned.\nconst memory = $getWorkflowStaticData('global');\nconst sent = memory.sms_sent || {};\nfor (const k of Object.keys(sent)) if (sent[k] < Date.now() - 3 * 864e5) delete sent[k];\nconst msgs = $('Split into text messages').all();\n$input.all().forEach((res, i) => { if (res.json.sid && msgs[i]) sent[msgs[i].json.key] = Date.now(); });\nmemory.sms_sent = sent;\nreturn [{ json: { remembered: Object.keys(sent).length } }];\n"
+      },
+      "position": [
+        2336,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch upcoming events from Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch upcoming events from Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample appointments": {
+      "main": [
+        [
+          {
+            "node": "Combine event sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine event sources": {
+      "main": [
+        [
+          {
+            "node": "Pick reminders due now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick reminders due now": {
+      "main": [
+        [
+          {
+            "node": "Split into text messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into text messages": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Text the reminder with Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text the reminder with Twilio": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember sent reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - nothing remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

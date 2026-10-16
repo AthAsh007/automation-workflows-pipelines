@@ -1,0 +1,27 @@
+{
+  "title": "Load help pages into a Pinecone knowledge base with OpenAI embeddings",
+  "stickies": [
+    {
+      "color": 4,
+      "band": "top",
+      "from": "Run it now",
+      "to": "document list configured?",
+      "width": 760,
+      "content": "## Load help pages into a Pinecone knowledge base with OpenAI embeddings\n\n**Who's it for**\nTeams running a retrieval-based support or chat workflow who need their help pages in Pinecone, reloadable whenever the content changes.\n\n**How it works**\nEach public URL in `DOC_URLS` is fetched on its own and stripped to plain text; a page that fails or comes back empty is listed as skipped. The text is split into overlapping chunks with stable ids, so reloading a page overwrites its chunks rather than duplicating them. Chunks are embedded with OpenAI in batches of 96 and upserted to Pinecone with the text, title and source as metadata. A batch that fails is reported and the rest still load.\n\n**How to set up**\n1. Run **Run it now** first: the sample articles are chunked and shown, nothing is embedded.\n2. Create a Pinecone index with 1536 dimensions and cosine metric, and put its host in `PINECONE_INDEX_HOST`.\n3. List your pages in `DOC_URLS`, attach OpenAI and a Pinecone Header Auth credential (`Api-Key`), set `USE_OPENAI = true`.\n4. Set `TEST_EMAIL` or `TEST_RUN = false`: loading is skipped in preview.\n\n**Requirements**\nAn OpenAI API key, a Pinecone index, and help pages reachable at public URLs.\n\n**How to customize**\n`CHUNK_WORDS` and `CHUNK_OVERLAP` set the chunk size, `OPENAI_EMBED_MODEL` and `EMBED_DIMENSIONS` the embedding, and `PINECONE_NAMESPACE` where the vectors go."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "config",
+      "to": "chunk the documents",
+      "content": "### 1. Read the pages and chunk them\n\n`Fetch the document` runs once per URL with retries, so one broken page does not stop the rest; `read the document text` lists it as skipped with the reason.\n\n`chunk the documents` splits the text into overlapping windows of `CHUNK_WORDS`, each with a stable `<doc>#<n>` id."
+    },
+    {
+      "color": 7,
+      "band": "below",
+      "from": "loading on?",
+      "to": "STOP: Pinecone refused the upsert",
+      "content": "### 2. Embed and upsert\n\n`loading on?` keeps preview runs read-only and shows every chunk on `STOP: preview - vectors not upserted`.\n\n`[cred] OpenAI - embed the chunks` embeds each batch of 96, and `[cred] Pinecone - upsert the vectors` writes them with the text as metadata. A batch that fails lands on a named STOP with the API's error, and `STOP: knowledge base loaded` reports Pinecone's own count."
+    }
+  ]
+}

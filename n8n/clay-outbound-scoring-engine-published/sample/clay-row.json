@@ -1,0 +1,17 @@
+{
+  "Clay Row ID": "r-101",
+  "First Name": "Dana",
+  "Last Name": "Reyes",
+  "Job Title": "VP of Sales",
+  "Work Email": "dana.reyes@ledgerly.example",
+  "Company Name": "Ledgerly",
+  "Company Domain": "ledgerly.example",
+  "Employee Count": 320,
+  "Industry": "Fintech software",
+  "Country": "United States",
+  "Technologies": [
+    "HubSpot",
+    "Stripe"
+  ],
+  "LinkedIn URL": "https://www.linkedin.com/in/example-dana-reyes"
+}

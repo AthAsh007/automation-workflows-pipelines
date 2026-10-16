@@ -1,0 +1,954 @@
+{
+  "name": "Triage new Zendesk tickets by urgency with OpenAI and alert Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Triage new Zendesk tickets by urgency with OpenAI and alert Slack\n\n**Who's it for**\nSupport leads on Zendesk whose queue is sorted by arrival time, so an outage report from a key account can sit behind twenty password resets. It checks the new queue every 15 minutes.\n\n**How it works**\n1. Every 15 minutes it searches Zendesk for new tickets from the last 30 minutes that are not yet tagged `auto_triaged`, or uses 6 sample tickets until Zendesk is connected.\n2. Each ticket gets points for outage words (40), urgency words (25), billing words (20), a VIP organisation or domain (30) and a requester with several new tickets (10).\n3. With `USE_OPENAI` on, a model also rates each ticket and the higher of the two levels wins. A ticket is never lowered below the priority it already has.\n4. A live run sets priority and tags on the ticket with an internal note listing the reasons, and pages Slack for tickets that just became urgent.\n\n**How to set up**\n1. Run it once as imported. It scores the sample tickets and stops at `STOP: dry run - tickets untouched`.\n2. Add a Zendesk credential to `Search new Zendesk tickets` and `Set priority and tags in Zendesk`, fill in `ZENDESK_SUBDOMAIN` and set `USE_ZENDESK = true`.\n3. Put your key accounts in `VIP_ORGS` and `VIP_DOMAINS`, and a channel id in `SLACK_CHANNEL_ID`.\n4. Optionally add an OpenAI credential and set `USE_OPENAI = true`. Set `DRY_RUN = false` once the levels look right.\n\n**Requirements**\n- A Zendesk Support account with API access\n- A Slack workspace\n- Optional: an OpenAI API key\n\n**How to customize**\n- `OUTAGE_WORDS`, `URGENT_WORDS` and `MONEY_WORDS` hold the phrases; `POINTS` sets what each is worth.\n- `LEVEL_THRESHOLDS` decides how many points make a ticket urgent, high or normal.\n- `PAGE_LEVELS` lists the levels that page Slack.",
+        "height": 1040,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "79fdb18a-5717-4c4e-9a00-79fdb18a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 15 minutes or by hand. Word lists, points, thresholds and VIP accounts all live in `config`, so tuning the triage never means editing a Code node.",
+        "height": 1040,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c97d01ef-5717-4c4e-9a00-c97d01ef1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the new queue\n\nThe search excludes tickets already tagged `auto_triaged`, so the overlapping 30 minute window never handles a ticket twice. `Load sample tickets` feeds the same shape until `USE_ZENDESK` is true.",
+        "height": 1040,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "c87d005c-5717-4c4e-9a00-c87d005c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score by rules, then the model\n\nRules run on every ticket first and the model is optional. `Blend model and rule levels` takes the higher of the two, so turning OpenAI on can only add catches, never drop an outage the rules found.",
+        "height": 1040,
+        "width": 1232,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "cb7d0515-5717-4c4e-9a00-cb7d05151002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Raise priority and page on-call\n\nThe current priority is a floor, so an agent who set urgent by hand is never overruled and that ticket does not page. Priority is only sent when it rises, tags are added, not replaced, and nothing is written or posted until `DRY_RUN` is false.",
+        "height": 1040,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2656,
+        0
+      ],
+      "id": "ca7d0382-5717-4c4e-9a00-ca7d03821003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "028d7337-5212-4807-aa55-5a5534ce028d",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TRIAGE NEW ZENDESK TICKETS BY URGENCY WITH OPENAI AND ALERT SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_ZENDESK false -> SAMPLE tickets. USE_OPENAI false -> rules only.\n// SLACK_CHANNEL_ID blank -> nobody is paged. DRY_RUN true -> Zendesk is not changed.\n\n// set true after adding the Zendesk credential to both Zendesk nodes\nconst USE_ZENDESK = false;\n// the part before .zendesk.com\nconst ZENDESK_SUBDOMAIN = 'yourcompany';\n// new tickets created in this window are read; overlap with the 15 minute schedule is intended\nconst LOOKBACK_MINUTES = 30;\n// set true after adding an OpenAI credential to the model under Rate urgency with OpenAI\nconst USE_OPENAI = false;\n// Zendesk organisation names that count as key accounts\nconst VIP_ORGS = [\n  \"Brightlane Logistics\",\n  \"Northwind Health\"\n];\n// requester email domains that count as key accounts\nconst VIP_DOMAINS = [\n  \"brightlane.example\",\n  \"northwind-health.example\"\n];\n// phrases that suggest something is broken\nconst OUTAGE_WORDS = [\n  \"down\",\n  \"outage\",\n  \"cannot log in\",\n  \"unable to log in\",\n  \"500 error\",\n  \"not working\",\n  \"stopped working\",\n  \"data loss\"\n];\n// phrases that ask for speed\nconst URGENT_WORDS = [\n  \"urgent\",\n  \"asap\",\n  \"immediately\",\n  \"emergency\",\n  \"critical\"\n];\n// billing problems\nconst MONEY_WORDS = [\n  \"charged twice\",\n  \"refund\",\n  \"double charge\",\n  \"overcharged\",\n  \"wrong invoice\"\n];\n// points per rule that fires\nconst POINTS = {\n  outage: 40,\n  urgent: 25,\n  money: 20,\n  vip: 30,\n  repeat: 10\n};\n// minimum points for each level; below normal is low\nconst LEVEL_THRESHOLDS = {\n  urgent: 60,\n  high: 35,\n  normal: 15\n};\n// levels that page Slack when this run raised a ticket to them\nconst PAGE_LEVELS = [\n  \"urgent\"\n];\n// on-call channel; blank pages nobody\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_zendesk: USE_ZENDESK,\n    zendesk_subdomain: ZENDESK_SUBDOMAIN,\n    lookback_minutes: LOOKBACK_MINUTES,\n    use_openai: USE_OPENAI,\n    vip_orgs: VIP_ORGS,\n    vip_domains: VIP_DOMAINS,\n    outage_words: OUTAGE_WORDS,\n    urgent_words: URGENT_WORDS,\n    money_words: MONEY_WORDS,\n    points: POINTS,\n    level_thresholds: LEVEL_THRESHOLDS,\n    page_levels: PAGE_LEVELS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "6ffc1667-f603-4c37-a9d9-99d958fe6ffc",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "82add82f-f979-4f7f-a05f-605f7af682ad",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "2e5380c9-38ca-4bf9-ac0b-bc0b6ac42e53",
+      "name": "Zendesk connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1086fecb-4361-4d5b-a022-f02209321086",
+              "leftValue": "={{ $('config').first().json.use_zendesk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "b6ccae3a-5c53-401a-a388-03886899b6cc",
+      "name": "Search new Zendesk tickets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.zendesk_subdomain + '.zendesk.com/api/v2/search.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ 'type:ticket status:new -tags:auto_triaged created>' + new Date(Date.now() - $('config').first().json.lookback_minutes * 60000).toISOString().slice(0, 19) + 'Z' }}"
+            },
+            {
+              "name": "sort_by",
+              "value": "created_at"
+            },
+            {
+              "name": "sort_order",
+              "value": "asc"
+            },
+            {
+              "name": "include",
+              "value": "tickets(users,organizations)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "3c812cb0-1d3f-45b0-ac07-0c0730f33c81",
+      "name": "Read Zendesk tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search response -> one item per ticket. Requester email and organisation name\n// come from the sideloaded users and organizations arrays.\nconst out = [];\nfor (const page of $input.all()) {\n  const users = Object.fromEntries((page.json.users || []).map(u => [u.id, u]));\n  const orgs = Object.fromEntries((page.json.organizations || []).map(o => [o.id, o]));\n  for (const t of page.json.results || []) {\n    if (t.result_type && t.result_type !== 'ticket') continue;\n    out.push({ json: {\n      id: t.id, subject: t.subject || '', body: t.description || '', priority: t.priority || null,\n      tags: t.tags || [], requester_email: users[t.requester_id]?.email || '', requester_name: users[t.requester_id]?.name || '',\n      org_name: orgs[t.organization_id]?.name || '', created_at: t.created_at, channel: t.via?.channel || '',\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "0e4a80f8-ddc0-4378-af74-4f74ec6b0e4a",
+      "name": "Load sample tickets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_ZENDESK is true. Six new tickets that hit every rule at least once.\nconst ago = m => new Date(Date.now() - m * 60000).toISOString();\nreturn [\n  { id: 9101, subject: 'Dashboard down for our whole team', body: \"Since 9am none of our 40 users can log in, everyone gets a 500 error. This is urgent.\", priority: null, tags: [], requester_email: 'ops@brightlane.example', requester_name: 'Dana Pruitt', org_name: 'Brightlane Logistics', created_at: ago(12), channel: 'email' },\n  { id: 9102, subject: 'Charged twice for October', body: 'My card was charged twice this month. Please refund the duplicate payment.', priority: 'normal', tags: [], requester_email: 'sam@fernhill.example', requester_name: 'Sam Okafor', org_name: '', created_at: ago(20), channel: 'web' },\n  { id: 9103, subject: 'How do I export invoices to CSV?', body: 'Looking for the export button for last quarter. Thanks!', priority: null, tags: [], requester_email: 'lee@maplecourt.example', requester_name: 'Lee Varga', org_name: '', created_at: ago(25), channel: 'web' },\n  { id: 9104, subject: 'Need admin access asap', body: 'Our admin left and I need owner rights asap, board meeting at 2pm. Urgent please.', priority: 'low', tags: [], requester_email: 'cfo@northwind-health.example', requester_name: 'Ravi Menon', org_name: '', created_at: ago(8), channel: 'email' },\n  { id: 9105, subject: 'Sync not working', body: 'Calendar sync has stopped working since the update yesterday.', priority: null, tags: [], requester_email: 'jo@quarrystone.example', requester_name: 'Jo Harlow', org_name: 'Quarrystone', created_at: ago(28), channel: 'email' },\n  { id: 9106, subject: 'Following up: sync still not working', body: 'Any news? Still not working for the team.', priority: 'urgent', tags: ['vip_followup'], requester_email: 'jo@quarrystone.example', requester_name: 'Jo Harlow', org_name: 'Quarrystone', created_at: ago(5), channel: 'email' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "75313c00-3066-4c00-a61f-d61fd9037531",
+      "name": "Combine ticket sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "8a5fed52-9c1c-47b2-ac75-ac75d8c18a5f",
+      "name": "Score tickets by rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Plain rules first, so triage works with no model and every level can be explained.\n// Each rule that fires adds its POINTS and a reason; LEVEL_THRESHOLDS turns points into a level.\nconst cfg = $('config').first().json;\nconst tickets = $input.all().map(i => i.json);\nconst lc = s => String(s || '').toLowerCase();\nconst hits = (text, words) => words.filter(w => text.includes(w.toLowerCase()));\nconst perRequester = {};\nfor (const t of tickets) perRequester[lc(t.requester_email)] = (perRequester[lc(t.requester_email)] || 0) + 1;\nconst vipOrgs = cfg.vip_orgs.map(lc), vipDomains = cfg.vip_domains.map(lc);\nconst P = cfg.points, th = cfg.level_thresholds;\nreturn tickets.map(t => {\n  const text = lc(t.subject + ' ' + t.body);\n  const domain = lc(t.requester_email).split('@')[1] || '';\n  const reasons = []; let score = 0;\n  const o = hits(text, cfg.outage_words); if (o.length) { score += P.outage; reasons.push('outage: ' + o.join(', ')); }\n  const u = hits(text, cfg.urgent_words); if (u.length) { score += P.urgent; reasons.push('urgency: ' + u.join(', ')); }\n  const m = hits(text, cfg.money_words); if (m.length) { score += P.money; reasons.push('billing: ' + m.join(', ')); }\n  if (vipOrgs.includes(lc(t.org_name)) || vipDomains.includes(domain)) { score += P.vip; reasons.push('key account: ' + (t.org_name || domain)); }\n  if (t.requester_email && perRequester[lc(t.requester_email)] > 1) { score += P.repeat; reasons.push(perRequester[lc(t.requester_email)] + ' new tickets from this requester'); }\n  const level = score >= th.urgent ? 'urgent' : score >= th.high ? 'high' : score >= th.normal ? 'normal' : 'low';\n  return { json: { ...t, rule_score: score, rule_level: level, rule_reasons: reasons } };\n});\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "71ba4866-2fee-4486-ab13-8b13c53571ba",
+      "name": "OpenAI switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6becb5f2-f3a7-4e52-ac36-3c366c216bec",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "f925635a-d325-4b3a-a035-f0359479f925",
+      "name": "Rate urgency with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ticket subject: {{ $json.subject }}\nTicket body: {{ $json.body }}\nOrganisation: {{ $json.org_name || \"none\" }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You triage customer support tickets for a software company. Rate how urgent this ticket is: urgent (service down, data loss, many users blocked, a deadline today), high (one user blocked, billing error), normal (a problem with a workaround) or low (a question or request). Give a reason under 15 words. Do not invent facts."
+        }
+      },
+      "position": [
+        1872,
+        208
+      ]
+    },
+    {
+      "id": "7c70d4bb-7cbc-484b-a766-076688e27c70",
+      "name": "Rate urgency with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        368
+      ]
+    },
+    {
+      "id": "f3bd2092-0586-46f2-a371-53718281f3bd",
+      "name": "Rate urgency with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"level\": \"high\",\n  \"reason\": \"Single admin locked out before a meeting today\"\n}"
+      },
+      "position": [
+        2000,
+        368
+      ]
+    },
+    {
+      "id": "d6833f39-1cdf-4769-ad4a-7d4a46f4d683",
+      "name": "Keep rule levels",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// USE_OPENAI is off: the rule level is the final level.\nreturn $input.all().map(it => ({ json: { ...it.json, ai_level: null, ai_reason: '', level: it.json.rule_level, reasons: it.json.rule_reasons } }));\n"
+      },
+      "position": [
+        1872,
+        528
+      ]
+    },
+    {
+      "id": "96afe6ed-36af-4edd-a3a1-f3a162c896af",
+      "name": "Combine scored tickets",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2240,
+        208
+      ]
+    },
+    {
+      "id": "50892969-36f7-4299-a72c-372cfe245089",
+      "name": "Blend model and rule levels",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Model items carry only { output }, so they are paired back to the scored ticket by\n// position. The higher of the rule level and the model level wins: the model can\n// raise a ticket the rules missed but can never lower one the rules caught.\nconst rank = { low: 0, normal: 1, high: 2, urgent: 3 };\nconst scored = $('Score tickets by rules').all();\nreturn $input.all().map((it, i) => {\n  if (!('output' in it.json)) return it;\n  const t = scored[i].json;\n  const ai = it.json.output || {};\n  const aiLevel = rank[ai.level] !== undefined ? ai.level : null;\n  const useAi = aiLevel && rank[aiLevel] > rank[t.rule_level];\n  return { json: { ...t, ai_level: aiLevel, ai_reason: ai.reason || '',\n    level: useAi ? aiLevel : t.rule_level,\n    reasons: useAi ? [...t.rule_reasons, 'model: ' + (ai.reason || aiLevel)] : t.rule_reasons } };\n});\n"
+      },
+      "position": [
+        2464,
+        208
+      ]
+    },
+    {
+      "id": "51099546-d538-4b66-a18d-f18d0b555109",
+      "name": "Decide priority changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A ticket is never lowered: Zendesk's current priority is the floor. Every ticket is\n// tagged auto_triaged so the next run's search skips it. Pages go out only for tickets\n// this run raised into PAGE_LEVELS; one that was already urgent is someone's already.\nconst cfg = $('config').first().json;\nconst rank = { low: 0, normal: 1, high: 2, urgent: 3 };\nconst updates = [], pages = [], held = [];\nfor (const { json: t } of $input.all()) {\n  const current = t.priority && rank[t.priority] !== undefined ? t.priority : null;\n  const finalLevel = current && rank[current] > rank[t.level] ? current : t.level;\n  const raise = !current || rank[finalLevel] > rank[current];\n  const note = 'Auto-triage: ' + finalLevel + ' (' + t.rule_score + ' rule points). ' + (t.reasons.length ? 'Reasons: ' + t.reasons.join('; ') + '.' : 'No rule fired.');\n  updates.push({ id: t.id, subject: t.subject, from: current, to: finalLevel, raise, tags: ['auto_triaged', 'triage_' + finalLevel], note });\n  if (cfg.page_levels.includes(finalLevel)) {\n    if (raise) pages.push({ id: t.id, subject: t.subject, level: finalLevel, requester: t.requester_name || t.requester_email, org: t.org_name, reasons: t.reasons });\n    else held.push({ id: t.id, reason: 'already ' + current + ' in Zendesk, not paged' });\n  }\n}\nreturn [{ json: { updates, pages, held, checked: updates.length, raised: updates.filter(u => u.raise).length } }];\n"
+      },
+      "position": [
+        2704,
+        208
+      ]
+    },
+    {
+      "id": "1f1ab1fc-e4b9-4b3c-a840-4840cc8f1f1a",
+      "name": "Prepare each ticket update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per ticket, carrying the exact body the Zendesk update endpoint takes.\n// Priority is only sent when it goes up; tags are always added, never replaced.\nreturn $input.first().json.updates.map(u => ({ json: { ...u, body: { ticket: {\n  ...(u.raise ? { priority: u.to } : {}),\n  additional_tags: u.tags,\n  comment: { body: u.note, public: false },\n} } } }));\n"
+      },
+      "position": [
+        2928,
+        208
+      ]
+    },
+    {
+      "id": "f50c44f7-7d25-4dc7-a2a2-62a2bc0ef50c",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3152,
+        208
+      ]
+    },
+    {
+      "id": "51e98a84-3f4d-4944-af41-ff41c6a751e9",
+      "name": "STOP: dry run - tickets untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3360,
+        384
+      ]
+    },
+    {
+      "id": "9f857598-7383-4618-a67d-667d8ccb9f85",
+      "name": "Set priority and tags in Zendesk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://' + $('config').first().json.zendesk_subdomain + '.zendesk.com/api/v2/tickets/' + $json.id + '.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zendeskApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3360,
+        208
+      ]
+    },
+    {
+      "id": "3804c826-7212-4846-ad96-fd96b7753804",
+      "name": "Write the Slack page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message for every ticket this run raised into PAGE_LEVELS, newest problem first.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst link = id => 'https://' + cfg.zendesk_subdomain + '.zendesk.com/agent/tickets/' + id;\nconst lines = d.pages.map(p => '- <' + link(p.id) + '|#' + p.id + '> *' + p.subject + '* (' + p.requester + (p['org'] ? ', ' + p['org'] : '') + ')\\n   ' + p.reasons.join('; '));\nconst text = [\n  ':rotating_light: *' + d.pages.length + ' ticket' + (d.pages.length === 1 ? '' : 's') + ' raised to ' + cfg.page_levels.join('/') + '*' + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  ...lines,\n  '', d.checked + ' new tickets triaged, ' + d.raised + ' priorities raised.',\n].join('\\n');\nreturn [{ json: { text, pages: d.pages.length } }];\n"
+      },
+      "position": [
+        2928,
+        384
+      ]
+    },
+    {
+      "id": "10c824f8-3522-4778-af54-0f54686b10c8",
+      "name": "Anyone to page?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "944c9fc8-8478-4148-a9e1-c9e1d3fb944c",
+              "leftValue": "={{ $json.pages > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3152,
+        384
+      ]
+    },
+    {
+      "id": "9509b6dd-52a0-43cd-ab4a-fb4ae8789509",
+      "name": "STOP: nothing urgent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3360,
+        544
+      ]
+    },
+    {
+      "id": "f0d25ff1-4b94-4ea1-a85d-085de77cf0d2",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3360,
+        720
+      ]
+    },
+    {
+      "id": "f8c0fe9f-0bf2-42ef-a4e4-94e41f26f8c0",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3584,
+        896
+      ]
+    },
+    {
+      "id": "b28055f3-8490-4803-a2d6-92d66deab280",
+      "name": "Live page?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a0a7dfa9-c817-44d9-abde-fbdeaee4a0a7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3584,
+        720
+      ]
+    },
+    {
+      "id": "775f689c-62ed-4fdc-a641-864146ef775f",
+      "name": "STOP: dry run - nobody paged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3808,
+        896
+      ]
+    },
+    {
+      "id": "629693e6-106d-4806-abee-6bee48b56296",
+      "name": "Page the on-call channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3808,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Zendesk connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zendesk connected?": {
+      "main": [
+        [
+          {
+            "node": "Search new Zendesk tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search new Zendesk tickets": {
+      "main": [
+        [
+          {
+            "node": "Read Zendesk tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Zendesk tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample tickets": {
+      "main": [
+        [
+          {
+            "node": "Combine ticket sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine ticket sources": {
+      "main": [
+        [
+          {
+            "node": "Score tickets by rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score tickets by rules": {
+      "main": [
+        [
+          {
+            "node": "OpenAI switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI switched on?": {
+      "main": [
+        [
+          {
+            "node": "Rate urgency with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Keep rule levels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate urgency with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rate urgency with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate urgency with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Rate urgency with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate urgency with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Combine scored tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep rule levels": {
+      "main": [
+        [
+          {
+            "node": "Combine scored tickets",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine scored tickets": {
+      "main": [
+        [
+          {
+            "node": "Blend model and rule levels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blend model and rule levels": {
+      "main": [
+        [
+          {
+            "node": "Decide priority changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide priority changes": {
+      "main": [
+        [
+          {
+            "node": "Prepare each ticket update",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the Slack page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare each ticket update": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Set priority and tags in Zendesk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - tickets untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack page": {
+      "main": [
+        [
+          {
+            "node": "Anyone to page?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anyone to page?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing urgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Live page?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live page?": {
+      "main": [
+        [
+          {
+            "node": "Page the on-call channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nobody paged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

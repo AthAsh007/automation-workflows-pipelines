@@ -1,5 +1,7 @@
 # Contributing
 
+Everyone taking part here follows the [code of conduct](CODE_OF_CONDUCT.md).
+
 ## What belongs here
 
 A template earns a place if it runs end to end with no credentials configured and

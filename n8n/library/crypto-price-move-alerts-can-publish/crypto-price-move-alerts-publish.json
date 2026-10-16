@@ -1,0 +1,577 @@
+{
+  "name": "Alert Telegram on large crypto price moves from CoinGecko",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Alert Telegram on large crypto price moves from CoinGecko\n\n**Who's it for**\nTraders, treasury leads at crypto-paid businesses and hobby investors who want a ping when a coin they hold moves sharply, without watching charts or paying for an alert service.\n\n**How it works**\n1. Every 15 minutes it calls CoinGecko simple/price for the coins in `COINS`, with the 24-hour change. No API key is needed. Until `USE_COINGECKO` is true, a sample response is used.\n2. Each coin has its own threshold, because 5% is a big day for Bitcoin and a quiet one for a small coin.\n3. A coin past its threshold is alerted once, then held for `COOLDOWN_HOURS`. If the move grows by another `ESCALATE_PCT` points during the cooldown (from -6% to -10%, say), it alerts again.\n4. All alerts in one run go out as one Telegram message, biggest move first, with an up or down arrow, the price and the 24-hour change.\n\n**How to set up**\n1. Run it once as imported. It checks a sample response and stops at `STOP: preview - nothing sent`.\n2. Edit `COINS` with CoinGecko coin ids (the id in the coin page URL) and a threshold for each, then set `USE_COINGECKO = true`.\n3. Create a Telegram bot, add it to your chat, connect it and set `TELEGRAM_CHAT_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_TELEGRAM_CHAT_ID` to a private chat. Set `TEST_RUN = false` to alert the real chat.\n\n**Requirements**\n- A Telegram bot and chat\n- No CoinGecko key for the public endpoint\n\n**How to customize**\n- `COINS` sets the watchlist and each threshold in percent.\n- `COOLDOWN_HOURS` and `ESCALATE_PCT` decide how often one coin can alert.\n- `VS_CURRENCY` changes the quote currency, for example eur.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "18f6b0b3-5717-4c4e-9a00-18f6b0b313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 15 minutes, well inside the public CoinGecko rate limit. The watchlist, each coin's threshold and the cooldown rules live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4349df46-5717-4c4e-9a00-4349df461000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read prices\n\nOne simple/price call returns every coin with its 24-hour change, so the run costs a single request. `Load sample prices` returns the same shape with one coin missing, as a misspelled id would.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "4449e0d9-5717-4c4e-9a00-4449e0d91001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check moves and cooldowns\n\nThresholds are per coin, and the cooldown only gives way when the move grows by `ESCALATE_PCT` in the same direction. That stops a coin hovering at its limit from alerting every 15 minutes.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "4149dc20-5717-4c4e-9a00-4149dc201002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and start cooldowns\n\nNothing is sent while `TEST_RUN` is true and `TEST_EMAIL` is blank. Cooldowns start only after a live send, so a test alert never silences the real one.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "4249ddb3-5717-4c4e-9a00-4249ddb31003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "ef9812fe-61b1-4f9e-a511-65110dfdef98",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ALERT TELEGRAM ON LARGE CRYPTO PRICE MOVES FROM COINGECKO - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_COINGECKO false -> a SAMPLE price response so the run works offline. CoinGecko needs no key.\n// Test mode (TEST_RUN true + TEST_EMAIL set) sends to TEST_TELEGRAM_CHAT_ID and remembers nothing.\n\n// set true to read real prices (free public endpoint)\nconst USE_COINGECKO = false;\n// CoinGecko id -> symbol and the 24h move in percent that triggers an alert\nconst COINS = {\n  bitcoin: {\n    symbol: \"BTC\",\n    threshold_pct: 5\n  },\n  ethereum: {\n    symbol: \"ETH\",\n    threshold_pct: 6\n  },\n  solana: {\n    symbol: \"SOL\",\n    threshold_pct: 8\n  },\n  dogecoin: {\n    symbol: \"DOGE\",\n    threshold_pct: 10\n  },\n  cardano: {\n    symbol: \"ADA\",\n    threshold_pct: 8\n  }\n};\n// quote currency\nconst VS_CURRENCY = 'usd';\n// a coin is not alerted again for this long...\nconst COOLDOWN_HOURS = 6;\n// ...unless its move grew by this many more points\nconst ESCALATE_PCT = 4;\n// chat or channel id for alerts\nconst TELEGRAM_CHAT_ID = '';\n// test mode sends here instead\nconst TEST_TELEGRAM_CHAT_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_coingecko: USE_COINGECKO,\n    coins: COINS,\n    vs_currency: VS_CURRENCY,\n    cooldown_hours: COOLDOWN_HOURS,\n    escalate_pct: ESCALATE_PCT,\n    telegram_chat_id: TELEGRAM_CHAT_ID,\n    test_telegram_chat_id: TEST_TELEGRAM_CHAT_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "cbf97cda-5258-4cba-a4de-04ded5f9cbf9",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "ada6c5ce-870f-416e-a0fa-80fab18dada6",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "480b6a92-36a1-40f2-a0d0-20d07881480b",
+      "name": "CoinGecko enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c0083019-67c4-4249-a012-f0122514c008",
+              "leftValue": "={{ $('config').first().json.use_coingecko }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "2b6f340e-6a7f-4bae-a5c7-05c7464d2b6f",
+      "name": "Fetch prices from CoinGecko",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.coingecko.com/api/v3/simple/price",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "={{ Object.keys($('config').first().json.coins).join(',') }}"
+            },
+            {
+              "name": "vs_currencies",
+              "value": "={{ $('config').first().json.vs_currency }}"
+            },
+            {
+              "name": "include_24hr_change",
+              "value": "true"
+            },
+            {
+              "name": "include_last_updated_at",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "fd6789a8-67be-4528-a094-6094531bfd67",
+      "name": "Load sample prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_COINGECKO is true. Same shape as simple/price; cardano is missing on\n// purpose, as happens when an id is misspelled.\nconst t = Math.floor(Date.now() / 1000) - 60;\nreturn [{ json: {\n  bitcoin: { usd: 63240.18, usd_24h_change: -6.31, last_updated_at: t },\n  ethereum: { usd: 2448.9, usd_24h_change: 4.12, last_updated_at: t },\n  solana: { usd: 171.42, usd_24h_change: 12.74, last_updated_at: t },\n  dogecoin: { usd: 0.1187, usd_24h_change: -9.05, last_updated_at: t },\n} }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "f74e102e-c080-4dce-a280-d280112df74e",
+      "name": "Combine price sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "d463c9c0-db9a-4dc0-af39-cf396843d463",
+      "name": "Find coins past their threshold",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// |24h change| >= the coin's threshold. Cooldown per coin lives in static data; a move\n// that grew by ESCALATE_PCT points since the last alert breaks through it.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global').crypto_alerts || {};\nconst prices = Object.assign({}, ...$input.all().map(i => i.json));\nconst cur = cfg.vs_currency.toLowerCase();\nconst now = Date.now();\nconst alerts = [], quiet = [];\nconst money = v => new Intl.NumberFormat('en-US', { style: 'currency', currency: cur.toUpperCase(), maximumFractionDigits: v >= 1000 ? 0 : v >= 1 ? 2 : 4 }).format(v);\nfor (const [id, c] of Object.entries(cfg.coins)) {\n  const p = prices[id];\n  if (!p || typeof p[cur] !== 'number') { quiet.push({ coin: c.symbol, reason: 'no price returned for id ' + id }); continue; }\n  const change = Math.round((p[cur + '_24h_change'] ?? 0) * 100) / 100;\n  if (Math.abs(change) < c.threshold_pct) { quiet.push({ coin: c.symbol, reason: (change > 0 ? '+' : '') + change + '% is under ' + c.threshold_pct + '%' }); continue; }\n  const last = memory[id];\n  const cooling = last && now - last.at < cfg.cooldown_hours * 36e5;\n  const grew = last && Math.sign(last.change) === Math.sign(change) && Math.abs(change) - Math.abs(last.change) >= cfg.escalate_pct;\n  if (cooling && !grew) { quiet.push({ coin: c.symbol, reason: 'cooldown, alerted ' + Math.round((now - last.at) / 6e4) + ' min ago at ' + last.change + '%' }); continue; }\n  alerts.push({ id, symbol: c.symbol, price: p[cur], change, threshold: c.threshold_pct, escalated: Boolean(cooling && grew),\n    line: (change > 0 ? '↑ ' : '↓ ') + c.symbol + ' ' + money(p[cur]) + ' (' + (change > 0 ? '+' : '') + change.toFixed(2) + '% in 24h, limit ' + c.threshold_pct + '%)' + (cooling && grew ? ' still moving' : '') });\n}\nalerts.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));\nconst text = ['Crypto move alert', ...alerts.map(a => a.line)].join('\\n');\nreturn [{ json: { alerts, quiet, text, send_to: cfg.mode === 'test' ? cfg.test_telegram_chat_id : cfg.telegram_chat_id } }];\n"
+      },
+      "position": [
+        1200,
+        176
+      ]
+    },
+    {
+      "id": "a7631e56-2d58-4f76-af5d-bf5d94e5a763",
+      "name": "Anything to alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b43b39d-966f-448d-a302-730247b85b43",
+              "leftValue": "={{ $json.alerts.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "e30ed5b9-1905-45e9-af19-7f191574e30e",
+      "name": "STOP: no big moves",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "84da3f05-a2c1-4f75-a9f7-39f7f8f084da",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled && $json.send_to !== '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        176
+      ]
+    },
+    {
+      "id": "0bde7cce-5213-486e-a187-d187408d0bde",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        352
+      ]
+    },
+    {
+      "id": "609255db-8bce-4f6b-a9c5-89c598c26092",
+      "name": "Send the alert on Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "parameters": {
+        "chatId": "={{ $json.send_to }}",
+        "text": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "5a4d0f30-bec5-4030-af0f-2f0f63735a4d",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "07a34cf5-35eb-4265-aeb2-9eb2c7a007a3",
+      "name": "STOP: test send - cooldown not set",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "a7f3513a-6015-431a-a971-9971af99a7f3",
+      "name": "Remember alerted coins",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Start each alerted coin's cooldown, with the change it was alerted at.\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.crypto_alerts || {};\nfor (const a of $('Find coins past their threshold').first().json.alerts) seen[a.id] = { at: Date.now(), change: a.change };\nmemory.crypto_alerts = seen;\nreturn [{ json: { coins_in_cooldown: Object.keys(seen).length } }];\n"
+      },
+      "position": [
+        2560,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "CoinGecko enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CoinGecko enabled?": {
+      "main": [
+        [
+          {
+            "node": "Fetch prices from CoinGecko",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch prices from CoinGecko": {
+      "main": [
+        [
+          {
+            "node": "Combine price sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample prices": {
+      "main": [
+        [
+          {
+            "node": "Combine price sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine price sources": {
+      "main": [
+        [
+          {
+            "node": "Find coins past their threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find coins past their threshold": {
+      "main": [
+        [
+          {
+            "node": "Anything to alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to alert?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no big moves",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the alert on Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the alert on Telegram": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember alerted coins",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - cooldown not set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

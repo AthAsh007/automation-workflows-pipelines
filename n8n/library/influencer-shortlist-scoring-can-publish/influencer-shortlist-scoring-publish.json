@@ -1,0 +1,683 @@
+{
+  "name": "Score creator applications from a form into an Airtable shortlist",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Score creator applications from a form into an Airtable shortlist\n\n**Who's it for**\nBrand and growth marketers running creator programmes who get more applications than they can vet. Every applicant gets an answer, and the shortlist in Airtable is sorted before anyone opens it.\n\n**How it works**\n1. Creators apply through the hosted n8n form with platform, followers, average engagements per post, niche, country and rate per post.\n2. Five parts are scored from 0 to 1 and weighted by `WEIGHTS`: engagement rate against the platform benchmark, niche fit, audience size against your target range, region, and rate against `MAX_RATE_PER_POST`.\n3. A total of 75+ is tier A (shortlist), 55-74 tier B (maybe), under 55 tier C. An engagement rate over 5 times the benchmark, or a rate above budget on an otherwise strong profile, goes to manual review with no automatic reply.\n4. Every application becomes an Airtable record with its scores and reasons, and tiers A, B and C get their own reply email.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. It scores 4 sample applications and stops at `STOP: test run - Airtable untouched` and `STOP: preview - nothing sent`.\n2. Create an Airtable table with the fields listed in `Shape the Airtable record`, add the token credential and set `AIRTABLE_BASE_ID`.\n3. Set `TARGET_NICHES`, `TARGET_COUNTRIES` and `MAX_RATE_PER_POST`, connect Gmail and share the production form URL.\n4. Put your address in `TEST_EMAIL` to receive the replies yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Airtable base for the shortlist\n- A Gmail account\n\n**How to customize**\n- `WEIGHTS` must add up to 100 and decide what matters most.\n- `ER_BENCHMARKS` holds the typical engagement rate per platform.\n- `TIER_A` and `TIER_B` move the tier boundaries.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "f334d4db-5717-4c4e-9a00-f334d4db13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive the application\n\nThe hosted `Creator application form` asks for numbers rather than screenshots, so scoring needs no scraping. A manual run feeds `Load sample applications` through the same path.",
+        "height": 928,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "96db2fde-5717-4c4e-9a00-96db2fde1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Score against your weights\n\nEngagement is judged against the platform benchmark, because 3% is weak on TikTok and strong on Instagram. An implausibly high rate is held for review instead of being rewarded.",
+        "height": 928,
+        "width": 320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "97db3171-5717-4c4e-9a00-97db31711001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Add to Airtable and reply\n\nEvery application is stored, review cases included, but only on a live run with a base id. Review cases never get an automatic reply, and the rest follow the preview and test gates.",
+        "height": 928,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "94db2cb8-5717-4c4e-9a00-94db2cb81002",
+      "name": "Section 3 note"
+    },
+    {
+      "id": "912faf0f-c9ef-405f-ac34-8c343716912f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SCORE CREATOR APPLICATIONS FROM A FORM INTO AN AIRTABLE SHORTLIST - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run scores SAMPLE applications. AIRTABLE_BASE_ID blank -> nothing is stored.\n// Replies follow TEST_RUN and TEST_EMAIL like every send.\n\n// Airtable base id (starts with app); blank means nothing is stored\nconst AIRTABLE_BASE_ID = '';\n// table name or id\nconst AIRTABLE_TABLE = 'Creator applications';\n// points per part, adding up to 100\nconst WEIGHTS = {\n  engagement: 35,\n  niche: 25,\n  audience: 15,\n  region: 10,\n  price: 15\n};\n// typical engagement rate per platform (engagements / followers)\nconst ER_BENCHMARKS = {\n  Instagram: 0.02,\n  TikTok: 0.05,\n  YouTube: 0.03\n};\n// niches that fit fully\nconst TARGET_NICHES = [\n  \"Personal finance\",\n  \"Small business\"\n];\n// niches that fit half\nconst ADJACENT_NICHES = [\n  \"Productivity\",\n  \"Tech\"\n];\n// audience size you want; above the range scores 0.6, below scales down\nconst FOLLOWER_RANGE = [\n  10000,\n  250000\n];\n// applications below this get tier C whatever the score\nconst MIN_FOLLOWERS = 2000;\n// countries that score full marks for region\nconst TARGET_COUNTRIES = [\n  \"US\",\n  \"CA\",\n  \"GB\",\n  \"United States\",\n  \"Canada\",\n  \"United Kingdom\"\n];\n// budget per post in USD\nconst MAX_RATE_PER_POST = 1500;\n// score for the shortlist\nconst TIER_A = 75;\n// score for maybe\nconst TIER_B = 55;\n// sign-off on replies\nconst SENDER_NAME = 'Jules, Tallyroom partnerships';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    weights: WEIGHTS,\n    er_benchmarks: ER_BENCHMARKS,\n    target_niches: TARGET_NICHES,\n    adjacent_niches: ADJACENT_NICHES,\n    follower_range: FOLLOWER_RANGE,\n    min_followers: MIN_FOLLOWERS,\n    target_countries: TARGET_COUNTRIES,\n    max_rate_per_post: MAX_RATE_PER_POST,\n    tier_a: TIER_A,\n    tier_b: TIER_B,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        256
+      ]
+    },
+    {
+      "id": "eec623ef-f853-4f3f-a713-9713cc36eec6",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        256
+      ]
+    },
+    {
+      "id": "cb274ccd-0f83-4ebd-af09-5f09d5e8cb27",
+      "name": "Creator application form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "898f4472-e3e6-44d2-a1ab-a1abeea1898f",
+      "parameters": {
+        "formTitle": "Apply to the Tallyroom creator programme",
+        "formDescription": "Tell us about your channel. We reply to every application within 5 working days.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Handle or channel URL",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Main platform",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Instagram"
+                  },
+                  {
+                    "option": "TikTok"
+                  },
+                  {
+                    "option": "YouTube"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Followers",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Average likes plus comments (or views on YouTube) per post",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Niche",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Personal finance"
+                  },
+                  {
+                    "option": "Small business"
+                  },
+                  {
+                    "option": "Productivity"
+                  },
+                  {
+                    "option": "Tech"
+                  },
+                  {
+                    "option": "Lifestyle"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Country",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Rate per post (USD)",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Media kit link"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        432
+      ]
+    },
+    {
+      "id": "9f64fd9c-b536-44dc-a544-0544dbef9f64",
+      "name": "Read the application",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The form fields when a creator applied; nothing when the run was started by hand.\nlet f = null;\ntry { f = $('Creator application form').first().json; } catch (e) { f = null; }\nconst a = f ? [{ name: f['Name'], email: f['Email'], handle: f['Handle or channel URL'], platform: f['Main platform'], followers: Number(f['Followers']),\n  engagements: Number(f['Average likes plus comments (or views on YouTube) per post']), niche: f['Niche'], country: String(f['Country'] || '').trim(),\n  rate: Number(f['Rate per post (USD)']), media_kit: f['Media kit link'] || '', submitted_at: f.submittedAt || new Date().toISOString() }] : [];\nreturn [{ json: { from_form: Boolean(f), applications: a } }];\n"
+      },
+      "position": [
+        496,
+        256
+      ]
+    },
+    {
+      "id": "de323df8-c04f-4078-a10d-610de96bde32",
+      "name": "Real application?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cd9a06f0-9256-4bf0-a810-2810c4b3cd9a",
+              "leftValue": "={{ $json.from_form }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        704,
+        256
+      ]
+    },
+    {
+      "id": "958d5de8-94f8-4568-ad4f-8d4fecdb958d",
+      "name": "Load sample applications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used for manual runs: a strong fit, a borderline one, a poor fit and one with\n// an engagement rate too good to be true.\nconst now = new Date().toISOString();\nreturn [{ json: { from_form: false, applications: [\n  { name: 'Maya Ortiz', email: 'maya@creator-mail.example', handle: '@mayabudgets', platform: 'Instagram', followers: 48000, engagements: 2300, niche: 'Personal finance', country: 'US', rate: 900, media_kit: '', submitted_at: now },\n  { name: 'Theo Grant', email: 'theo@creator-mail.example', handle: '@theobuilds', platform: 'TikTok', followers: 320000, engagements: 14000, niche: 'Productivity', country: 'Canada', rate: 1200, media_kit: '', submitted_at: now },\n  { name: 'Lina Park', email: 'lina@creator-mail.example', handle: '@linalives', platform: 'Instagram', followers: 6000, engagements: 90, niche: 'Lifestyle', country: 'Germany', rate: 400, media_kit: '', submitted_at: now },\n  { name: 'Rex Hale', email: 'rex@creator-mail.example', handle: '@rexmoney', platform: 'Instagram', followers: 30000, engagements: 9000, niche: 'Personal finance', country: 'CA', rate: 700, media_kit: '', submitted_at: now },\n] } }];\n"
+      },
+      "position": [
+        928,
+        432
+      ]
+    },
+    {
+      "id": "8b474676-f3ef-4d96-a0ed-d0ede3c58b47",
+      "name": "Combine application sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1152,
+        256
+      ]
+    },
+    {
+      "id": "fef1bde8-84be-4568-ae17-6e174cdbfef1",
+      "name": "Score each application",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Each part is 0..1, multiplied by its WEIGHTS points. Engagement is capped at 2x\n// the platform benchmark; over 5x is treated as a warning sign and held for review.\nconst cfg = $('config').first().json;\nconst W = cfg.weights;\nconst [lo, hi] = cfg.follower_range;\nconst r2 = v => Math.round(v * 100) / 100;\nreturn $input.first().json.applications.map(a => {\n  const bench = cfg.er_benchmarks[a.platform] || 0.03;\n  const er = a.followers > 0 ? a.engagements / a.followers : 0;\n  const parts = {\n    engagement: Math.min(1, er / (2 * bench)),\n    niche: cfg.target_niches.includes(a.niche) ? 1 : cfg.adjacent_niches.includes(a.niche) ? 0.5 : 0,\n    audience: a.followers < lo ? a.followers / lo : a.followers <= hi ? 1 : 0.6,\n    region: cfg.target_countries.map(c => c.toLowerCase()).includes(a.country.toLowerCase()) ? 1 : 0.3,\n    price: a.rate <= cfg.max_rate_per_post ? 1 - 0.5 * (a.rate / cfg.max_rate_per_post) : 0,\n  };\n  const score = Math.round(Object.entries(parts).reduce((s, [k, v]) => s + v * W[k], 0));\n  const reasons = Object.entries(parts).filter(([, v]) => v < 0.5).map(([k]) => k + ' ' + r2(parts[k]));\n  let tier = score >= cfg.tier_a ? 'A' : score >= cfg.tier_b ? 'B' : 'C';\n  let review = '';\n  if (er > bench * 5) review = 'engagement rate ' + (er * 100).toFixed(1) + '% is over 5x the ' + a.platform + ' benchmark';\n  else if (tier === 'A' && a.rate > cfg.max_rate_per_post) review = 'strong profile, rate above budget';\n  if (a.followers < cfg.min_followers) { tier = 'C'; reasons.push('under MIN_FOLLOWERS'); }\n  return { json: { ...a, engagement_rate: r2(er * 100), parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, r2(v)])), score, tier: review ? 'review' : tier, review_reason: review, reasons } };\n});\n"
+      },
+      "position": [
+        1456,
+        256
+      ]
+    },
+    {
+      "id": "d0015e40-363e-4a40-ab4c-db4cf4c3d001",
+      "name": "Live with Airtable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d2a4808-9fff-4588-adce-ddce9ebb2d2a",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2e2a499b-6254-472b-a5d8-a5d807022e2a",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1760,
+        256
+      ]
+    },
+    {
+      "id": "fd43e008-4289-4d88-ab4e-eb4ef6bbfd43",
+      "name": "Write the reply by tier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One reply per tier. Review cases get no automatic reply; a person answers them.\nconst cfg = $('config').first().json;\nconst text = {\n  A: 'Thanks for applying. Your channel is a strong fit, and someone from our partnerships team will email you within 3 working days with campaign details and dates.',\n  B: 'Thanks for applying. We do not have a campaign that fits your channel right now, and we keep every application on file for the next ones.',\n  C: 'Thanks for applying. After looking at your channel we do not think we are the right fit for now. We appreciate the time you took.',\n};\nreturn $input.all().map(({ json: a }) => ({ json: { email: a.email, tier: a.tier, auto_reply: a.tier !== 'review',\n  subject: a.tier === 'A' ? 'Your application to the creator programme: next steps' : 'Your application to the creator programme',\n  body: 'Hi ' + (a.name || '').split(' ')[0] + ',\\n\\n' + (text[a.tier] || '') + '\\n\\n' + cfg.sender_name, send_to: cfg.mode === 'test' ? cfg.test_email : a.email } }));\n"
+      },
+      "position": [
+        1760,
+        432
+      ]
+    },
+    {
+      "id": "fd20fea0-1089-4ca0-aa1e-aa1eb263fd20",
+      "name": "STOP: test run - Airtable untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1984,
+        432
+      ]
+    },
+    {
+      "id": "e29e4134-9668-48f4-aa30-fa309897e29e",
+      "name": "Shape the Airtable record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Fields: Name, Email, Handle, Platform, Followers, Engagement rate, Niche,\n// Country, Rate, Score, Tier, Review reason, Weak parts, Media kit, Applied at.\nconst records = $input.all().map(({ json: a }) => ({ fields: {\n  Name: a.name, Email: a.email, Handle: a.handle, Platform: a.platform, Followers: a.followers, 'Engagement rate': a.engagement_rate, Niche: a.niche,\n  Country: a.country, Rate: a.rate, Score: a.score, Tier: a.tier, 'Review reason': a.review_reason, 'Weak parts': a.reasons.join('; '), 'Media kit': a.media_kit, 'Applied at': a.submitted_at } }));\nreturn [{ json: { payload: { records, typecast: true } } }];\n"
+      },
+      "position": [
+        1984,
+        256
+      ]
+    },
+    {
+      "id": "62463124-e67d-4de4-a75c-175ccc076246",
+      "name": "Create the Airtable records",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2208,
+        256
+      ]
+    },
+    {
+      "id": "ae0b7abf-03fd-450f-a8c9-b8c98a06ae0b",
+      "name": "Reply automatically?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e46ea425-5607-4a95-a40c-440c50d0e46e",
+              "leftValue": "={{ $json.auto_reply }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1984,
+        592
+      ]
+    },
+    {
+      "id": "60dfdcd0-9ad5-4bd0-a4ee-74ee07d360df",
+      "name": "STOP: held for a personal reply",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2208,
+        768
+      ]
+    },
+    {
+      "id": "b14b24e0-4582-4ee0-a210-f2105a23b14b",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2208,
+        592
+      ]
+    },
+    {
+      "id": "26023637-eaf8-4b07-ac8b-cc8b07ce2602",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2432,
+        768
+      ]
+    },
+    {
+      "id": "2c7ba0d8-0ee8-4d58-aed3-ced3458b2c7b",
+      "name": "Email the reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + ', tier ' + $json.tier + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2432,
+        592
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Creator application form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the application": {
+      "main": [
+        [
+          {
+            "node": "Real application?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real application?": {
+      "main": [
+        [
+          {
+            "node": "Combine application sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample applications": {
+      "main": [
+        [
+          {
+            "node": "Combine application sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine application sources": {
+      "main": [
+        [
+          {
+            "node": "Score each application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score each application": {
+      "main": [
+        [
+          {
+            "node": "Live with Airtable?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the reply by tier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with Airtable?": {
+      "main": [
+        [
+          {
+            "node": "Shape the Airtable record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test run - Airtable untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the Airtable record": {
+      "main": [
+        [
+          {
+            "node": "Create the Airtable records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the reply by tier": {
+      "main": [
+        [
+          {
+            "node": "Reply automatically?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply automatically?": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: held for a personal reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

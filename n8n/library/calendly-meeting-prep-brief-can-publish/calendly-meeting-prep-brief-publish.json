@@ -1,0 +1,596 @@
+{
+  "name": "Send prep briefs for new Calendly bookings with HubSpot context by Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send prep briefs for new Calendly bookings with HubSpot context by Gmail\n\n**Who's it for**\nAccount executives and founders who take sales calls through Calendly and open HubSpot five minutes before each one to remember who they are talking to. The prep note arrives in the host's inbox as soon as the meeting is booked.\n\n**How it works**\n1. A Calendly webhook fires on invitee.created. A manual run uses a sample booking instead. Cancellations and event types not listed in `EVENT_TYPES` are ignored.\n2. HubSpot is searched three times: the contact by email, the company by email domain, and deals linked to the contact.\n3. Rules turn that into talking points: not in HubSpot yet, existing customer, an open deal in a late stage, a deal lost before, a free email address, and the campaign that brought them in.\n4. The note (meeting time in your timezone, their answers, company size, open pipeline) is emailed to the Calendly host.\n\n**How to set up**\n1. Run it once from `Run manually`. It writes a note for a sample booking and stops at `STOP: preview - nothing sent`.\n2. Create a HubSpot private app with contacts, companies and deals read scopes, add it to the three HubSpot nodes, and set `USE_HUBSPOT = true`.\n3. Activate the workflow and register the production URL of `Calendly booking received` as a Calendly webhook subscription for invitee.created.\n4. Connect Gmail. Put your address in `TEST_EMAIL` to receive every note yourself, then set `TEST_RUN = false` to email hosts.\n\n**Requirements**\n- A Calendly plan with webhooks (Standard or above)\n- A HubSpot account with a private app token\n- A Gmail account\n\n**How to customize**\n- `EVENT_TYPES` limits notes to named event types, such as Discovery call.\n- `HOST_TIMEZONE` sets the time shown in each note.\n- `LATE_STAGES` lists deal stages that count as late.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "1d102c48-5717-4c4e-9a00-1d102c4813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nCalendly calls the webhook on every booking; `Run manually` replays a sample one. Event type filter, timezone and late stages are set in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f252e86d-5717-4c4e-9a00-f252e86d1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the booking\n\n`Pick up the booking` works for both triggers and drops cancellations and unlisted event types before any HubSpot call is made.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "f152e6da-5717-4c4e-9a00-f152e6da1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Look up HubSpot\n\nThe company is found by email domain rather than through the contact, so a person new to HubSpot still gets company context. `Load sample CRM data` stands in until `USE_HUBSPOT` is true.",
+        "height": 512,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "f052e547-5717-4c4e-9a00-f052e5471002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write and send the note\n\nTalking points come from fixed rules, not a model, so the host can trust each line. A test send goes to `TEST_EMAIL` with the host named in the subject.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "ef52e3b4-5717-4c4e-9a00-ef52e3b41003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "ba37a658-1b01-4ad8-adbb-adbbab0bba37",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND PREP BRIEFS FOR NEW CALENDLY BOOKINGS WITH HUBSPOT CONTEXT BY GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE booking. USE_HUBSPOT false -> SAMPLE CRM context.\n// This workflow only reads HubSpot. The one send is the email to the host.\n\n// set true after adding the HubSpot credential to the three HubSpot nodes\nconst USE_HUBSPOT = false;\n// Calendly event type names that get a note, e.g. ['Discovery call']; empty = all\nconst EVENT_TYPES = [];\n// timezone for the meeting time in the note\nconst HOST_TIMEZONE = 'America/New_York';\n// HubSpot deal stage ids that count as late-stage\nconst LATE_STAGES = [\n  \"decisionmakerboughtin\",\n  \"contractsent\"\n];\n// domains that are not a company\nconst FREE_EMAIL_DOMAINS = [\n  \"gmail.com\",\n  \"outlook.com\",\n  \"yahoo.com\",\n  \"hotmail.com\",\n  \"icloud.com\",\n  \"proton.me\"\n];\n// used when the booking names no host\nconst FALLBACK_HOST_EMAIL = 'sales@yourcompany.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_hubspot: USE_HUBSPOT,\n    event_types: EVENT_TYPES,\n    host_timezone: HOST_TIMEZONE,\n    late_stages: LATE_STAGES,\n    free_email_domains: FREE_EMAIL_DOMAINS,\n    fallback_host_email: FALLBACK_HOST_EMAIL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "78d1a38c-2a53-4fcc-a2cb-b2cb595f78d1",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "24b88cde-e5e0-437e-ac29-6c290d1d24b8",
+      "name": "Calendly booking received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "eeef1f37-dfe6-4407-acbe-ccbef8ceeeef",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendly-prep-brief",
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "81cbdefc-8a7e-483c-a9d4-09d4b58f81cb",
+      "name": "Pick up the booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Webhook body when Calendly called; a sample booking on a manual run. Only new\n// bookings for the listed event types go further.\nconst cfg = $('config').first().json;\nlet body = null;\ntry { body = $('Calendly booking received').first().json.body; } catch (e) { body = null; }\nconst sample = !body;\nif (sample) {\n  body = { event: 'invitee.created', payload: {\n    email: 'nora@vance-logistics.example', name: 'Nora Vance', first_name: 'Nora', timezone: 'America/Chicago',\n    questions_and_answers: [{ question: 'What would you like to cover?', answer: 'Moving our dispatch team off spreadsheets' }, { question: 'Company size', answer: '50-200' }],\n    tracking: { utm_source: 'linkedin', utm_campaign: 'ops-webinar' },\n    scheduled_event: { name: 'Discovery call', start_time: new Date(Date.now() + 2 * 864e5).toISOString(), end_time: new Date(Date.now() + 2 * 864e5 + 30 * 60e3).toISOString(),\n      location: { type: 'zoom', join_url: 'https://zoom.example/j/5550100' }, event_memberships: [{ user_email: 'maya@yourcompany.example', user_name: 'Maya Ortiz' }] },\n  } };\n}\nconst p = body.payload || {};\nconst ev = p.scheduled_event || {};\nconst host = (ev.event_memberships || [])[0] || {};\nconst email = String(p.email || '').toLowerCase();\nconst wanted = body.event === 'invitee.created' && (!cfg.event_types.length || cfg.event_types.includes(ev.name));\nreturn [{ json: { wanted, sample, event: body.event, event_name: ev.name || '', email, domain: email.split('@')[1] || '', name: p.name || '', first_name: p.first_name || (p.name || '').split(' ')[0],\n  invitee_tz: p.timezone || '', start: ev.start_time, end: ev.end_time, join_url: ev.location?.join_url || ev.location?.location || '',\n  answers: (p.questions_and_answers || []).filter(q => q.answer), utm: p.tracking || {},\n  host_email: host.user_email || cfg.fallback_host_email, host_name: host.user_name || '' } }];\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "454c772c-d0a6-416c-abd3-dbd347bf454c",
+      "name": "New booking to prepare?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "413e8987-893e-4557-a6b8-86b8bfde413e",
+              "leftValue": "={{ $json.wanted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "9b4e3088-b337-4608-aa57-0a578b3b9b4e",
+      "name": "STOP: not a new booking for a listed event type",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "595464fc-e138-4e3c-a7f8-f7f82f8f5954",
+      "name": "Use sample CRM data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3193e059-4d67-4e89-a63c-963c02d43193",
+              "leftValue": "={{ !$('config').first().json.use_hubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1200,
+        176
+      ]
+    },
+    {
+      "id": "63692944-45d2-4c04-a6b2-36b26ae76369",
+      "name": "Load sample CRM data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_HUBSPOT is true: known contact, sized company, one open and one lost deal.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString();\nreturn [{ json: {\n  contact: { id: '501', firstname: 'Nora', lastname: 'Vance', jobtitle: 'Head of Operations', lifecyclestage: 'salesqualifiedlead', last_activity: day(-12) },\n  company: { name: 'Vance Logistics', industry: 'TRANSPORTATION_TRUCKING_RAILROAD', employees: 120, revenue: 18000000, city: 'Tulsa', country: 'United States' },\n  deals: [\n    { name: 'Vance Logistics - dispatch pilot', stage: 'presentationscheduled', amount: 24000, closedate: day(30) },\n    { name: 'Vance - 2024 trial', stage: 'closedlost', amount: 6000, closedate: day(-300) },\n  ],\n} }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "8f79fb62-5936-40c2-abd0-6bd085118f79",
+      "name": "Find the contact in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: $json.email }] }], properties: ['firstname', 'lastname', 'jobtitle', 'lifecyclestage', 'notes_last_updated'], limit: 1 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1424,
+        352
+      ]
+    },
+    {
+      "id": "9bd5327e-2057-471e-a0c6-40c6497d9bd5",
+      "name": "Find the company by domain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: $('Pick up the booking').first().json.domain }] }], properties: ['name', 'industry', 'numberofemployees', 'annualrevenue', 'city', 'country'], limit: 1 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "316b0ce6-7d86-4106-a7c4-47c445b5316b",
+      "name": "Find deals for the contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'associations.contact', operator: 'EQ', value: $('Find the contact in HubSpot').first().json.results?.[0]?.id || '0' }] }], properties: ['dealname', 'dealstage', 'amount', 'closedate'], limit: 20 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "8b59a640-f050-4240-ae8e-ee8e9cc38b59",
+      "name": "Collect the CRM context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Three search responses -> the sample shape. A missing record is null, not an error.\nconst c = $('Find the contact in HubSpot').first().json.results?.[0];\nconst co = $('Find the company by domain').first().json.results?.[0];\nconst deals = ($input.first().json.results || []).map(d => ({ name: d.properties.dealname, stage: d.properties.dealstage, amount: Number(d.properties.amount || 0), closedate: d.properties.closedate }));\nreturn [{ json: {\n  contact: c ? { id: c.id, firstname: c.properties.firstname, lastname: c.properties.lastname, jobtitle: c.properties.jobtitle || '', lifecyclestage: c.properties.lifecyclestage || '', last_activity: c.properties.notes_last_updated || null } : null,\n  company: co ? { name: co.properties.name, industry: co.properties.industry || '', employees: Number(co.properties.numberofemployees || 0), revenue: Number(co.properties.annualrevenue || 0), city: co.properties.city || '', country: co.properties.country || '' } : null,\n  deals: c ? deals : [],\n} }];\n"
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "8cccaae5-237b-4555-a6e8-46e89d108ccc",
+      "name": "Combine CRM sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "9aeaab38-6035-49b8-a6e2-16e2192b9aea",
+      "name": "Build the prep note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Facts first, then talking points from fixed rules, so every note reads the same way.\nconst cfg = $('config').first().json;\nconst b = $('Pick up the booking').first().json;\nconst { contact, company, deals } = $input.first().json;\nconst when = new Date(b.start).toLocaleString('en-US', { timeZone: cfg.host_timezone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });\nconst money = n => '$' + Math.round(n).toLocaleString('en-US');\nconst open = deals.filter(d => !/^closed/.test(d.stage));\nconst lost = deals.filter(d => d.stage === 'closedlost');\nconst points = [];\nif (!contact) points.push('Not in HubSpot yet: first conversation, qualify budget and timeline.');\nif (contact?.lifecyclestage === 'customer') points.push('Existing customer: check for open support issues and renewal date before the call.');\nfor (const d of open) if (cfg.late_stages.includes(d.stage)) points.push('Late-stage deal \"' + d.name + '\" (' + money(d.amount) + '): this call may decide it.');\nif (open.length && !open.some(d => cfg.late_stages.includes(d.stage))) points.push('Open pipeline of ' + money(open.reduce((s, d) => s + d.amount, 0)) + ' across ' + open.length + ' deal(s).');\nif (lost.length) points.push('Lost before: \"' + lost[0].name + '\". Ask what changed since then.');\nif (cfg.free_email_domains.includes(b.domain)) points.push('Booked with a personal email (' + b.domain + '): confirm the company name.');\nif (contact?.last_activity) { const d = Math.floor((Date.now() - new Date(contact.last_activity)) / 864e5); points.push('Last logged activity ' + d + ' days ago.'); }\nif (b.utm.utm_source) points.push('Came in through ' + b.utm.utm_source + (b.utm.utm_campaign ? ' / ' + b.utm.utm_campaign : '') + '.');\nconst li = a => a.map(x => '<li>' + x + '</li>').join('');\nconst html = '<div style=\"font-family:Arial,sans-serif;font-size:14px\">'\n  + '<h3>' + b.event_name + ' with ' + b.name + (company ? ', ' + company.name : '') + '</h3>'\n  + '<p><b>' + when + '</b> (' + cfg.host_timezone + ')' + (b.join_url ? '<br>Join: ' + b.join_url : '') + (b.invitee_tz ? '<br>Their timezone: ' + b.invitee_tz : '') + '</p>'\n  + '<p><b>Person</b><br>' + b.name + ' &lt;' + b.email + '&gt;' + (contact?.jobtitle ? '<br>' + contact.jobtitle : '') + (contact?.lifecyclestage ? '<br>Lifecycle: ' + contact.lifecyclestage : '') + '</p>'\n  + (company ? '<p><b>Company</b><br>' + company.name + (company.industry ? ', ' + company.industry.toLowerCase().replace(/_/g, ' ') : '') + (company.employees ? '<br>' + company.employees + ' employees' : '') + (company.revenue ? ', ' + money(company.revenue) + ' revenue' : '') + (company.city ? '<br>' + company.city + ', ' + company.country : '') + '</p>' : '')\n  + (b.answers.length ? '<p><b>They said</b></p><ul>' + li(b.answers.map(a => a.question + ': ' + a.answer)) + '</ul>' : '')\n  + (deals.length ? '<p><b>Deals</b></p><ul>' + li(deals.map(d => d.name + ' - ' + d.stage + ', ' + money(d.amount))) + '</ul>' : '')\n  + '<p><b>Talking points</b></p><ul>' + li(points) + '</ul></div>';\nreturn [{ json: { html, points, subject: 'Prep: ' + b.name + (company ? ' (' + company.name + ')' : '') + ', ' + when,\n  host_email: b.host_email, send_to: cfg.mode === 'test' ? cfg.test_email : b.host_email } }];\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "ec450f8b-20f5-421b-a703-5703f472ec45",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "919aa63c-8363-4b7c-a158-f1586b4f919a",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "7e138a6f-a7ca-4dbf-a677-1677c6b67e13",
+      "name": "Email the note to the host",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.host_email + '] ' : '') + $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendly booking received": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Pick up the booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick up the booking": {
+      "main": [
+        [
+          {
+            "node": "New booking to prepare?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New booking to prepare?": {
+      "main": [
+        [
+          {
+            "node": "Use sample CRM data?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not a new booking for a listed event type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample CRM data?": {
+      "main": [
+        [
+          {
+            "node": "Load sample CRM data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find the contact in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the contact in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Find the company by domain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the company by domain": {
+      "main": [
+        [
+          {
+            "node": "Find deals for the contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find deals for the contact": {
+      "main": [
+        [
+          {
+            "node": "Collect the CRM context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample CRM data": {
+      "main": [
+        [
+          {
+            "node": "Combine CRM sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect the CRM context": {
+      "main": [
+        [
+          {
+            "node": "Combine CRM sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine CRM sources": {
+      "main": [
+        [
+          {
+            "node": "Build the prep note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the prep note": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the note to the host",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

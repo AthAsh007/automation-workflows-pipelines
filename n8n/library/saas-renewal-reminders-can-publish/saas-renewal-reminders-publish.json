@@ -1,0 +1,675 @@
+{
+  "name": "Remind owners in Slack before SaaS renewals in a Google Sheets register",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Remind owners in Slack before SaaS renewals in a Google Sheets register\n\n**Who's it for**\nOperations and finance leads who keep a sheet of software subscriptions and still get caught by annual auto-renewals. The reminder is keyed to the last day you can cancel, not the renewal date, because that is the date that matters.\n\n**How it works**\n1. Every weekday at 09:00 it reads the Register tab, or sample tools until a sheet is connected.\n2. Past renewal dates roll forward by the billing cycle, then the cancel-by date is the renewal date minus the notice days.\n3. A tool enters the digest when its cancel-by date is 30, 14 or 3 days away. Each stage is posted once per renewal, even if a run is missed.\n4. Tools with no owner, and tools whose notice window has already closed, get their own sections. One Slack message tags each owner.\n\n**How to set up**\n1. Run it once as imported. It builds a digest from sample tools and stops at `STOP: preview - nothing posted`.\n2. Connect Google Sheets, put the spreadsheet id in `REGISTER_SHEET_ID`, and match the column names in `COLUMNS`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`. Owners are tagged by the Slack member id in the owner id column.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel. The test digest lands there with no @mentions. Set `TEST_RUN = false` to post to `SLACK_CHANNEL_ID` and tag owners.\n\n**Requirements**\n- A Google Sheet listing your subscriptions\n- A Slack workspace\n\n**How to customize**\n- `STAGES` sets the reminder days before cancel-by (30, 14 and 3 by default).\n- `DEFAULT_NOTICE_DAYS` covers rows with an empty notice column.\n- `MIN_ANNUAL_COST` keeps cheap tools out of the digest.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "2f94cf16-5717-4c4e-9a00-2f94cf1613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nWeekday mornings, so a 3-day warning never lands on a Saturday. Column names and reminder stages live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ab2cd91b-5717-4c4e-9a00-ab2cd91b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the register\n\n`Read register rows` maps your headers through `COLUMNS`, so the sheet layout is yours. `Load sample tools` covers every case until `REGISTER_SHEET_ID` is set.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "aa2cd788-5717-4c4e-9a00-aa2cd7881001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find what needs a decision\n\nStages are crossed, not matched exactly, so a skipped weekend still triggers the 3-day reminder. Unowned tools are listed every run until someone claims them.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "ad2cdc41-5717-4c4e-9a00-ad2cdc411002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nA live post needs `SLACK_CHANNEL_ID`. A test post goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank. Only a live post records the stage in static data, so a test post never hides a real reminder.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "ac2cdaae-5717-4c4e-9a00-ac2cdaae1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "9d7327fa-2d39-4dda-a862-2862dbd99d73",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REMIND OWNERS IN SLACK BEFORE SAAS RENEWALS IN A GOOGLE SHEETS REGISTER - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// REGISTER_SHEET_ID blank -> SAMPLE tools so the run works before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n// A stage is remembered only after a live post, so test runs never use it up.\n\n// Google Sheets id with a Register tab; blank uses sample tools\nconst REGISTER_SHEET_ID = '';\n// column headers on the Register tab\nconst COLUMNS = {\n  tool: \"Tool\",\n  owner: \"Owner\",\n  owner_slack_id: \"Owner Slack ID\",\n  annual_cost: \"Annual cost\",\n  currency: \"Currency\",\n  renewal: \"Renewal date\",\n  cycle: \"Billing cycle\",\n  notice_days: \"Notice days\",\n  status: \"Status\"\n};\n// days before the cancel-by date that trigger a reminder\nconst STAGES = [\n  30,\n  14,\n  3\n];\n// notice period when the column is empty\nconst DEFAULT_NOTICE_DAYS = 0;\n// tools cheaper than this per year are left out\nconst MIN_ANNUAL_COST = 0;\n// channel for the digest; blank means nothing is posted\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    register_sheet_id: REGISTER_SHEET_ID,\n    columns: COLUMNS,\n    stages: STAGES,\n    default_notice_days: DEFAULT_NOTICE_DAYS,\n    min_annual_cost: MIN_ANNUAL_COST,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: REGISTER_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "188450ee-c4de-428e-afe4-5fe4c36d1884",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "049ea809-d70d-4f39-a485-64856084049e",
+      "name": "Every weekday at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "8afbff07-5046-42d7-a9f8-e9f8f55e8afb",
+      "name": "Register connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e88a0318-7d0a-4b98-a382-43826a4be88a",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "51213f93-319e-4fa3-add5-fdd5af4a5121",
+      "name": "Read the Register tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.register_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Register"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "4e496ac6-f8c4-48e6-a4d1-c4d170d54e49",
+      "name": "Read register rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet rows -> the field names the reminder logic reads, using COLUMNS.\nconst col = $('config').first().json.columns;\nreturn $input.all().map(({ json: r }) => ({ json: {\n  tool: String(r[col.tool] || '').trim(), owner: String(r[col.owner] || '').trim(), owner_slack_id: String(r[col.owner_slack_id] || '').trim(),\n  annual_cost: Number(String(r[col.annual_cost] || '0').replace(/[^0-9.]/g, '')) || 0, currency: r[col.currency] || 'USD',\n  renewal: String(r[col.renewal] || '').slice(0, 10), cycle: String(r[col.cycle] || 'annual').toLowerCase(),\n  notice_days: r[col.notice_days] === '' || r[col.notice_days] === undefined ? null : Number(r[col.notice_days]),\n  status: String(r[col.status] || 'active').toLowerCase(),\n} })).filter(i => i.json.tool);\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "bde78c09-6237-4339-a866-08661c84bde7",
+      "name": "Load sample tools",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until REGISTER_SHEET_ID is set. Dates are relative to today so every section has an entry.\nconst day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);\nconst t = (tool, owner, id, cost, renewal, notice, extra = {}) => ({ tool, owner, owner_slack_id: id, annual_cost: cost, currency: 'USD', renewal, cycle: 'annual', notice_days: notice, status: 'active', ...extra });\nreturn [\n  t('Canvasly', 'Maya Ortiz', 'U01MAYA', 4800, day(40), 30),\n  t('Ledgerline', 'Theo Grant', 'U02THEO', 2400, day(33), 30),\n  t('Quillform', 'Maya Ortiz', 'U01MAYA', 1200, day(60), 30),\n  t('Beaconly', 'Ines Park', 'U03INES', 9600, day(20), 30),\n  t('Tallyroom', '', '', 3000, day(50), 30),\n  t('Driftmail', 'Theo Grant', 'U02THEO', 600, day(100), 30),\n  t('Shelfwise', 'Ines Park', 'U03INES', 900, day(35), 30, { status: 'cancelled' }),\n  t('Pingboard', 'Owen Blake', 'U04OWEN', 1440, day(-75), 7, { cycle: 'monthly' }),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "9698efd0-4ec7-4ed0-ac8e-2c8eeed39698",
+      "name": "Combine register sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "5a928064-2b76-4924-a0de-e0de80c75a92",
+      "name": "Work out cancel-by stages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Cancel-by = next renewal - notice days. The stage is the smallest STAGES value the\n// days-left has crossed, so a missed run still catches up. Stages already posted for\n// this renewal (kept in workflow static data) are not posted again.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst sent = store.sent_stages || {};\nconst stages = [...cfg.stages].sort((a, b) => a - b);\nconst today = new Date(new Date().toISOString().slice(0, 10));\nconst addMonths = (d, n) => { const x = new Date(d); x.setUTCMonth(x.getUTCMonth() + n); return x; };\nconst due = [], unowned = [], missed = [], skipped = [];\nfor (const { json: t } of $input.all()) {\n  if (t.status !== 'active') { skipped.push({ tool: t.tool, reason: 'status ' + t.status }); continue; }\n  if (t.annual_cost < cfg.min_annual_cost) { skipped.push({ tool: t.tool, reason: 'below MIN_ANNUAL_COST' }); continue; }\n  let renewal = new Date(t.renewal);\n  if (isNaN(renewal)) { skipped.push({ tool: t.tool, reason: 'no renewal date' }); continue; }\n  const months = t.cycle.startsWith('month') ? 1 : t.cycle.startsWith('quarter') ? 3 : 12;\n  while (renewal < today) renewal = addMonths(renewal, months);\n  const notice = t.notice_days ?? cfg.default_notice_days;\n  const cancelBy = new Date(renewal.getTime() - notice * 864e5);\n  const daysLeft = Math.round((cancelBy - today) / 864e5);\n  const key = t.tool + '|' + renewal.toISOString().slice(0, 10);\n  const row = { ...t, renewal: renewal.toISOString().slice(0, 10), cancel_by: cancelBy.toISOString().slice(0, 10), days_left: daysLeft, key };\n  if (!t.owner_slack_id) unowned.push(row);\n  if (daysLeft < 0) { if (sent[key] !== 'missed') missed.push({ ...row, stage: 'missed' }); continue; }\n  const stage = stages.find(s => daysLeft <= s);\n  if (stage === undefined) continue;\n  if (sent[key] !== undefined && sent[key] !== 'missed' && Number(sent[key]) <= stage) { skipped.push({ tool: t.tool, reason: 'stage ' + stage + ' already posted' }); continue; }\n  due.push({ ...row, stage });\n}\ndue.sort((a, b) => a.days_left - b.days_left);\nreturn [{ json: { due, missed, unowned, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "2a295d98-9f7e-4e18-ab8e-fb8eb4cb2a29",
+      "name": "Write the Slack digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message, grouped by stage. In test mode owners are named, not tagged, so nobody is pinged.\nconst cfg = $('config').first().json;\nconst { due, missed, unowned } = $input.first().json;\nconst who = t => !t.owner_slack_id ? '_no owner_' : cfg.mode === 'live' ? '<@' + t.owner_slack_id + '>' : t.owner;\nconst money = t => t.currency + ' ' + t.annual_cost.toLocaleString('en-US') + '/yr';\nconst line = t => '- *' + t.tool + '* (' + money(t) + '), cancel by ' + t.cancel_by + ' (' + t.days_left + ' days), renews ' + t.renewal + ' - ' + who(t);\nconst sections = [];\nfor (const s of [...cfg.stages].sort((a, b) => a - b)) {\n  const list = due.filter(t => t.stage === s);\n  if (list.length) sections.push('*Cancel-by within ' + s + ' days*', ...list.map(line), '');\n}\nif (missed.length) sections.push('*Notice window already closed* (renews regardless)', ...missed.map(t => '- *' + t.tool + '* (' + money(t) + '), renews ' + t.renewal + ' - ' + who(t)), '');\nif (unowned.length) sections.push('*No owner in the register*', ...unowned.map(t => '- ' + t.tool + ' (' + money(t) + ')'), '');\nconst atStake = [...due, ...missed].reduce((s, t) => s + t.annual_cost, 0);\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*SaaS renewals to decide on* - ' + (due.length + missed.length) + ' tools, ' + atStake.toLocaleString('en-US') + ' a year at stake', '', ...sections].join('\\n').trim();\nconst send_to = cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id;\nreturn [{ json: { text, send_to, post: due.length + missed.length + unowned.length > 0, keys: [...due.map(t => [t.key, t.stage]), ...missed.map(t => [t.key, 'missed'])] } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "a548d7e8-4841-4f68-a77d-477d92dba548",
+      "name": "Anything to post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "01c30061-55d8-4c11-a674-0674db6c01c3",
+              "leftValue": "={{ $json.post }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "d58ab438-7c1d-42b8-a971-f971e62bd58a",
+      "name": "STOP: nothing due today",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "3a788ddd-48e2-4acd-a748-8748fb783a78",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "950f8027-fdab-49f7-a704-b704913e950f",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "19542940-a76f-4540-a7bf-d7bfe3c31954",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "72175b3e-ca98-43de-abf5-9bf5ecbd7217",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "f8ed4d83-c6da-4293-af4c-7f4cd4baf8ed",
+      "name": "Post the renewal digest",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $('Write the Slack digest').first().json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "ea727984-c7f1-4844-ad0e-1d0e71a7ea72",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "26c1f40b-b0cf-4e9b-a0bd-d0bde0f226c1",
+      "name": "STOP: test post - stages not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "ed19f3a9-da6b-48d9-a52e-c52eaae4ed19",
+      "name": "Remember posted stages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// After a live post only: each tool's stage is stored against its renewal date.\nconst store = $getWorkflowStaticData('global');\nconst sent = store.sent_stages || {};\nfor (const [k, s] of $('Write the Slack digest').first().json.keys) sent[k] = s;\nstore.sent_stages = sent;\nreturn [{ json: { remembered: Object.keys(sent).length } }];\n"
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Register connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register connected?": {
+      "main": [
+        [
+          {
+            "node": "Read the Register tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample tools",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Register tab": {
+      "main": [
+        [
+          {
+            "node": "Read register rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read register rows": {
+      "main": [
+        [
+          {
+            "node": "Combine register sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample tools": {
+      "main": [
+        [
+          {
+            "node": "Combine register sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine register sources": {
+      "main": [
+        [
+          {
+            "node": "Work out cancel-by stages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out cancel-by stages": {
+      "main": [
+        [
+          {
+            "node": "Write the Slack digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack digest": {
+      "main": [
+        [
+          {
+            "node": "Anything to post?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to post?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing due today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the renewal digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the renewal digest": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember posted stages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - stages not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

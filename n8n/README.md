@@ -1,8 +1,9 @@
 # n8n workflows
 
-Twelve workflows that run end to end on import, before a single credential exists,
-plus six single-file starters in [`starters/`](starters/) and fourteen older ones in
-[`archive/`](archive/).
+Thirteen workflows that run end to end on import, before a single credential exists,
+plus six single-file starters in [`starters/`](starters/), fourteen older ones in
+[`archive/`](archive/), and a library of one hundred single-workflow templates in
+[`library/`](library/) built and checked by a toolkit (see [`library/README.md`](library/README.md)).
 
 [`../docs/WORKFLOWS.md`](../docs/WORKFLOWS.md) indexes every one of them by mechanism,
 which is the faster way in if you are looking for a technique rather than an industry.
@@ -14,7 +15,7 @@ A folder name ending in `-published` is live on the
 holds `-publish.json` files that pass `submission_lint` with no errors and a matching
 `SUBMISSION-*.md` description, so they can be submitted as they are.
 
-**Published (13 templates)**
+**Published (17 templates)**
 
 | Folder | Template | n8n id |
 | --- | --- | --- |
@@ -31,8 +32,12 @@ holds `-publish.json` files that pass `submission_lint` with no errors and a mat
 | | Answer WhatsApp gold chain enquiries with Google Sheets, Twilio, and OpenAI | 20021 |
 | [clay-outbound-scoring-engine-published](clay-outbound-scoring-engine-published/) | Score Clay prospects, enrich qualified leads, and route them to Zoho CRM and Smartlead | 20022 |
 | | Classify Smartlead replies and build a daily call list with Zoho CRM and OpenAI | 20023 |
+| [support-email-rag-responder-published](support-email-rag-responder-published/) | Answer Gmail support emails with OpenAI and a Pinecone knowledge base | 20940 |
+| | Load help center pages into a Pinecone knowledge base with OpenAI embeddings | 20941 |
+| [starters/applicant-tracking-sync-published](starters/applicant-tracking-sync-published/) | Sync job applicants between Google Sheets and Notion and email stage updates with Gmail | 20943 |
+| [starters/cold-email-and-reply-triage-published](starters/cold-email-and-reply-triage-published/) | Send cold outreach from lead files and classify Gmail replies with OpenRouter | 20944 |
 
-**Can publish (21 templates)**
+**Can publish (17 templates, plus the 100 in [`library/`](library/))**
 
 | Folder | Template title in the `-publish.json` |
 | --- | --- |
@@ -48,14 +53,10 @@ holds `-publish.json` files that pass `submission_lint` with no errors and a mat
 | | Publish approved LinkedIn posts from a Google Sheets queue |
 | [zoho-crm-lead-router-can-publish](zoho-crm-lead-router-can-publish/) | Route inbound leads from forms, email and calls into Zoho CRM |
 | | Create next-action tasks for stalled deals in Zoho CRM |
-| [support-email-rag-responder-can-publish](support-email-rag-responder-can-publish/) | Answer support emails in Gmail from a Pinecone knowledge base with OpenAI |
-| | Load help pages into a Pinecone knowledge base with OpenAI embeddings |
 | [trello-sms-notifier-can-publish](trello-sms-notifier-can-publish/) | Send SMS alerts from new Trello cards with Twilio |
 | [starters/ai-news-digest-can-publish](starters/ai-news-digest-can-publish/) | Filter and summarise RSS news with AI into Google Sheets |
 | [starters/b2b-lead-sourcing-can-publish](starters/b2b-lead-sourcing-can-publish/) | Source and verify B2B leads with Apify into Google Sheets |
-| [starters/cold-email-and-reply-triage-can-publish](starters/cold-email-and-reply-triage-can-publish/) | Send cold outreach from a lead file and detect replies in Gmail |
 | [starters/newsletter-signup-to-mailchimp-can-publish](starters/newsletter-signup-to-mailchimp-can-publish/) | Subscribe newsletter signups to Mailchimp from a webhook and welcome them by email |
-| [starters/applicant-tracking-sync-can-publish](starters/applicant-tracking-sync-can-publish/) | Sync job applicants from Google Sheets to Notion and email them by stage |
 | [starters/whatsapp-lead-and-reminders-can-publish](starters/whatsapp-lead-and-reminders-can-publish/) | Score WhatsApp leads with AI and send reminders over Twilio |
 
 ## Workflows
@@ -74,6 +75,7 @@ holds `-publish.json` files that pass `submission_lint` with no errors and a mat
 | [pipedrive-referral-network-can-publish](pipedrive-referral-network-can-publish/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. A question about absence, which is why nothing event-driven answers it. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
 | [voice-avatar-reply-engine-can-publish](voice-avatar-reply-engine-can-publish/) | An enquiry triaged into a written reply, a synthesised voice note or an avatar video. Rendering has to be earned; complaints, legal and press get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
 | [trello-sms-notifier-can-publish](trello-sms-notifier-can-publish/) | A card on a watched list, its fields read from the card name, the description text or a custom field, composed into an SMS and sent. The smallest complete example of the conventions here. | Trello webhook |
+| [whatsapp-device-booking-agent](whatsapp-device-booking-agent/) | Teachers book shared school iPads over WhatsApp. An AI agent with four tool workflows (book, cancel, check availability, list my bookings) confirms before it changes anything, validates every date and time in the tools as well, and replies exactly once per message. Five workflows on Kapso. | Kapso webhook |
 
 ## Importing one
 

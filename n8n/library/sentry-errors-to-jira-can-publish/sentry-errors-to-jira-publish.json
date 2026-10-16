@@ -1,0 +1,742 @@
+{
+  "name": "Open Jira issues from repeated Sentry errors",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Open Jira issues from repeated Sentry errors\n\n**Who's it for**\nProduct engineering teams of 3 to 40 who use Sentry for errors and Jira for planned work, and find that real bugs stay in Sentry because nobody files them. Only errors that hit enough people become tickets, and each only once.\n\n**How it works**\n1. Every hour it lists unresolved issues from each project in `SENTRY_PROJECTS` for the last 24 hours, sorted by frequency, or sample issues until Sentry is connected.\n2. An issue qualifies with at least `MIN_EVENTS` events and `MIN_USERS` affected users, or with any users at `fatal` level. Ignored and muted issues are skipped.\n3. One Jira search looks for issues labelled `sentry-<id>` for every candidate. Linked ones are skipped; a linked issue already marked Done is reported as a regression instead.\n4. The rest become Jira bugs with the error, culprit, counts and a Sentry link, a priority from `PRIORITY_RULES`, and the `sentry-<id>` label that prevents duplicates.\n\n**How to set up**\n1. Run it once as imported. It checks sample errors and stops at `STOP: dry run - Jira untouched`.\n2. Add a Header Auth credential to `Fetch unresolved Sentry issues` (name `Authorization`, value `Bearer` plus an internal integration token), set `SENTRY_ORG`, `SENTRY_PROJECTS` and `USE_SENTRY = true`.\n3. Add a Jira Software Cloud credential to `Search Jira for linked issues` and `Create the Jira issue`, and set `JIRA_SITE` and `JIRA_PROJECT`.\n4. Check the plan in `Decide what to open`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Sentry organisation with an internal integration token\n- A Jira Cloud project with a Bug issue type\n\n**How to customize**\n- `MIN_EVENTS` and `MIN_USERS` set how loud an error must be before it becomes a ticket.\n- `PRIORITY_RULES` maps affected users and level to Jira priority names.\n- `MAX_PER_RUN` caps how many issues one run can open.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "174a74f2-5717-4c4e-9a00-174a74f213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 20 past every hour. Thresholds, the priority ladder and the Jira project live in `config`; `List Sentry projects` makes one item per project.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "138b8fc7-5717-4c4e-9a00-138b8fc71000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read unresolved errors\n\nSentry is asked for unresolved issues from the last 24 hours, sorted by frequency. `Load sample Sentry issues` returns the same objects, including an ignored issue and a fatal one with a single user.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "128b8e34-5717-4c4e-9a00-128b8e341001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Filter and check Jira once\n\nThe threshold runs before any Jira call, and all candidates go into one JQL search on their `sentry-<id>` labels, so the duplicate check costs one request however many errors qualify.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "158b92ed-5717-4c4e-9a00-158b92ed1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Open the Jira bugs\n\nA linked ticket marked Done while the error continues is reported as a regression rather than duplicated. `Create in Jira?` needs a live run and a Jira site, and `MAX_PER_RUN` is enforced in code.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "148b915a-5717-4c4e-9a00-148b915a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "3a4ca991-774d-4641-a64b-064b38dc3a4c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// OPEN JIRA ISSUES FROM REPEATED SENTRY ERRORS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SENTRY false -> SAMPLE errors. JIRA_SITE blank -> nothing is treated as linked and nothing is created.\n// DRY_RUN true -> the plan is shown, Jira is not changed.\n\n// set true after adding the Header Auth credential to the Sentry node\nconst USE_SENTRY = false;\n// organisation slug from your Sentry URL\nconst SENTRY_ORG = 'northwind';\n// project slugs to watch\nconst SENTRY_PROJECTS = [\n  \"web-app\",\n  \"api\"\n];\n// events in the last 24 hours before an error qualifies...\nconst MIN_EVENTS = 50;\n// ...and affected users; fatal errors need only one user\nconst MIN_USERS = 5;\n// first rule whose min_users is met sets the priority; fatal level is raised one step\nconst PRIORITY_RULES = [\n  {\n    min_users: 100,\n    priority: \"Highest\"\n  },\n  {\n    min_users: 25,\n    priority: \"High\"\n  },\n  {\n    min_users: 0,\n    priority: \"Medium\"\n  }\n];\n// your Jira host, e.g. yourcompany.atlassian.net; blank skips Jira\nconst JIRA_SITE = '';\n// project the issues are created in\nconst JIRA_PROJECT = 'BUG';\n// hard ceiling on Jira issues per run\nconst MAX_PER_RUN = 5;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_sentry: USE_SENTRY,\n    sentry_org: SENTRY_ORG,\n    sentry_projects: SENTRY_PROJECTS,\n    min_events: MIN_EVENTS,\n    min_users: MIN_USERS,\n    priority_rules: PRIORITY_RULES,\n    jira_site: JIRA_SITE,\n    jira_project: JIRA_PROJECT,\n    max_per_run: MAX_PER_RUN,\n    dry_run: DRY_RUN,\n    jira_enabled: JIRA_SITE.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "7ecc7731-293b-41e1-a146-41464d3c7ecc",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "fa268310-3103-4e10-afe5-7fe5f893fa26",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "d0aa0758-86ef-4bd8-a502-7502d40bd0aa",
+      "name": "List Sentry projects",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per project for the issues call.\nreturn $('config').first().json.sentry_projects.map(project => ({ json: { project } }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "1aff3374-efb0-4734-ac27-ec27e4571aff",
+      "name": "Sentry connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "281b3962-68ff-4ec2-ad8b-0d8b5711281b",
+              "leftValue": "={{ $('config').first().json.use_sentry }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "8da01b69-4a36-4499-a672-6672bc248da0",
+      "name": "Fetch unresolved Sentry issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://sentry.io/api/0/projects/' + $('config').first().json.sentry_org + '/' + $json.project + '/issues/' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "is:unresolved"
+            },
+            {
+              "name": "statsPeriod",
+              "value": "24h"
+            },
+            {
+              "name": "sort",
+              "value": "freq"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "837698a6-32d0-40c6-a3d6-e3d6cbf58376",
+      "name": "Load sample Sentry issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SENTRY is true. Sentry issue objects as the API returns them.\nconst ago = h => new Date(Date.now() - h * 36e5).toISOString();\nconst iss = (id, project, title, culprit, count, users, level = 'error', extra = {}) => ({ id, shortId: project.toUpperCase() + '-' + id.slice(-3), title, culprit,\n  permalink: 'https://northwind.sentry.example/issues/' + id + '/', count: String(count), userCount: users, level, status: 'unresolved',\n  firstSeen: ago(30), lastSeen: ago(0.2), project: { slug: project }, isUnhandled: true, metadata: { type: title.split(':')[0] }, ...extra });\nreturn [\n  iss('4410101', 'web-app', \"TypeError: Cannot read properties of undefined (reading 'total')\", 'CheckoutSummary in src/checkout/Summary.tsx', 1840, 212),\n  iss('4410102', 'api', 'IntegrityError: duplicate key value violates unique constraint \"orders_ref_key\"', 'orders.create', 96, 31),\n  iss('4410103', 'api', 'TimeoutError: upstream payment provider', 'payments.capture', 410, 3),\n  iss('4410104', 'web-app', 'ChunkLoadError: Loading chunk 7 failed', 'app.bootstrap', 75, 40, 'error', { status: 'ignored' }),\n  iss('4410105', 'api', 'OutOfMemoryError in invoice renderer', 'pdf.render', 4, 1, 'fatal'),\n  iss('4410106', 'web-app', 'RangeError: Invalid time value', 'formatDate in src/utils/date.ts', 120, 18),\n  iss('4410107', 'api', 'KeyError: customer_id', 'webhooks.stripe', 12, 2),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "f942e9ad-f1e1-459d-a7b7-a7b79c08f942",
+      "name": "Combine Sentry sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "4fdfa399-81d2-4dc9-a0c5-20c550944fdf",
+      "name": "Pick errors over the threshold",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Loud enough = MIN_EVENTS and MIN_USERS, or fatal with any user. Builds one Jira\n// search for all candidates at once, using the sentry-<id> label as the link.\nconst cfg = $('config').first().json;\nconst cand = [], quiet = [];\nfor (const { json: i } of $input.all()) {\n  if (!i.id) continue;\n  const events = Number(i.count || 0), users = Number(i.userCount || 0);\n  if (i.status && i.status !== 'unresolved') { quiet.push({ id: i.id, title: i.title, reason: 'status ' + i.status }); continue; }\n  const loud = (events >= cfg.min_events && users >= cfg.min_users) || (i.level === 'fatal' && users >= 1);\n  if (!loud) { quiet.push({ id: i.id, title: i.title, reason: events + ' events, ' + users + ' users: under threshold' }); continue; }\n  cand.push({ id: i.id, short_id: i.shortId, title: i.title, culprit: i.culprit || '', url: i.permalink, events, users, level: i.level,\n    project: i.project?.slug || '', first_seen: i.firstSeen, last_seen: i.lastSeen, label: 'sentry-' + i.id });\n}\ncand.sort((a, b) => b.users - a.users || b.events - a.events);\nconst jql = cand.length ? 'labels in (' + cand.map(c => '\"' + c.label + '\"').join(', ') + ')' : '';\nreturn [{ json: { candidates: cand, quiet, search: { jql, fields: ['labels', 'status', 'summary'], maxResults: 100 } } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "f7d3ec58-9b24-40d8-a403-3403c50bf7d3",
+      "name": "Any candidates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "50ef156e-7510-4f0e-aaab-4aab43ed50ef",
+              "leftValue": "={{ $json.candidates.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "dd743dee-40c6-4f8e-a6c4-46c4906ddd74",
+      "name": "STOP: no error over the threshold",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "e7e9ebcd-183a-4dbd-a17a-017ad0e8e7e9",
+      "name": "Jira connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fa7ec301-9f07-4cb1-a8e9-d8e97dccfa7e",
+              "leftValue": "={{ $('config').first().json.jira_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "542a5d81-ec33-4f31-a838-c838084c542a",
+      "name": "Search Jira for linked issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('config').first().json.jira_site + '/rest/api/3/search/jql' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "jiraSoftwareCloudApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.search) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "9ef83261-ea41-4e11-a1be-31bed96c9ef8",
+      "name": "Assume nothing is linked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Without Jira there is nothing to search, so every candidate counts as unlinked.\nreturn [{ json: { issues: [] } }];\n"
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "85482a2f-54ee-417f-a9d5-b9d5d8f68548",
+      "name": "Combine linked issues",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "be615938-5f82-47b8-a600-6600bb2bbe61",
+      "name": "Decide what to open",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Linked and open -> skip. Linked and Done -> report as a regression, do not duplicate.\n// Unlinked -> open, up to MAX_PER_RUN, with a priority from PRIORITY_RULES.\nconst cfg = $('config').first().json;\nconst { candidates, quiet } = $('Pick errors over the threshold').first().json;\nconst linked = {};\nfor (const { json: page } of $input.all()) for (const iss of page.issues || []) for (const l of iss.fields?.labels || []) if (l.startsWith('sentry-')) linked[l] = iss;\nconst steps = cfg.priority_rules.map(r => r.priority);\nconst open = [], held = [];\nfor (const c of candidates) {\n  const j = linked[c.label];\n  if (j) {\n    const done = /done|closed|resolved/i.test(j.fields?.status?.name || '');\n    held.push({ id: c.id, title: c.title, reason: done ? 'linked ' + j.key + ' is ' + j.fields.status.name + ' but the error is still happening (regression)' : 'already linked to ' + j.key });\n    continue;\n  }\n  const rule = cfg.priority_rules.find(r => c.users >= r.min_users) || cfg.priority_rules[cfg.priority_rules.length - 1];\n  const idx = steps.indexOf(rule.priority);\n  const priority = c.level === 'fatal' && idx > 0 ? steps[idx - 1] : rule.priority;\n  open.push({ ...c, priority });\n}\nfor (const c of open.slice(cfg.max_per_run)) held.push({ id: c.id, title: c.title, reason: 'over MAX_PER_RUN, next run' });\nreturn [{ json: { open: open.slice(0, cfg.max_per_run), held, quiet } }];\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "b87f66d8-301a-4358-a6f2-a6f24f8bb87f",
+      "name": "Shape Jira issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Jira Bug per error, description in Atlassian Document Format.\nconst cfg = $('config').first().json;\nconst p = t => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });\nreturn $input.first().json.open.map(c => ({ json: { sentry_id: c.id, title: c.title, priority: c.priority, body: { fields: {\n  project: { key: cfg.jira_project }, issuetype: { name: 'Bug' }, priority: { name: c.priority },\n  summary: ('[' + c.project + '] ' + c.title).slice(0, 250), labels: ['sentry', c.label],\n  description: { type: 'doc', version: 1, content: [\n    p(c.events + ' events affecting ' + c.users + ' users in the last 24 hours (level: ' + c.level + ').'),\n    p('Where: ' + (c.culprit || 'unknown')),\n    p('First seen ' + c.first_seen.slice(0, 16).replace('T', ' ') + ' UTC, last seen ' + c.last_seen.slice(0, 16).replace('T', ' ') + ' UTC.'),\n    { type: 'paragraph', content: [{ type: 'text', text: 'Open ' + c.short_id + ' in Sentry', marks: [{ type: 'link', attrs: { href: c.url } }] }] },\n  ] },\n} } } }));\n"
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "3bedd7a7-4141-4977-ab54-db5438be3bed",
+      "name": "Create in Jira?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "06f7fab7-d645-4787-a2fd-82fd184e06f7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "05f7f924-13f1-45e4-a87a-b87ad40705f7",
+              "leftValue": "={{ $('config').first().json.jira_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        176
+      ]
+    },
+    {
+      "id": "d4bfab4f-4076-489f-adf2-ddf2e8d6d4bf",
+      "name": "STOP: dry run - Jira untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        352
+      ]
+    },
+    {
+      "id": "8f36d86f-f311-4bbf-ae84-6e8408b68f36",
+      "name": "Create the Jira issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('config').first().json.jira_site + '/rest/api/3/issue' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "jiraSoftwareCloudApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3200,
+        176
+      ]
+    },
+    {
+      "id": "805c7b59-e45d-4989-ac04-8c0471d4805c",
+      "name": "Report what was opened",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Jira keys next to the Sentry ids, for the execution log.\nconst shaped = $('Shape Jira issues').all();\nreturn [{ json: { opened: $input.all().map((it, i) => ({ jira: it.json.key, sentry: shaped[i]?.json.sentry_id, priority: shaped[i]?.json.priority })) } }];\n"
+      },
+      "position": [
+        3424,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List Sentry projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Sentry projects": {
+      "main": [
+        [
+          {
+            "node": "Sentry connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentry connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch unresolved Sentry issues",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample Sentry issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch unresolved Sentry issues": {
+      "main": [
+        [
+          {
+            "node": "Combine Sentry sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample Sentry issues": {
+      "main": [
+        [
+          {
+            "node": "Combine Sentry sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Sentry sources": {
+      "main": [
+        [
+          {
+            "node": "Pick errors over the threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick errors over the threshold": {
+      "main": [
+        [
+          {
+            "node": "Any candidates?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any candidates?": {
+      "main": [
+        [
+          {
+            "node": "Jira connected?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no error over the threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira connected?": {
+      "main": [
+        [
+          {
+            "node": "Search Jira for linked issues",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assume nothing is linked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Jira for linked issues": {
+      "main": [
+        [
+          {
+            "node": "Combine linked issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assume nothing is linked": {
+      "main": [
+        [
+          {
+            "node": "Combine linked issues",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine linked issues": {
+      "main": [
+        [
+          {
+            "node": "Decide what to open",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide what to open": {
+      "main": [
+        [
+          {
+            "node": "Shape Jira issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Jira issues": {
+      "main": [
+        [
+          {
+            "node": "Create in Jira?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create in Jira?": {
+      "main": [
+        [
+          {
+            "node": "Create the Jira issue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Jira untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create the Jira issue": {
+      "main": [
+        [
+          {
+            "node": "Report what was opened",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

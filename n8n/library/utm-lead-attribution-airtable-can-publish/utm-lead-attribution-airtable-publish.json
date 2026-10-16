@@ -1,0 +1,757 @@
+{
+  "name": "Capture form leads with UTM attribution into Airtable",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Capture form leads with UTM attribution into Airtable\n\n**Who's it for**\nMarketers and founders who run ads and content at the same time and cannot say which channel a lead came from. Every form lead gets a channel, and a returning lead keeps the channel that first brought them in.\n\n**How it works**\n1. Your website form posts the lead plus the page URL and referrer to a webhook. The form gets an answer straight away.\n2. Invalid emails are rejected with a 422 and honeypot submissions are answered quietly and dropped.\n3. UTM tags, gclid, fbclid and msclkid are read from the page URL, and the referrer decides between organic, social, referral and direct when there are no tags.\n4. The lead is looked up in Airtable by email. A new lead gets first touch = last touch; a returning lead keeps its first touch, gets a new last touch and a touch count, and is upserted on the Email field.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. It classifies a sample returning lead and stops at `STOP: dry run - Airtable untouched`.\n2. Create a Leads table with the columns listed in `Merge first and last touch`, add an Airtable token credential to both Airtable nodes and fill in `AIRTABLE_BASE_ID`.\n3. Point your form at the production webhook URL with fields email, name, company, page_url, referrer and website (left empty, a honeypot).\n4. Send one test lead, check the classification in the execution, then set `DRY_RUN = false`.\n\n**Requirements**\n- A website form that can post JSON to a URL\n- An Airtable base with a Leads table\n\n**How to customize**\n- `PAID_MEDIUMS`, `SOCIAL_HOSTS` and `SEARCH_HOSTS` hold the classification rules.\n- `OWN_DOMAINS` keeps your own site from showing up as a referral.\n- `HONEYPOT_FIELD` names the hidden field that bots fill in.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "4845cb86-5717-4c4e-9a00-4845cb8613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive the lead\n\nThe form posts to `Lead form webhook`, which waits for a respond node so the visitor gets an answer within the same request. A manual run feeds `Load sample lead` through the same path.",
+        "height": 688,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b085708b-5717-4c4e-9a00-b085708b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Validate, classify and answer\n\nRules run in a fixed order: click id or paid medium, then email, social, search and referral. The form is answered before Airtable is touched, so a slow lookup never delays the visitor. Spam gets a normal reply and is dropped.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "af856ef8-5717-4c4e-9a00-af856ef81001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Look up the email\n\nA lookup by lowercased email finds a returning lead before anything is written. Without a base id `Load sample existing record` returns a first touch from 23 days ago, so the merge rule is visible.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        0
+      ],
+      "id": "b28573b1-5717-4c4e-9a00-b28573b11002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Keep first touch, write last touch\n\nFirst touch fields are copied from the existing record and never overwritten. The upsert merges on Email, so a double submit updates one row instead of creating two. It runs only when `DRY_RUN` is false.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        0
+      ],
+      "id": "b185721e-5717-4c4e-9a00-b185721e1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "7c426d15-b4ff-4885-ac78-8c7877807c42",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// CAPTURE FORM LEADS WITH UTM ATTRIBUTION INTO AIRTABLE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// AIRTABLE_BASE_ID blank -> no lookup; a SAMPLE existing record is used instead.\n// DRY_RUN true -> the lead is classified and answered, Airtable is not written.\n\n// Airtable base id (starts with app); blank uses the sample lookup\nconst AIRTABLE_BASE_ID = '';\n// table name or id holding the leads\nconst AIRTABLE_TABLE = 'Leads';\n// your own sites; a referrer from these counts as direct\nconst OWN_DOMAINS = [\n  \"yourcompany.example\"\n];\n// utm_medium values that mean paid\nconst PAID_MEDIUMS = [\n  \"cpc\",\n  \"ppc\",\n  \"paid\",\n  \"paid_social\",\n  \"paidsocial\",\n  \"display\",\n  \"cpm\",\n  \"retargeting\"\n];\n// utm_medium values that mean email\nconst EMAIL_MEDIUMS = [\n  \"email\",\n  \"newsletter\",\n  \"e-mail\"\n];\n// referrer hosts or utm_source values that mean social\nconst SOCIAL_HOSTS = [\n  \"facebook.com\",\n  \"instagram.com\",\n  \"linkedin.com\",\n  \"lnkd.in\",\n  \"t.co\",\n  \"x.com\",\n  \"twitter.com\",\n  \"reddit.com\",\n  \"youtube.com\",\n  \"threads.net\"\n];\n// referrer hosts that mean organic search\nconst SEARCH_HOSTS = [\n  \"google.\",\n  \"bing.com\",\n  \"duckduckgo.com\",\n  \"search.yahoo.com\",\n  \"ecosia.org\",\n  \"search.brave.com\"\n];\n// hidden form field; a filled value marks the submission as spam\nconst HONEYPOT_FIELD = 'website';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    own_domains: OWN_DOMAINS,\n    paid_mediums: PAID_MEDIUMS,\n    email_mediums: EMAIL_MEDIUMS,\n    social_hosts: SOCIAL_HOSTS,\n    search_hosts: SEARCH_HOSTS,\n    honeypot_field: HONEYPOT_FIELD,\n    dry_run: DRY_RUN,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "48f6fa6d-428b-4a5d-abb8-3bb85a4848f6",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "4cf42b6c-998c-41ac-a772-4772917f4cf4",
+      "name": "Lead form webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "7590238a-381a-4c6a-aae1-8ae18ea97590",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-attribution",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "04b021c4-b6d8-4c84-a7a4-d7a4076704b0",
+      "name": "Read the submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The webhook body when this run came from the form; nothing when it was started by hand.\nlet body = null;\ntry { body = $('Lead form webhook').first().json.body || null; } catch (e) { body = null; }\nreturn [{ json: { from_webhook: Boolean(body), body: body || {} } }];\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "62283866-f261-4486-a440-a44015356228",
+      "name": "Real submission?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3ffc8f74-0759-4334-ab3f-8b3ff8573ffc",
+              "leftValue": "={{ $json.from_webhook }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        704,
+        176
+      ]
+    },
+    {
+      "id": "c226a4a7-f26b-4677-a5c6-b5c671bec226",
+      "name": "Load sample lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used for manual runs. A returning visitor who clicked a Google ad.\nreturn [{ json: { from_webhook: false, body: {\n  email: 'Priya.Nair@northwind-labs.example', name: 'Priya Nair', company: 'Northwind Labs', website: '',\n  page_url: 'https://www.yourcompany.example/demo?utm_source=google&utm_medium=cpc&utm_campaign=q4-demo&utm_term=crm%20for%20agencies&gclid=EAIaIQobChMI-sample',\n  referrer: 'https://www.google.com/',\n} } }];\n"
+      },
+      "position": [
+        928,
+        352
+      ]
+    },
+    {
+      "id": "eb12494e-100c-4cee-a74e-b74eb90deb12",
+      "name": "Combine submission sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1152,
+        176
+      ]
+    },
+    {
+      "id": "7f3cb01d-646e-490d-ac40-6c402c387f3c",
+      "name": "Check and classify the lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Validates, then classifies. Order of the channel rules matters: a click id or a\n// paid medium beats everything, then email, then social, then search referrers,\n// then any other outside referrer. No tags and no outside referrer is direct.\nconst cfg = $('config').first().json;\nconst b = $input.first().json.body;\nconst email = String(b.email || '').trim().toLowerCase();\nif (String(b[cfg.honeypot_field] || '').trim()) return [{ json: { verdict: 'spam', email } }];\nif (!/^[^\\s@'\"]+@[^\\s@'\"]+\\.[a-z]{2,}$/.test(email)) return [{ json: { verdict: 'invalid', error: 'Please enter a valid email address.' } }];\nlet url; try { url = new URL(String(b.page_url || '')); } catch (e) { url = null; }\nconst q = k => (url?.searchParams.get(k) || '').trim().toLowerCase();\nlet refHost = ''; try { refHost = new URL(String(b.referrer || '')).hostname.replace(/^www\\./, ''); } catch (e) {}\nconst own = cfg.own_domains.some(d => refHost === d || refHost.endsWith('.' + d));\nif (own) refHost = '';\nconst utm = { source: q('utm_source'), medium: q('utm_medium'), campaign: q('utm_campaign'), term: q('utm_term'), content: q('utm_content') };\nconst clickId = ['gclid', 'msclkid', 'fbclid', 'li_fat_id', 'ttclid'].find(k => url?.searchParams.get(k));\nconst isSocial = h => cfg.social_hosts.some(s => h === s || h.endsWith('.' + s) || h.split('.')[0] === s.split('.')[0]);\nlet channel, rule;\nif (cfg.paid_mediums.includes(utm.medium) || (clickId && clickId !== 'fbclid')) { channel = 'paid'; rule = utm.medium ? 'utm_medium=' + utm.medium : clickId; }\nelse if (cfg.email_mediums.includes(utm.medium)) { channel = 'email'; rule = 'utm_medium=' + utm.medium; }\nelse if ((utm.source && isSocial(utm.source)) || (refHost && isSocial(refHost))) { channel = 'social'; rule = utm.source ? 'utm_source=' + utm.source : 'referrer ' + refHost; }\nelse if (refHost && cfg.search_hosts.some(s => refHost.includes(s))) { channel = 'organic'; rule = 'referrer ' + refHost; }\nelse if (utm.source || refHost) { channel = 'referral'; rule = utm.source ? 'utm_source=' + utm.source : 'referrer ' + refHost; }\nelse { channel = 'direct'; rule = 'no tags, no outside referrer'; }\nconst landing = url ? url.origin + url.pathname : '';\nreturn [{ json: { verdict: 'accept', email, name: String(b.name || '').trim(), company: String(b.company || '').trim(),\n  touch: { channel, rule, source: utm.source || refHost || '(direct)', medium: utm.medium, campaign: utm.campaign, term: utm.term, content: utm.content,\n    click_id: clickId || '', landing, at: new Date().toISOString() } } }];\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "d49274c9-57a4-4ff9-a2a5-82a596c4d492",
+      "name": "Route the submission",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "18ad6013-605d-4823-aca2-5ca23fca18ad",
+                    "leftValue": "={{ $json.verdict }}",
+                    "rightValue": "accept",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "accept"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "bf8332ee-41ea-448e-a143-3143116dbf83",
+                    "leftValue": "={{ $json.verdict }}",
+                    "rightValue": "spam",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "spam"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "df6e1c29-e13f-4959-aee7-fee7d364df6e",
+      "name": "Reply to the form",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ ok: true, channel: $json.touch.channel }) }}",
+        "options": {}
+      },
+      "position": [
+        1840,
+        176
+      ]
+    },
+    {
+      "id": "b7a0b889-20c7-47b9-ac67-bc67b504b7a0",
+      "name": "Answer spam quietly",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ ok: true }) }}",
+        "options": {}
+      },
+      "position": [
+        1840,
+        352
+      ]
+    },
+    {
+      "id": "48b88e56-2b5b-4f76-a9af-39afa4e548b8",
+      "name": "STOP: spam dropped",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2064,
+        352
+      ]
+    },
+    {
+      "id": "1fc37961-4c5c-4511-a573-1573bc6c1fc3",
+      "name": "Reject the submission",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ ({ ok: false, error: $json.error }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "position": [
+        1840,
+        512
+      ]
+    },
+    {
+      "id": "8b6aae21-9826-4dd1-ae7d-6e7d7fac8b6a",
+      "name": "Airtable connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4bc42a59-21c4-4889-a384-e384f8d44bc4",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "7d5681ba-3716-4b9a-a964-d96464197d56",
+      "name": "Find the lead in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"LOWER({Email})='\" + $json.email + \"'\" }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2528,
+        176
+      ]
+    },
+    {
+      "id": "51eacb89-e5f9-4ab9-a1c1-b1c19c0451ea",
+      "name": "Load sample existing record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until AIRTABLE_BASE_ID is set: the sample lead first arrived 23 days ago from organic search.\nreturn [{ json: { records: [{ id: 'recSample001', fields: {\n  Email: 'priya.nair@northwind-labs.example', 'First touch channel': 'organic', 'First touch source': 'google.com', 'First touch campaign': '',\n  'First touch date': new Date(Date.now() - 23 * 864e5).toISOString(), 'First landing page': 'https://www.yourcompany.example/blog/agency-crm-checklist', Touches: 1,\n} }] } }];\n"
+      },
+      "position": [
+        2528,
+        352
+      ]
+    },
+    {
+      "id": "1ad7bbe8-15d1-4368-af44-df44dedb1ad7",
+      "name": "Combine lookup results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2752,
+        176
+      ]
+    },
+    {
+      "id": "e033a0f1-bc8b-4fa1-a6e9-06e97c7ce033",
+      "name": "Merge first and last touch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Airtable columns: Email, Name, Company, First touch channel/source/campaign/date,\n// First landing page, Last touch channel/source/medium/campaign/content/term/date,\n// Last landing page, Click id, Touches. First touch is written once and never moved.\nconst lead = $('Check and classify the lead').first().json;\nconst existing = ($input.first().json.records || [])[0]?.fields;\nconst t = lead.touch;\nconst first = existing && existing['First touch channel'] ? {\n  'First touch channel': existing['First touch channel'], 'First touch source': existing['First touch source'] || '',\n  'First touch campaign': existing['First touch campaign'] || '', 'First touch date': existing['First touch date'] || '', 'First landing page': existing['First landing page'] || '',\n} : { 'First touch channel': t.channel, 'First touch source': t.source, 'First touch campaign': t.campaign, 'First touch date': t.at, 'First landing page': t.landing };\nconst fields = { Email: lead.email, ...(lead.name ? { Name: lead.name } : {}), ...(lead.company ? { Company: lead.company } : {}), ...first,\n  'Last touch channel': t.channel, 'Last touch source': t.source, 'Last touch medium': t.medium, 'Last touch campaign': t.campaign,\n  'Last touch content': t.content, 'Last touch term': t.term, 'Last touch date': t.at, 'Last landing page': t.landing, 'Click id': t.click_id,\n  Touches: Number(existing?.Touches || 0) + 1 };\nreturn [{ json: { returning: Boolean(existing), fields, payload: { performUpsert: { fieldsToMergeOn: ['Email'] }, typecast: true, records: [{ fields }] } } }];\n"
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "f1cdafb5-dd26-4925-af5a-ff5ad0e0f1cd",
+      "name": "Live and Airtable set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "48a67ca9-0257-41d9-accc-fccc17e448a6",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "47a67b16-4002-4036-aa1d-ea1d542547a6",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "5a0aba27-63c8-43f7-a3c6-c3c6d73e5a0a",
+      "name": "STOP: dry run - Airtable untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "adc3d09a-8f12-447a-ad21-1d218439adc3",
+      "name": "Upsert the lead in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3440,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead form webhook": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the submission": {
+      "main": [
+        [
+          {
+            "node": "Real submission?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real submission?": {
+      "main": [
+        [
+          {
+            "node": "Combine submission sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample lead": {
+      "main": [
+        [
+          {
+            "node": "Combine submission sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine submission sources": {
+      "main": [
+        [
+          {
+            "node": "Check and classify the lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check and classify the lead": {
+      "main": [
+        [
+          {
+            "node": "Route the submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route the submission": {
+      "main": [
+        [
+          {
+            "node": "Reply to the form",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer spam quietly",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject the submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer spam quietly": {
+      "main": [
+        [
+          {
+            "node": "STOP: spam dropped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to the form": {
+      "main": [
+        [
+          {
+            "node": "Airtable connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable connected?": {
+      "main": [
+        [
+          {
+            "node": "Find the lead in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample existing record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find the lead in Airtable": {
+      "main": [
+        [
+          {
+            "node": "Combine lookup results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample existing record": {
+      "main": [
+        [
+          {
+            "node": "Combine lookup results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine lookup results": {
+      "main": [
+        [
+          {
+            "node": "Merge first and last touch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge first and last touch": {
+      "main": [
+        [
+          {
+            "node": "Live and Airtable set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and Airtable set?": {
+      "main": [
+        [
+          {
+            "node": "Upsert the lead in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - Airtable untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,688 @@
+{
+  "name": "Report Mailchimp campaign results to Slack a day after sending",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Report Mailchimp campaign results to Slack a day after sending\n\n**Who's it for**\nEmail marketers and small teams who send a few Mailchimp campaigns a week and forget to look at the numbers once the day is over. The report arrives when the results have settled, with the weak spots flagged.\n\n**How it works**\n1. Every day at 10:00 it reads Mailchimp reports for campaigns sent in the last 48 hours, or 4 sample reports until Mailchimp is connected.\n2. Campaigns younger than 20 hours are left for tomorrow, and a campaign is only reported once.\n3. Open and click rates are compared with that list's own averages. A rate more than 20% below average is flagged, as are unsubscribes above 0.5%, bounces above 2% and any spam complaint.\n4. One Slack message lists each campaign with its numbers, its verdict and the reasons.\n\n**How to set up**\n1. Run it once as imported. It scores the sample reports and stops at `STOP: preview - nothing posted`.\n2. Add a Mailchimp credential to `Fetch recent campaign reports`, set `MAILCHIMP_DC` to the data centre in your API key (the part after the dash, e.g. us21) and set `USE_MAILCHIMP = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post with a [TEST] prefix. Set `TEST_RUN = false` to post normally and remember what was reported.\n\n**Requirements**\n- A Mailchimp account with sent campaigns\n- A Slack workspace\n\n**How to customize**\n- `MIN_HOURS` and `MAX_HOURS` set the reporting window after the send.\n- `DROP_PCT` decides how far below the list average a rate must fall to be flagged.\n- `BENCHMARKS` are used when Mailchimp has no list averages yet, for example on a new list.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7953f292-5717-4c4e-9a00-7953f29213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every day at 10:00 or by hand. The window, thresholds and fallback benchmarks all sit in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ec9805e7-5717-4c4e-9a00-ec9805e71000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read campaign reports\n\nOne call to the Mailchimp reports endpoint returns opens, clicks, bounces and the list averages together, so no per-campaign request is needed. `Load sample reports` keeps the real fraction and percent formats.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "eb980454-5717-4c4e-9a00-eb9804541001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Score against the list average\n\nEach campaign is judged against its own list, because a 25% open rate is poor on a customer list and normal on a cold one. Too-early and already-reported campaigns are listed as waiting, not dropped silently.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "ee98090d-5717-4c4e-9a00-ee98090d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nNothing is posted in preview. Only a live post records the campaign ids, so testing never stops tomorrow's real report from going out.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "ed98077a-5717-4c4e-9a00-ed98077a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "a0d06ec5-16ca-4335-aed7-ded77230a0d0",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REPORT MAILCHIMP CAMPAIGN RESULTS TO SLACK A DAY AFTER SENDING - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_MAILCHIMP false -> SAMPLE campaign reports.\n// SLACK_CHANNEL_ID blank -> the report is built but not posted.\n\n// set true after adding the Mailchimp credential\nconst USE_MAILCHIMP = false;\n// data centre from your API key, the part after the dash\nconst MAILCHIMP_DC = 'us21';\n// a campaign is reported once it is at least this many hours old\nconst MIN_HOURS = 20;\n// campaigns older than this are not picked up\nconst MAX_HOURS = 48;\n// open or click rate this many percent below the list average is flagged\nconst DROP_PCT = 20;\n// unsubscribe rate (percent of delivered) that is flagged\nconst UNSUB_ALERT_PCT = 0.5;\n// bounce rate (percent of sent) that is flagged\nconst BOUNCE_ALERT_PCT = 2;\n// percent; used when the list has no averages yet\nconst BENCHMARKS = {\n  open_rate: 35,\n  click_rate: 2.5\n};\n// channel for the report; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_mailchimp: USE_MAILCHIMP,\n    mailchimp_dc: MAILCHIMP_DC,\n    min_hours: MIN_HOURS,\n    max_hours: MAX_HOURS,\n    drop_pct: DROP_PCT,\n    unsub_alert_pct: UNSUB_ALERT_PCT,\n    bounce_alert_pct: BOUNCE_ALERT_PCT,\n    benchmarks: BENCHMARKS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "27aba9dd-7574-46cd-a1f0-31f03f7827ab",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "93edbe68-beb7-4de8-a345-43450d5b93ed",
+      "name": "Every day at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "09fe3ef9-4a0c-4b29-af3b-2f3bf03409fe",
+      "name": "Mailchimp connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed793d49-b779-4079-a1a5-71a58344ed79",
+              "leftValue": "={{ $('config').first().json.use_mailchimp }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "0cd043fd-0d7c-46ed-a887-b887cc580cd0",
+      "name": "Fetch recent campaign reports",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.mailchimp_dc + '.api.mailchimp.com/3.0/reports' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mailchimpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "count",
+              "value": "50"
+            },
+            {
+              "name": "since_send_time",
+              "value": "={{ new Date(Date.now() - $('config').first().json.max_hours * 3600e3).toISOString() }}"
+            },
+            {
+              "name": "fields",
+              "value": "reports.id,reports.campaign_title,reports.subject_line,reports.list_id,reports.list_name,reports.emails_sent,reports.send_time,reports.bounces,reports.unsubscribed,reports.abuse_reports,reports.opens,reports.clicks,reports.list_stats"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "ffb20648-b886-4fc8-af82-ff82ee7bffb2",
+      "name": "Read campaign reports",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Mailchimp /reports -> one item with every report, unchanged. Scoring reads this shape.\nreturn [{ json: { reports: $input.all().flatMap(i => i.json.reports || []) } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "5043ade0-171a-47e0-a2ac-c2aceb235043",
+      "name": "Load sample reports",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_MAILCHIMP is true. Same fields as Mailchimp /reports.\n// Report rates are fractions; list_stats rates are percents, as in the real API.\nconst hoursAgo = h => new Date(Date.now() - h * 3600e3).toISOString();\nconst r = (id, title, list, sent, h, opens, clicks, unsub, hard, soft, abuse, ls) => ({\n  id, campaign_title: title, subject_line: title, list_id: list.toLowerCase().replace(/\\W+/g, ''), list_name: list, emails_sent: sent, send_time: hoursAgo(h),\n  bounces: { hard_bounces: hard, soft_bounces: soft, syndication_bounces: 0 }, unsubscribed: unsub, abuse_reports: abuse,\n  opens: { unique_opens: Math.round(sent * opens), open_rate: opens }, clicks: { unique_clicks: Math.round(sent * clicks), click_rate: clicks }, list_stats: ls });\nreturn [{ json: { reports: [\n  r('c_sample_1', 'October product update', 'Customers', 4200, 26, 0.462, 0.051, 6, 10, 14, 0, { open_rate: 41.2, click_rate: 4.1, sub_rate: 2.1, unsub_rate: 0.2 }),\n  r('c_sample_2', 'Black Friday early access', 'Newsletter', 12800, 31, 0.214, 0.012, 96, 210, 140, 2, { open_rate: 33.5, click_rate: 2.4, sub_rate: 1.8, unsub_rate: 0.3 }),\n  r('c_sample_3', 'Webinar reminder', 'Webinar leads', 640, 7, 0.38, 0.09, 0, 1, 0, 0, null),\n  r('c_sample_4', 'Partner spotlight', 'New list', 300, 22, 0.26, 0.031, 0, 0, 2, 0, null),\n] } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "16c05870-c4da-4570-aa98-7a988e3316c0",
+      "name": "Combine report sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "82d94a66-1c50-4686-a60b-f60b333582d9",
+      "name": "Score each campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Window: MIN_HOURS..MAX_HOURS after send, so the numbers have settled.\n// Each rate is compared with the list average from list_stats, or BENCHMARKS for\n// a list with no history. Already-reported campaign ids live in static data.\nconst cfg = $('config').first().json;\nconst reported = new Set($getWorkflowStaticData('global').reported || []);\nconst pct = v => v == null ? null : (v <= 1 ? v * 100 : v);\nconst r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;\nconst now = Date.now();\nconst campaigns = [], waiting = [];\nfor (const rep of $input.first().json.reports) {\n  const age = (now - new Date(rep.send_time).getTime()) / 3600e3;\n  if (age < cfg.min_hours) { waiting.push({ title: rep.campaign_title, reason: 'sent ' + Math.round(age) + 'h ago, too early' }); continue; }\n  if (age > cfg.max_hours) continue;\n  if (reported.has(rep.id)) { waiting.push({ title: rep.campaign_title, reason: 'already reported' }); continue; }\n  const sent = rep.emails_sent || 0;\n  const bounced = (rep.bounces?.hard_bounces || 0) + (rep.bounces?.soft_bounces || 0) + (rep.bounces?.syndication_bounces || 0);\n  const delivered = Math.max(1, sent - bounced);\n  const open = pct(rep.opens?.open_rate) ?? 0, click = pct(rep.clicks?.click_rate) ?? 0;\n  const avgOpen = pct(rep.list_stats?.open_rate) ?? cfg.benchmarks.open_rate;\n  const avgClick = pct(rep.list_stats?.click_rate) ?? cfg.benchmarks.click_rate;\n  const unsubRate = rep.unsubscribed / delivered * 100, bounceRate = sent ? bounced / sent * 100 : 0;\n  const flags = [], wins = [];\n  const floor = avg => avg * (1 - cfg.drop_pct / 100);\n  if (open < floor(avgOpen)) flags.push('opens ' + r1(open) + '% vs ' + r1(avgOpen) + '% average');\n  else if (open > avgOpen * 1.1) wins.push('opens ' + r1(open - avgOpen) + ' pts above average');\n  if (click < floor(avgClick)) flags.push('clicks ' + r2(click) + '% vs ' + r2(avgClick) + '% average');\n  else if (click > avgClick * 1.1) wins.push('clicks ' + r2(click - avgClick) + ' pts above average');\n  if (unsubRate > cfg.unsub_alert_pct) flags.push('unsubscribes ' + r2(unsubRate) + '%');\n  if (bounceRate > cfg.bounce_alert_pct) flags.push('bounces ' + r2(bounceRate) + '% (' + (rep.bounces?.hard_bounces || 0) + ' hard)');\n  if (rep.abuse_reports > 0) flags.push(rep.abuse_reports + ' spam complaint(s)');\n  campaigns.push({ id: rep.id, title: rep.campaign_title, list: rep.list_name, sent, hours: Math.round(age),\n    open_rate: r1(open), click_rate: r2(click), unsub_rate: r2(unsubRate), bounce_rate: r2(bounceRate),\n    baseline: rep.list_stats ? 'list average' : 'BENCHMARKS', flags, wins,\n    verdict: flags.length >= 2 ? 'needs a look' : flags.length === 1 ? 'mixed' : wins.length ? 'above average' : 'in line' });\n}\nreturn [{ json: { campaigns, waiting } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "c1f72540-6d3c-4140-a0c1-10c177c3c1f7",
+      "name": "Build the Slack report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message for all campaigns in the window; quiet campaigns get one line.\nconst cfg = $('config').first().json;\nconst { campaigns, waiting } = $input.first().json;\nconst icon = { 'needs a look': ':red_circle:', mixed: ':large_orange_circle:', 'in line': ':white_circle:', 'above average': ':large_green_circle:' };\nconst blocks = campaigns.map(c => [\n  icon[c.verdict] + ' *' + c.title + '* (' + c.list + ', ' + c.sent.toLocaleString('en-US') + ' sent, ' + c.hours + 'h ago): ' + c.verdict,\n  '   opens ' + c.open_rate + '%, clicks ' + c.click_rate + '%, unsubs ' + c.unsub_rate + '%, bounces ' + c.bounce_rate + '% (vs ' + c.baseline + ')',\n  ...c.flags.map(x => '   - ' + x), ...c.wins.map(x => '   + ' + x),\n].join('\\n'));\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*Mailchimp results, day after send*', ...blocks,\n  waiting.length ? '_Not yet: ' + waiting.map(w => w.title + ' (' + w.reason + ')').join(', ') + '_' : ''].filter(Boolean).join('\\n\\n');\nreturn [{ json: { text, count: campaigns.length, ids: campaigns.map(c => c.id) } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "003ae58e-f4ba-452e-a0f8-d0f843cd003a",
+      "name": "Any campaigns to report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f8e5933c-4336-487c-a3fa-73faa84ff8e5",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "0c91555d-1ecf-4a4d-a36b-b36bfef80c91",
+      "name": "STOP: no campaigns in the window",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "61605eea-b0c4-49ca-ab6e-4b6ece496160",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "533e45c0-7945-49c0-a7da-d7da7c43533e",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "6dbf9cdb-4fab-466b-ae21-de2157c26dbf",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "3640471d-1148-400d-a404-74046f383640",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "ab81dc95-500e-4005-a1f1-21f16300ab81",
+      "name": "Post the results to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "cf10e4fd-7f44-47ed-abc0-1bc01158cf10",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "7d22e87f-5a4f-46cf-a963-5963d5467d22",
+      "name": "STOP: test post - not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "d555b9d4-c9a6-4f94-a7f5-47f55bf7d555",
+      "name": "Remember reported campaigns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live runs only: these ids are never reported again. Keeps the newest 300.\nconst store = $getWorkflowStaticData('global');\nconst ids = $('Build the Slack report').first().json.ids;\nstore.reported = [...ids, ...(store.reported || [])].slice(0, 300);\nreturn [{ json: { remembered: ids.length } }];\n"
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Mailchimp connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mailchimp connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch recent campaign reports",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch recent campaign reports": {
+      "main": [
+        [
+          {
+            "node": "Read campaign reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read campaign reports": {
+      "main": [
+        [
+          {
+            "node": "Combine report sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample reports": {
+      "main": [
+        [
+          {
+            "node": "Combine report sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine report sources": {
+      "main": [
+        [
+          {
+            "node": "Score each campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score each campaign": {
+      "main": [
+        [
+          {
+            "node": "Build the Slack report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the Slack report": {
+      "main": [
+        [
+          {
+            "node": "Any campaigns to report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any campaigns to report?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no campaigns in the window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the results to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the results to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember reported campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

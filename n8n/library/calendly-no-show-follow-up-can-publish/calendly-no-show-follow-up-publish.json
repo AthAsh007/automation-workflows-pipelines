@@ -1,0 +1,638 @@
+{
+  "name": "Follow up Calendly no-shows with a rebooking email in Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Follow up Calendly no-shows with a rebooking email in Gmail\n\n**Who's it for**\nCoaches, consultants and sales teams who mark no-shows in Calendly and then forget to follow up. Each missed meeting gets a friendly rebooking email the same day, once.\n\n**How it works**\n1. Every two hours it lists your Calendly meetings that started in the last 24 hours and ended at least an hour ago, then reads their invitees. Sample invitees are used until Calendly is connected.\n2. Only invitees the host marked as no-show in Calendly are kept. Canceled meetings, internal addresses and anyone emailed in the last 30 days are skipped with a reason.\n3. A person with two missed meetings in one window gets one email. `DAILY_CAP` limits sends per run.\n4. The email names the missed meeting and links to the matching booking page from `REBOOK_LINKS`. Emailed invitees are remembered only on a live run.\n\n**How to set up**\n1. Run it once as imported. It previews against sample invitees and stops at `STOP: preview - nothing sent`.\n2. Add a Calendly credential to both Calendly nodes, paste your user URI into `CALENDLY_USER_URI`, and set `USE_CALENDLY = true`.\n3. Fill `REBOOK_LINKS` with the booking page for each event type, then connect Gmail.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Calendly account with API access (personal access token or OAuth)\n- A Gmail account\n\n**How to customize**\n- `REBOOK_LINKS` maps event type names to booking pages; `DEFAULT_REBOOK_URL` covers the rest.\n- `COOLDOWN_DAYS` stops repeat emails to the same person.\n- `INTERNAL_DOMAINS` keeps colleagues out.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "d5a6a880-5717-4c4e-9a00-d5a6a88013e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every two hours so a no-show hears back the same day. Booking links, cooldown and cap live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0d329035-5717-4c4e-9a00-0d3290351000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read recent invitees\n\nMeetings are listed first, then invitees per meeting, because the no-show mark lives on the invitee. `MIN_HOURS_AFTER` gives the host time to mark it. `Load sample invitees` stands in until `USE_CALENDLY` is true.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0c328ea2-5717-4c4e-9a00-0c328ea21001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Choose and write\n\n`Pick who to email` lowercases addresses before the duplicate and cooldown checks, so one person with two bookings gets one email. Every skip carries a reason.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "0b328d0f-5717-4c4e-9a00-0b328d0f1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and remember\n\nA test send goes to `TEST_EMAIL` and records nothing, so the real person is still emailed later. Only `Live run?` adds addresses to the cooldown list.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "0a328b7c-5717-4c4e-9a00-0a328b7c1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "65b735a7-84e9-4777-a400-e4002abe65b7",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// FOLLOW UP CALENDLY NO-SHOWS WITH A REBOOKING EMAIL IN GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_CALENDLY false -> SAMPLE invitees so the run works before any credential exists.\n// Emailed people are remembered in workflow static data, only on a live run.\n\n// set true after adding the Calendly credential and CALENDLY_USER_URI\nconst USE_CALENDLY = false;\n// your user URI, from GET https://api.calendly.com/users/me\nconst CALENDLY_USER_URI = '';\n// meetings that started this far back are checked\nconst LOOKBACK_HOURS = 24;\n// wait this long after the meeting so the host can mark the no-show\nconst MIN_HOURS_AFTER = 1;\n// event type name -> booking page\nconst REBOOK_LINKS = {\n  \"Discovery call\": \"https://calendly.com/yourcompany/discovery\",\n  \"Onboarding session\": \"https://calendly.com/yourcompany/onboarding\"\n};\n// used for event types not listed above\nconst DEFAULT_REBOOK_URL = 'https://calendly.com/yourcompany';\n// invitees on these domains are never emailed\nconst INTERNAL_DOMAINS = [\n  \"yourcompany.example\"\n];\n// no second email to the same address within this many days\nconst COOLDOWN_DAYS = 30;\n// hard ceiling on emails per run\nconst DAILY_CAP = 20;\n// sign-off on every email\nconst SENDER_NAME = 'Maya at Fieldnote';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_calendly: USE_CALENDLY,\n    calendly_user_uri: CALENDLY_USER_URI,\n    lookback_hours: LOOKBACK_HOURS,\n    min_hours_after: MIN_HOURS_AFTER,\n    rebook_links: REBOOK_LINKS,\n    default_rebook_url: DEFAULT_REBOOK_URL,\n    internal_domains: INTERNAL_DOMAINS,\n    cooldown_days: COOLDOWN_DAYS,\n    daily_cap: DAILY_CAP,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "5c8f0617-19b5-44e7-ad37-2d37b0ee5c8f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "517cfe69-e23a-4799-affd-1ffdaf24517c",
+      "name": "Every two hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */2 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "802a6704-41de-4dc4-a509-85091f27802a",
+      "name": "Use sample invitees?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0b6c11bc-d17e-4efc-a7f9-97f99ecf0b6c",
+              "leftValue": "={{ !$('config').first().json.use_calendly }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "400cf606-f888-4026-a5fe-75fe8295400c",
+      "name": "Load sample invitees",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_CALENDLY is true. Rows are already one per invitee, as the live path produces.\nconst ago = h => new Date(Date.now() - h * 3600e3).toISOString();\nconst i = (n, name, email, event, startH, noShow, status = 'active') => ({ invitee_uri: 'https://api.calendly.com/scheduled_events/ev' + n + '/invitees/inv' + n,\n  name, email, event_name: event, start_time: ago(startH), event_status: status, no_show: noShow });\nreturn [\n  i(1, 'Leo Hart', 'leo@hartandco.example', 'Discovery call', 5, true),\n  i(2, 'Mia Chen', 'mia@chenstudio.example', 'Onboarding session', 8, true),\n  i(3, 'Zed Ruiz', 'zed@ruizbuild.example', 'Discovery call', 6, false),\n  i(4, 'Pat Lowe', 'pat@yourcompany.example', 'Discovery call', 4, true),\n  i(5, 'Leo Hart', 'LEO@hartandco.example', 'Discovery call', 20, true),\n  i(6, 'Rae Dunn', 'rae@dunnhomes.example', 'Discovery call', 10, true, 'canceled'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "3b233f88-229e-4508-a451-b451e63b3b23",
+      "name": "List recent Calendly meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.calendly.com/scheduled_events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "calendlyApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user",
+              "value": "={{ $('config').first().json.calendly_user_uri }}"
+            },
+            {
+              "name": "min_start_time",
+              "value": "={{ new Date(Date.now() - $('config').first().json.lookback_hours * 3600e3).toISOString() }}"
+            },
+            {
+              "name": "max_start_time",
+              "value": "={{ new Date(Date.now() - $('config').first().json.min_hours_after * 3600e3).toISOString() }}"
+            },
+            {
+              "name": "count",
+              "value": "100"
+            },
+            {
+              "name": "sort",
+              "value": "start_time:asc"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "290d060c-3e70-4a4c-a957-0957e7df290d",
+      "name": "One item per meeting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Each meeting needs its own invitees call.\nconst out = [];\nfor (const page of $input.all()) for (const e of page.json.collection || []) out.push({ json: { event_uri: e.uri, event_name: e.name, start_time: e.start_time, event_status: e.status } });\nreturn out;\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "efd708e1-3d36-4c91-aca0-eca007ecefd7",
+      "name": "Read invitees of each meeting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.event_uri + '/invitees' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "calendlyApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "count",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "8b2fcc16-403c-4136-a1c0-c1c0e9258b2f",
+      "name": "Collect invitees",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Invitee list -> one row per invitee with the meeting fields attached.\nconst out = [];\nconst meetings = $('One item per meeting').all().map(i => i.json);\n$input.all().forEach((page, k) => {\n  const m = meetings[k] || {};\n  for (const v of page.json.collection || []) out.push({ json: { invitee_uri: v.uri, name: v.name || '', email: v.email || '', event_name: m.event_name, start_time: m.start_time,\n    event_status: m.event_status, no_show: Boolean(v.no_show) } });\n});\nreturn out;\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "ab6c422c-1094-4c6c-a8bc-c8bc12bfab6c",
+      "name": "Combine invitee sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "8258b279-11ad-46a9-a33e-833e67b48258",
+      "name": "Pick who to email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only marked no-shows on meetings that went ahead. One email per address per run,\n// none inside COOLDOWN_DAYS of the last one, and never to internal domains.\nconst cfg = $('config').first().json;\nconst sent = $getWorkflowStaticData('global').emailed || {};\nconst cutoff = Date.now() - cfg.cooldown_days * 864e5;\nconst send = [], held = [], seenNow = new Set();\nlet attended = 0;\nfor (const { json: v } of $input.all()) {\n  const email = v.email.trim().toLowerCase();\n  if (!v.no_show) { attended++; continue; }\n  const reason =\n    v.event_status !== 'active' ? 'meeting ' + v.event_status :\n    !email ? 'no email' :\n    cfg.internal_domains.includes(email.split('@')[1]) ? 'internal address' :\n    seenNow.has(email) ? 'already in this run' :\n    sent[email] && new Date(sent[email]).getTime() > cutoff ? 'emailed within COOLDOWN_DAYS' : '';\n  if (reason) { held.push({ name: v.name, email, reason }); continue; }\n  seenNow.add(email);\n  send.push({ ...v, email, link: cfg.rebook_links[v.event_name] || cfg.default_rebook_url });\n}\nfor (const x of send.splice(cfg.daily_cap)) held.push({ name: x.name, email: x.email, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { send, held, attended } }];\n"
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "457c0963-c977-4873-a833-e83328da457c",
+      "name": "Write the rebooking email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Short and blame-free; the only ask is a new time.\nconst cfg = $('config').first().json;\nreturn $input.first().json.send.map(v => {\n  const day = new Date(v.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\n  const body = [\n    'Hi ' + (v.name.split(' ')[0] || 'there') + ',', '',\n    'We were set to meet for your ' + v.event_name.toLowerCase() + ' on ' + day + ' but did not manage to connect. No problem, these things happen.', '',\n    'If you would still like to talk, pick a new time here: ' + v.link, '',\n    'If the timing is no longer right, just reply and let me know.', '',\n    cfg.sender_name,\n  ].join('\\n');\n  return { json: { ...v, subject: 'Sorry we missed you - want to pick a new time?', body, send_to: cfg.mode === 'test' ? cfg.test_email : v.email } };\n});\n"
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "8e56fd08-d475-4a88-aebe-3ebe53bb8e56",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "64677e1f-90d3-4a6f-a1c1-61c1baa66467",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "c1f3b810-b6f1-4310-abaf-4baf9993c1f3",
+      "name": "Email the rebooking link",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "c8a24047-09d1-4017-a0a9-10a9181ec8a2",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "3445a51f-aadb-416f-a019-80199da63445",
+      "name": "STOP: test send - nobody remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "b56c2ee6-9961-4306-abde-6bded3b5b56c",
+      "name": "Remember who was emailed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: address -> date, so COOLDOWN_DAYS holds across runs. Old entries are pruned.\nconst store = $getWorkflowStaticData('global');\nconst sent = store.emailed || {};\nfor (const v of $('Write the rebooking email').all()) sent[v.json.email] = new Date().toISOString();\nconst keep = Date.now() - 90 * 864e5;\nstore.emailed = Object.fromEntries(Object.entries(sent).filter(([, d]) => new Date(d).getTime() > keep));\nreturn [{ json: { remembered: Object.keys(store.emailed).length } }];\n"
+      },
+      "position": [
+        2992,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every two hours": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample invitees?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample invitees?": {
+      "main": [
+        [
+          {
+            "node": "Load sample invitees",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List recent Calendly meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List recent Calendly meetings": {
+      "main": [
+        [
+          {
+            "node": "One item per meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per meeting": {
+      "main": [
+        [
+          {
+            "node": "Read invitees of each meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read invitees of each meeting": {
+      "main": [
+        [
+          {
+            "node": "Collect invitees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample invitees": {
+      "main": [
+        [
+          {
+            "node": "Combine invitee sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect invitees": {
+      "main": [
+        [
+          {
+            "node": "Combine invitee sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine invitee sources": {
+      "main": [
+        [
+          {
+            "node": "Pick who to email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick who to email": {
+      "main": [
+        [
+          {
+            "node": "Write the rebooking email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the rebooking email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the rebooking link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the rebooking link": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember who was emailed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - nobody remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,506 @@
+{
+  "name": "Remind ClickUp assignees in Slack about tasks due tomorrow",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Remind ClickUp assignees in Slack about tasks due tomorrow\n\n**Who's it for**\nTeam leads and agency project managers whose ClickUp due dates slip because nobody looks at them until the morning they are due. Each person gets one short Slack message the afternoon before.\n\n**How it works**\n1. Every weekday at 16:00 it works out tomorrow in your `TIMEZONE`. On Fridays the window runs from Saturday to the end of Monday, so weekend and Monday work shows up before people log off.\n2. It reads open tasks due in that window from ClickUp, or 7 sample tasks until ClickUp is connected.\n3. Tasks in a done status are dropped. The rest are grouped per assignee, sorted by priority and capped at `MAX_TASKS_PER_DM`.\n4. Each ClickUp user is looked up in `USER_MAP` and sent one Slack DM. Unassigned tasks go to `UNASSIGNED_CHANNEL`. Anyone missing from the map is listed in the run summary.\n\n**How to set up**\n1. Run it once as imported. It previews against sample tasks and stops at `STOP: preview - nothing sent`.\n2. Add a ClickUp credential to `Fetch tasks due from ClickUp`, fill in `CLICKUP_TEAM_ID` and set `USE_CLICKUP = true`.\n3. Connect Slack and map each ClickUp user id to a Slack member id in `USER_MAP`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel: every DM lands there. Set `TEST_RUN = false` to message real people.\n\n**Requirements**\n- A ClickUp workspace\n- A Slack workspace with a bot that can send DMs\n\n**How to customize**\n- `TIMEZONE` decides where tomorrow starts and ends.\n- Set `FRIDAY_ROLLUP = false` to send only Saturday tasks on Fridays.\n- `DONE_STATUSES` lists the status names that count as finished on your boards.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "4bb70a13-5717-4c4e-9a00-4bb70a1313e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 16:00 or by hand, late enough that today is mostly done and early enough to replan. The timezone, user map and done statuses all live in `config`.",
+        "height": 592,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6457a826-5717-4c4e-9a00-6457a8261000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read tasks due in the window\n\n`Work out the due window` turns tomorrow in `TIMEZONE` into the epoch range ClickUp filters on, and widens it on Fridays. `Load sample ClickUp tasks` uses that same window, so the sample always has work.",
+        "height": 592,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "6557a9b9-5717-4c4e-9a00-6557a9b91001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Group per person and report\n\nOne message per person instead of one per task keeps the DMs readable. Done statuses, tasks outside the window and people missing from `USER_MAP` are held with a reason, and `Summarise the run` lists them.",
+        "height": 592,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "6257a500-5717-4c4e-9a00-6257a5001002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send in Slack\n\nNothing is posted while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every DM is redirected to `TEST_SLACK_CHANNEL`, so the wording can be checked without pinging the team.",
+        "height": 592,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "6357a693-5717-4c4e-9a00-6357a6931003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "6a321c0b-ec43-469b-a991-699148f26a32",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// REMIND CLICKUP ASSIGNEES IN SLACK ABOUT TASKS DUE TOMORROW - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_CLICKUP false -> SAMPLE tasks so the run works before any credential exists.\n// TEST_RUN true + TEST_EMAIL set -> every DM goes to TEST_SLACK_CHANNEL instead.\n\n// set true after adding the ClickUp credential to the ClickUp node\nconst USE_CLICKUP = false;\n// workspace (team) id, the number after app.clickup.com/ in your browser\nconst CLICKUP_TEAM_ID = '';\n// IANA timezone that decides where tomorrow starts and ends\nconst TIMEZONE = 'America/New_York';\n// on Fridays remind about Saturday, Sunday and Monday in one message\nconst FRIDAY_ROLLUP = true;\n// status names (lower case) that never get a reminder\nconst DONE_STATUSES = [\n  \"complete\",\n  \"closed\",\n  \"done\",\n  \"shipped\"\n];\n// ClickUp user id -> Slack member id\nconst USER_MAP = {\n  \"81001\": \"U01AAAA0001\",\n  \"81002\": \"U01AAAA0002\"\n};\n// Slack channel for tasks with no assignee; blank lists them in the summary only\nconst UNASSIGNED_CHANNEL = '';\n// longer lists are cut with a count of the rest\nconst MAX_TASKS_PER_DM = 12;\n// test mode posts every reminder here instead of DMing the assignee\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_clickup: USE_CLICKUP,\n    clickup_team_id: CLICKUP_TEAM_ID,\n    timezone: TIMEZONE,\n    friday_rollup: FRIDAY_ROLLUP,\n    done_statuses: DONE_STATUSES,\n    user_map: USER_MAP,\n    unassigned_channel: UNASSIGNED_CHANNEL,\n    max_tasks_per_dm: MAX_TASKS_PER_DM,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    unassigned_enabled: UNASSIGNED_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        256
+      ]
+    },
+    {
+      "id": "4ea481c3-5bf7-42d3-a29e-129e7e7a4ea4",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        256
+      ]
+    },
+    {
+      "id": "e9162ca4-72aa-4164-a49f-b49f9b87e916",
+      "name": "Every weekday at 16:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        432
+      ]
+    },
+    {
+      "id": "fd94290b-f633-439b-a5dd-c5dde5f2fd94",
+      "name": "Work out the due window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Tomorrow in TIMEZONE, as epoch milliseconds for the ClickUp filter. On Friday\n// (with FRIDAY_ROLLUP) the window stretches to the end of Monday.\nconst cfg = $('config').first().json;\nconst tz = cfg.timezone;\nconst parts = t => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23',\n  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })\n  .formatToParts(new Date(t)).map(p => [p.type, p.value]));\nconst offset = t => { const p = parts(t); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - t; };\nconst midnight = (y, m, d) => { const g = Date.UTC(y, m - 1, d); return g - offset(g - offset(g)); };\nconst p = parts(Date.now());\nconst y = +p.year, m = +p.month, d = +p.day;\nconst weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 Sunday .. 6 Saturday\nconst days = cfg.friday_rollup && weekday === 5 ? 3 : 1;\nconst start = midnight(y, m, d + 1);\nconst end = midnight(y, m, d + 1 + days) - 1;\nconst label = new Date(Date.UTC(y, m - 1, d + 1)).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });\nreturn [{ json: { start, end, days, rollup: days > 1, label: days > 1 ? 'this weekend and Monday' : 'tomorrow, ' + label } }];\n"
+      },
+      "position": [
+        512,
+        256
+      ]
+    },
+    {
+      "id": "f7b570fa-988f-46da-a04f-204f78d9f7b5",
+      "name": "ClickUp connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "19cbaf52-624f-49b2-ab54-6b5406c119cb",
+              "leftValue": "={{ $('config').first().json.use_clickup }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        256
+      ]
+    },
+    {
+      "id": "06c99c00-8020-4c00-a8d3-18d3390306c9",
+      "name": "Fetch tasks due from ClickUp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.clickup.com/api/v2/team/' + $('config').first().json.clickup_team_id + '/task' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clickUpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "due_date_gt",
+              "value": "={{ $json.start - 1 }}"
+            },
+            {
+              "name": "due_date_lt",
+              "value": "={{ $json.end + 1 }}"
+            },
+            {
+              "name": "include_closed",
+              "value": "false"
+            },
+            {
+              "name": "subtasks",
+              "value": "true"
+            },
+            {
+              "name": "order_by",
+              "value": "due_date"
+            },
+            {
+              "name": "page",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        256
+      ]
+    },
+    {
+      "id": "7ba19c36-c12c-4756-a0c3-60c3e0057ba1",
+      "name": "Load sample ClickUp tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_CLICKUP is true. Due dates sit inside the window computed above,\n// plus one task on day 2 of the window that only counts on a Friday roll-up.\nconst w = $('Work out the due window').first().json;\nconst at = h => String(w.start + h * 36e5);\nconst user = (id, username) => ({ id: Number(id), username, email: username.toLowerCase().replace(' ', '.') + '@studio.example' });\nconst ana = user('81001', 'Ana Ruiz'), tom = user('81002', 'Tom Becker'), kai = user('81003', 'Kai Morgan');\nconst task = (id, name, status, due, assignees, priority, list) => ({\n  id, name, status: { status, type: status === 'complete' ? 'closed' : 'custom' }, due_date: due, assignees,\n  priority: priority ? { priority } : null, list: { name: list }, url: 'https://app.clickup.com/t/' + id,\n});\nreturn [{ json: { last_page: true, tasks: [\n  task('86a1', 'Send homepage copy for review', 'in progress', at(10), [ana], 'high', 'Northfield website'),\n  task('86a2', 'Export final logo files', 'to do', at(12), [ana, tom], 'urgent', 'Northfield brand'),\n  task('86a3', 'Book photographer for shoot', 'to do', at(15), [tom], 'normal', 'Orchard Lane campaign'),\n  task('86a4', 'Invoice October retainer', 'complete', at(9), [tom], 'high', 'Admin'),\n  task('86a5', 'Draft social calendar', 'to do', at(11), [], 'low', 'Orchard Lane campaign'),\n  task('86a6', 'QA contact form', 'review', at(14), [kai], 'normal', 'Northfield website'),\n  task('86a7', 'Prep Monday client workshop', 'to do', at(34), [ana], 'normal', 'Lumen Physio'),\n] } }];\n"
+      },
+      "position": [
+        960,
+        432
+      ]
+    },
+    {
+      "id": "a1cf9759-712f-4589-aecf-8ecf25d4a1cf",
+      "name": "Combine task sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        256
+      ]
+    },
+    {
+      "id": "7da26c94-4e6b-4654-aee8-8ee831377da2",
+      "name": "Group tasks per assignee",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Re-check the window (ClickUp compares in UTC, the sample is synthetic), drop done\n// statuses, then build one message per person. Every task not sent says why.\nconst cfg = $('config').first().json;\nconst w = $('Work out the due window').first().json;\nconst rank = { urgent: 0, high: 1, normal: 2, low: 3 };\nconst done = cfg.done_statuses.map(s => s.toLowerCase());\nconst tasks = $input.all().flatMap(i => i.json.tasks || []);\nconst people = {}, unassigned = [], held = [];\nfor (const t of tasks) {\n  const due = Number(t.due_date);\n  if (!due || due < w.start || due > w.end) { held.push({ task: t.name, reason: 'outside the due window' }); continue; }\n  if (done.includes(String(t.status?.status || '').toLowerCase())) { held.push({ task: t.name, reason: 'already ' + t.status.status }); continue; }\n  const row = { id: t.id, name: t.name, url: t.url, list: t.list?.name || '', due, priority: t.priority?.priority || 'normal' };\n  if (!(t.assignees || []).length) { unassigned.push(row); continue; }\n  for (const a of t.assignees) (people[a.id] ||= { clickup_id: String(a.id), name: a.username, tasks: [] }).tasks.push(row);\n}\nconst day = ms => new Date(ms).toLocaleDateString('en-US', { weekday: 'short', timeZone: cfg.timezone });\nconst lines = list => {\n  const sorted = [...list].sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2) || a.due - b.due);\n  const shown = sorted.slice(0, cfg.max_tasks_per_dm).map(t => '- [' + t.priority + '] <' + t.url + '|' + t.name + '> (' + t.list + (w.rollup ? ', ' + day(t.due) : '') + ')');\n  if (sorted.length > shown.length) shown.push('- ...and ' + (sorted.length - shown.length) + ' more in ClickUp');\n  return shown;\n};\nconst messages = [];\nfor (const p of Object.values(people)) {\n  const slackId = cfg.user_map[p.clickup_id];\n  if (!slackId) { held.push({ task: p.tasks.length + ' task(s) for ' + p.name, reason: 'no Slack user in USER_MAP for ' + p.clickup_id }); continue; }\n  messages.push({ kind: 'dm', who: p.name, target: slackId, count: p.tasks.length,\n    text: ['Hi ' + p.name.split(' ')[0] + ', you have ' + p.tasks.length + ' task(s) due ' + w.label + ':', ...lines(p.tasks)].join('\\n') });\n}\nif (unassigned.length) {\n  if (cfg.unassigned_enabled) messages.push({ kind: 'channel', who: 'unassigned', target: cfg.unassigned_channel, count: unassigned.length,\n    text: [unassigned.length + ' unassigned task(s) due ' + w.label + '. Can someone pick these up?', ...lines(unassigned)].join('\\n') });\n  else for (const t of unassigned) held.push({ task: t.name, reason: 'unassigned and UNASSIGNED_CHANNEL is blank' });\n}\nconst out = messages.map(m => ({ ...m, send_to: cfg.mode === 'test' ? cfg.test_slack_channel : m.target }));\nreturn [{ json: { messages: out.filter(m => m.send_to), held: [...held, ...out.filter(m => !m.send_to).map(m => ({ task: m.who, reason: 'test mode needs TEST_SLACK_CHANNEL' }))], window: w.label, checked: tasks.length } }];\n"
+      },
+      "position": [
+        1424,
+        256
+      ]
+    },
+    {
+      "id": "148250a9-6888-45d9-a74f-b74fd3e41482",
+      "name": "Split into Slack messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per message so each DM is its own Slack call.\nreturn $input.first().json.messages.map(json => ({ json }));\n"
+      },
+      "position": [
+        1648,
+        256
+      ]
+    },
+    {
+      "id": "3c79179c-6666-4edc-a218-921821ef3c79",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        256
+      ]
+    },
+    {
+      "id": "a028692b-f7e3-49bb-a00f-200fecd2a028",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        432
+      ]
+    },
+    {
+      "id": "90b78821-6b53-47d1-a34c-e34c15ac90b7",
+      "name": "Send the reminder in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ ($('config').first().json.mode === 'test' ? '[TEST for ' + $json.who + '] ' : '') + $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2112,
+        256
+      ]
+    },
+    {
+      "id": "1a470955-35c9-40c5-a620-3620c9401a47",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// What the run decided, for the execution log: who was messaged and what was held back.\nconst cfg = $('config').first().json;\nconst g = $input.first().json;\nconst text = [\n  'ClickUp due reminders (' + cfg.mode + ') for ' + g.window + ': ' + g.checked + ' tasks read, ' + g.messages.length + ' message(s).',\n  ...g.messages.map(m => '- ' + m.who + ': ' + m.count + ' task(s)'),\n  ...(g.held.length ? ['Held back:', ...g.held.map(h => '- ' + h.task + ': ' + h.reason)] : []),\n].join('\\n');\nreturn [{ json: { text, messages: g.messages.length, held: g.held.length } }];\n"
+      },
+      "position": [
+        1648,
+        432
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 16:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Work out the due window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out the due window": {
+      "main": [
+        [
+          {
+            "node": "ClickUp connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch tasks due from ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample ClickUp tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch tasks due from ClickUp": {
+      "main": [
+        [
+          {
+            "node": "Combine task sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample ClickUp tasks": {
+      "main": [
+        [
+          {
+            "node": "Combine task sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine task sources": {
+      "main": [
+        [
+          {
+            "node": "Group tasks per assignee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group tasks per assignee": {
+      "main": [
+        [
+          {
+            "node": "Split into Slack messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into Slack messages": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the reminder in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

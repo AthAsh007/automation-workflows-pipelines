@@ -1,0 +1,735 @@
+{
+  "name": "Send Reddit mentions of your keywords to Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send Reddit mentions of your keywords to Discord\n\n**Who's it for**\nCommunity managers and indie founders who want to answer Reddit threads about their product, or their category, while the thread is still active. The alerts land in the Discord channel your team already watches.\n\n**How it works**\n1. Every hour it searches Reddit for each keyword in `KEYWORDS`, newest first, or uses sample results until live search is on.\n2. Each post is checked for the keyword as a whole word in the title or body. Posts from denied subreddits, NSFW posts, your own accounts and posts older than 24 hours are dropped. An allow list can limit alerts to chosen subreddits.\n3. Posts already alerted and posts found by two keywords are sent once.\n4. Mentions are packed into Discord messages of at most 1,900 characters, with subreddit, score, comment count and link.\n\n**How to set up**\n1. Run it once as imported. It filters sample results and stops at `STOP: preview - nothing posted`.\n2. Set `KEYWORDS`, `OWN_REDDIT_USERS` and `USER_AGENT` (Reddit asks for a descriptive one with your username), then set `USE_LIVE_SEARCH = true`.\n3. Add a Discord bot credential to `Post to Discord` and set `DISCORD_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post with a [TEST] prefix, then set `TEST_RUN = false` so posted ids are remembered.\n\n**Requirements**\n- A Discord server with a bot that can post in the channel\n- Nothing for Reddit: public search JSON, no login\n\n**How to customize**\n- `ALLOW_SUBREDDITS` limits alerts to listed subreddits; `DENY_SUBREDDITS` blocks noisy ones.\n- `MAX_AGE_HOURS` and `MIN_SCORE` control how fresh and how popular a post must be.\n- `EXCLUDE_TERMS` drops posts about something else with the same name.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "2d19daf2-5717-4c4e-9a00-2d19daf213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns at 5 past every hour or by hand. Keywords, subreddit lists and the User-Agent Reddit requires are constants in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "af7705c7-5717-4c4e-9a00-af7705c71000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Search Reddit\n\nThe public search.json endpoint needs no login, only a descriptive User-Agent header. `Load sample results` returns the same listing shape so every filter can be watched offline.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "ae770434-5717-4c4e-9a00-ae7704341001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Filter and pack\n\nReddit search matches loosely, so `Pick mentions to post` re-checks the whole word before the subreddit, NSFW, age and score rules. `Pack Discord messages` keeps every message under the 2,000 character limit.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "b17708ed-5717-4c4e-9a00-b17708ed1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post to Discord\n\nNothing is posted in preview, and a blank channel ends at `STOP: no Discord channel`. Ids are remembered only after a live post, so test runs never hide a mention from the real channel.",
+        "height": 512,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "b077075a-5717-4c4e-9a00-b077075a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "88da5eaa-183f-4d8a-a29d-929d408988da",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND REDDIT MENTIONS OF YOUR KEYWORDS TO DISCORD - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_SEARCH false -> SAMPLE Reddit results.\n// DISCORD_CHANNEL_ID blank -> messages are built but not posted.\n\n// set true to query reddit.com/search.json (public, no login)\nconst USE_LIVE_SEARCH = false;\n// words to search for; each is re-checked as a whole word\nconst KEYWORDS = [\n  \"Tallyroom\",\n  \"tallyroom.example\"\n];\n// Reddit rejects requests without a descriptive User-Agent\nconst USER_AGENT = 'n8n:mention-alerts:v1.0 (by /u/your_username)';\n// if not empty, only these subreddits are alerted (lowercase, no r/)\nconst ALLOW_SUBREDDITS = [];\n// subreddits never alerted (lowercase, no r/)\nconst DENY_SUBREDDITS = [\n  \"memes\",\n  \"freekarma4u\"\n];\n// a post containing any of these is dropped\nconst EXCLUDE_TERMS = [\n  \"tally room booking\"\n];\n// your own accounts; their posts are not alerts\nconst OWN_REDDIT_USERS = [\n  \"tallyroom_hq\"\n];\n// posts older than this are skipped\nconst MAX_AGE_HOURS = 24;\n// posts below this score are skipped (downvoted spam)\nconst MIN_SCORE = 0;\n// Discord channel id for alerts; blank skips Discord\nconst DISCORD_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_search: USE_LIVE_SEARCH,\n    keywords: KEYWORDS,\n    user_agent: USER_AGENT,\n    allow_subreddits: ALLOW_SUBREDDITS,\n    deny_subreddits: DENY_SUBREDDITS,\n    exclude_terms: EXCLUDE_TERMS,\n    own_reddit_users: OWN_REDDIT_USERS,\n    max_age_hours: MAX_AGE_HOURS,\n    min_score: MIN_SCORE,\n    discord_channel_id: DISCORD_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    discord_enabled: DISCORD_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "8720ebde-adf1-427e-a731-3731c81d8720",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "1a965f67-8630-4537-a951-4951a9fe1a96",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "8a83a9ee-667b-4b8e-ac77-bc77c46d8a83",
+      "name": "Use sample results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1a1d35f-6934-4baf-a265-72654d66c1a1",
+              "leftValue": "={{ $('config').first().json.use_live_search }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "0ac78a34-8d75-41f4-ad4c-3d4cc5970ac7",
+      "name": "Load sample results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_SEARCH is true. Reddit search listing shape, one response\n// per keyword, with a post for each filter to catch.\nconst t = h => Math.floor(Date.now() / 1000) - h * 3600;\nconst post = (id, sub, h, title, selftext, author, score, extra = {}) => ({ kind: 't3', data: { id, name: 't3_' + id, subreddit: sub, title, selftext, author, score,\n  num_comments: Math.max(0, score - 2), created_utc: t(h), permalink: '/r/' + sub + '/comments/' + id + '/', over_18: false, ...extra } });\nreturn [\n  { json: { keyword: 'Tallyroom', data: { children: [\n    post('1abc01', 'SaaS', 2, 'Anyone using Tallyroom for shared expense tracking?', 'Looking at Tallyroom vs a spreadsheet for a 6 person team.', 'budget_ben', 14),\n    post('1abc02', 'smallbusiness', 5, 'What do you use for team expenses?', 'We tried Tallyroom and two others, happy to share notes.', 'shopkeeper_li', 6),\n    post('1abc03', 'memes', 1, 'Tallyroom meme', '', 'randomposter', 40),\n    post('1abc04', 'SaaS', 3, 'Tallyroom pricing update', 'Here is what changed in our plans this month.', 'tallyroom_hq', 9),\n    post('1abc05', 'travel', 6, 'Tally room booking question', 'Is the tally room booking still open at the venue? Tallyroom?', 'trip_kat', 2),\n    post('1abc06', 'startups', 50, 'Tallyroom alternatives', 'Old thread.', 'old_thread', 30),\n    post('1abc07', 'Entrepreneur', 4, 'Tallyrooms in coworking spaces', 'Do tallyrooms still exist?', 'cowork_dan', 3),\n    post('1abc08', 'SaaS', 2, 'Tallyroom review', 'NSFW review', 'edgy', 5, { over_18: true }),\n  ] } } },\n  { json: { keyword: 'tallyroom.example', data: { children: [\n    post('1abc01', 'SaaS', 2, 'Anyone using Tallyroom for shared expense tracking?', 'Looking at tallyroom.example vs a spreadsheet.', 'budget_ben', 14),\n  ] } } },\n];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "34901290-4d52-4590-a01a-a01a04133490",
+      "name": "List search keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per keyword. Quotes make Reddit search for the phrase.\nreturn $('config').first().json.keywords.map(k => ({ json: { keyword: k, q: '\"' + k + '\"' } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "2fad881c-8254-475c-aaeb-caeb826f2fad",
+      "name": "Search Reddit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://www.reddit.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.q }}"
+            },
+            {
+              "name": "sort",
+              "value": "new"
+            },
+            {
+              "name": "t",
+              "value": "week"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "raw_json",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "={{ $('config').first().json.user_agent }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "46fb2251-2442-4301-adf4-adf4bf1c46fb",
+      "name": "Combine search sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "4d17cc29-b7c2-4959-afdc-2fdc23644d17",
+      "name": "Pick mentions to post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Reddit search is loose, so the keyword is re-checked as a whole word. Then the\n// subreddit lists, NSFW, own accounts, age, score, exclusions and dedupe.\nconst cfg = $('config').first().json;\nconst posted = new Set($getWorkflowStaticData('global').posted || []);\nlet kws = [];\ntry { kws = $('List search keywords').all().map(i => i.json.keyword); } catch (e) { kws = []; }\nconst esc = s => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst allow = cfg.allow_subreddits.map(s => s.toLowerCase()), deny = new Set(cfg.deny_subreddits.map(s => s.toLowerCase()));\nconst own = new Set(cfg.own_reddit_users.map(s => s.toLowerCase()));\nconst now = Date.now() / 1000;\nconst mentions = [], dropped = [], ids = new Set();\n$input.all().forEach(({ json: res }, i) => {\n  const kw = res.keyword || kws[i] || '';\n  const re = new RegExp('(^|[^a-z0-9])' + esc(kw.toLowerCase()) + '(?![a-z0-9])', 'i');\n  for (const { data: p } of res.data?.children || []) {\n    const text = (p.title || '') + ' ' + (p.selftext || '');\n    const sub = String(p.subreddit || '').toLowerCase();\n    const ageH = (now - p.created_utc) / 3600;\n    const reason =\n      ids.has(p.id) ? 'dup' : posted.has(p.id) ? 'already posted' :\n      !re.test(text) ? 'no whole-word match' :\n      deny.has(sub) ? 'denied subreddit' :\n      allow.length && !allow.includes(sub) ? 'not on ALLOW_SUBREDDITS' :\n      p.over_18 ? 'NSFW' :\n      own.has(String(p.author).toLowerCase()) ? 'own account' :\n      ageH > cfg.max_age_hours ? 'older than MAX_AGE_HOURS' :\n      (p.score || 0) < cfg.min_score ? 'below MIN_SCORE' :\n      cfg.exclude_terms.some(x => text.toLowerCase().includes(x.toLowerCase())) ? 'exclusion term' : '';\n    if (reason) { if (reason !== 'dup') dropped.push({ id: p.id, sub: p.subreddit, reason }); continue; }\n    ids.add(p.id);\n    mentions.push({ id: p.id, keyword: kw, subreddit: p.subreddit, title: p.title, author: p.author, score: p.score || 0,\n      comments: p.num_comments || 0, age_h: Math.round(ageH), link: 'https://www.reddit.com' + p.permalink });\n  }\n});\nmentions.sort((a, b) => a.age_h - b.age_h);\nreturn [{ json: { mentions, dropped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "eb1e3157-20e3-4c27-a46f-446f4daeeb1e",
+      "name": "Pack Discord messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Discord rejects messages over 2,000 characters, so lines are packed into\n// messages of at most 1,900. Links are wrapped in <> to stop 10 embeds per message.\nconst cfg = $('config').first().json;\nconst { mentions } = $input.first().json;\nconst head = (cfg.mode === 'test' ? '[TEST] ' : '') + '**Reddit: ' + mentions.length + ' new mention' + (mentions.length === 1 ? '' : 's') + '**';\nconst lines = mentions.map(m => '- r/' + m.subreddit + ' | ' + m.title.slice(0, 140) + ' (' + m.score + ' pts, ' + m.comments + ' comments, ' + m.age_h + 'h ago) <' + m.link + '>');\nconst messages = []; let cur = head;\nfor (const l of lines) { if ((cur + '\\n' + l).length > 1900) { messages.push(cur); cur = l; } else cur += '\\n' + l; }\nif (mentions.length) messages.push(cur);\nreturn [{ json: { messages: messages.map(content => ({ content })), count: mentions.length } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "3a017f88-2688-4508-a076-c076263b3a01",
+      "name": "Any new mentions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bcb54515-f47e-4085-a918-d9180f80bcb5",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "9c71fd82-be90-48e2-afca-afca82f19c71",
+      "name": "STOP: no new mentions",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "b77dc2ad-e822-4e9d-aba9-1ba9d908b77d",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "97585fd7-b297-42a7-a012-f012e42e9758",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "707fc334-33c5-4af4-a0ba-e0ba8697707f",
+      "name": "Discord channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "09f20bbb-3712-4f4b-ab4d-cb4dfbe209f2",
+              "leftValue": "={{ $('config').first().json.discord_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "a27db43e-c06c-4cde-a5d7-05d7a9bda27d",
+      "name": "STOP: no Discord channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2784,
+        352
+      ]
+    },
+    {
+      "id": "a3ac7ac3-6a2c-4bd3-a3e9-e3e9bb7aa3ac",
+      "name": "One item per message",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "messages",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "a1cfff7f-76db-4dcf-ae9b-4e9b5846a1cf",
+      "name": "Post to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "guildId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.discord_channel_id }}"
+        },
+        "content": "={{ $json.content }}",
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "39567394-ae32-4d54-ac2e-dc2eb4373956",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "36ba23fe-5147-409e-a916-091686fd36ba",
+      "name": "STOP: test post - ids not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "fe564688-b835-4c08-ae3a-4e3a853bfe56",
+      "name": "Remember posted ids",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only. Newest 2,000 ids kept so the store stays small.\nconst store = $getWorkflowStaticData('global');\nconst ids = $('Pick mentions to post').first().json.mentions.map(m => m.id);\nstore.posted = [...ids, ...(store.posted || []).filter(x => !ids.includes(x))].slice(0, 2000);\nreturn [{ json: { remembered: ids.length, messages: $input.all().length } }];\n"
+      },
+      "position": [
+        3440,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample results?": {
+      "main": [
+        [
+          {
+            "node": "Load sample results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List search keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List search keywords": {
+      "main": [
+        [
+          {
+            "node": "Search Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample results": {
+      "main": [
+        [
+          {
+            "node": "Combine search sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Reddit": {
+      "main": [
+        [
+          {
+            "node": "Combine search sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine search sources": {
+      "main": [
+        [
+          {
+            "node": "Pick mentions to post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick mentions to post": {
+      "main": [
+        [
+          {
+            "node": "Pack Discord messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Discord messages": {
+      "main": [
+        [
+          {
+            "node": "Any new mentions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any new mentions?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Discord channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord channel set?": {
+      "main": [
+        [
+          {
+            "node": "One item per message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Discord channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per message": {
+      "main": [
+        [
+          {
+            "node": "Post to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Discord": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember posted ids",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - ids not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,599 @@
+{
+  "name": "Collect testimonials by form, score them, and queue approved ones in Airtable",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Collect testimonials by form, score them, and queue approved ones in Airtable\n\n**Who's it for**\nFounders and marketers who ask happy customers for a testimonial and then lose the replies in an inbox. Strong, approved quotes arrive ready to publish; weak or risky ones wait for a person.\n\n**How it works**\n1. A customer fills in the hosted n8n form: name, email, company, role, rating, the testimonial and whether you may publish it.\n2. The text is scored out of 100: length, numbers and time frames, outcome words like \"saved\" or \"cut\", rating, and a named company and role. Shouting and repeated exclamation marks cost points.\n3. A blocked word, a missing permission or a score under 70 sends it to review with the reasons; everything else is queued as Ready to publish. The most specific short sentence becomes the pull quote.\n4. The record is created in Airtable and the customer gets a thank-you email that matches their permission choice.\n\n**How to set up**\n1. Run it once as imported from `Run manually`. It scores 3 sample testimonials and stops at `STOP: test run - Airtable untouched` and `STOP: preview - nothing sent`.\n2. Create an Airtable table with the fields listed in `Shape the Airtable record`, add the token credential and set `AIRTABLE_BASE_ID`.\n3. Connect Gmail and share the production form URL with customers.\n4. Put your address in `TEST_EMAIL` to receive the thank-you emails yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Airtable base\n- A Gmail account\n\n**How to customize**\n- `AUTO_QUEUE_SCORE` sets the bar for Ready to publish.\n- `OUTCOME_WORDS` and `BLOCKED_WORDS` tune what counts as specific and what is never published.\n- `THANKS_SUBJECT` and `SENDER_NAME` change the email.",
+        "height": 1040,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "5f7ab5a6-5717-4c4e-9a00-5f7ab5a613e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Collect the testimonial\n\nThe hosted `Testimonial form` asks for permission as a required Yes or No, so consent is never inferred. A manual run feeds `Load sample testimonials` through the same path.",
+        "height": 960,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7a39ac2b-5717-4c4e-9a00-7a39ac2b1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Score and pick a pull quote\n\nSpecific numbers and outcomes are worth more than praise, because \"cut close from six days to two\" sells and \"great product\" does not. Every point is kept in parts, so a reviewer can see why a quote landed in review.",
+        "height": 960,
+        "width": 320,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "7939aa98-5717-4c4e-9a00-7939aa981001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. File in Airtable and say thanks\n\nAirtable is written only on a live run with a base id, review or not, so nothing is lost. The thank-you follows the usual preview and test gates and is redirected to `TEST_EMAIL` in test mode.",
+        "height": 960,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "7c39af51-5717-4c4e-9a00-7c39af511002",
+      "name": "Section 3 note"
+    },
+    {
+      "id": "c70cdeb8-1eb2-4538-ab94-3b94a0abc70c",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// COLLECT TESTIMONIALS BY FORM, SCORE THEM, AND QUEUE APPROVED ONES IN AIRTABLE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run scores SAMPLE testimonials. AIRTABLE_BASE_ID blank -> nothing is stored.\n// Thank-you emails follow TEST_RUN and TEST_EMAIL like every send.\n\n// Airtable base id (starts with app); blank means nothing is stored\nconst AIRTABLE_BASE_ID = '';\n// table name or id\nconst AIRTABLE_TABLE = 'Testimonials';\n// score from 0 to 100 needed for Ready to publish\nconst AUTO_QUEUE_SCORE = 70;\n// words that signal a concrete outcome\nconst OUTCOME_WORDS = [\n  \"saved\",\n  \"cut\",\n  \"reduced\",\n  \"faster\",\n  \"increased\",\n  \"grew\",\n  \"doubled\",\n  \"halved\",\n  \"switched\",\n  \"replaced\",\n  \"before\",\n  \"after\",\n  \"hours\",\n  \"minutes\",\n  \"weeks\"\n];\n// whole words that send a testimonial to review\nconst BLOCKED_WORDS = [\n  \"damn\",\n  \"crap\",\n  \"hell\",\n  \"shit\",\n  \"wtf\"\n];\n// subject of the thank-you email\nconst THANKS_SUBJECT = 'Thank you for the kind words';\n// sign-off on the thank-you email\nconst SENDER_NAME = 'Mara, Tallyroom';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    auto_queue_score: AUTO_QUEUE_SCORE,\n    outcome_words: OUTCOME_WORDS,\n    blocked_words: BLOCKED_WORDS,\n    thanks_subject: THANKS_SUBJECT,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        288
+      ]
+    },
+    {
+      "id": "8ad19d2c-faab-476c-af23-2f2341bf8ad1",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        288
+      ]
+    },
+    {
+      "id": "9274737d-42f4-4e6d-a82f-882f77d89274",
+      "name": "Testimonial form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "6fd48647-70a9-4617-a82e-882ea21e6fd4",
+      "parameters": {
+        "formTitle": "Share your experience",
+        "formDescription": "Two minutes, and it helps other teams decide. We never publish anything without your permission.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Your name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company"
+            },
+            {
+              "fieldLabel": "Role"
+            },
+            {
+              "fieldLabel": "Rating",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "5"
+                  },
+                  {
+                    "option": "4"
+                  },
+                  {
+                    "option": "3"
+                  },
+                  {
+                    "option": "2"
+                  },
+                  {
+                    "option": "1"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Your testimonial",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "May we publish this with your name and company?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        464
+      ]
+    },
+    {
+      "id": "42b5e9b1-8e42-4c61-ac92-2c923fbc42b5",
+      "name": "Read the form",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The form fields when a customer submitted; nothing when the run was started by hand.\nlet f = null;\ntry { f = $('Testimonial form').first().json; } catch (e) { f = null; }\nconst t = f ? [{ name: f['Your name'], email: f['Email'], company: f['Company'] || '', role: f['Role'] || '', rating: Number(f['Rating']),\n  text: f['Your testimonial'], permission: f['May we publish this with your name and company?'] === 'Yes', submitted_at: f.submittedAt || new Date().toISOString() }] : [];\nreturn [{ json: { from_form: Boolean(f), testimonials: t } }];\n"
+      },
+      "position": [
+        496,
+        288
+      ]
+    },
+    {
+      "id": "8c0d170b-c24e-419b-a5a0-c5a037f28c0d",
+      "name": "Real submission?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3ffc8f74-0759-4334-ab3f-8b3ff8573ffc",
+              "leftValue": "={{ $json.from_form }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        704,
+        288
+      ]
+    },
+    {
+      "id": "708aff7c-ee80-40bc-a8b5-88b5ba0f708a",
+      "name": "Load sample testimonials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used for manual runs: one strong, one too thin, one with a blocked word and no permission.\nconst now = new Date().toISOString();\nreturn [{ json: { from_form: false, testimonials: [\n  { name: 'Priya Nair', email: 'priya@northwind-labs.example', company: 'Northwind Labs', role: 'Head of Finance', rating: 5, permission: true, submitted_at: now,\n    text: 'Before Tallyroom our month-end close took six days and two people. We switched in March and now close in two days with one person. Receipts are matched automatically, so I have not chased a receipt by email in weeks. It saved us roughly 20 hours a month.' },\n  { name: 'Sam Ortiz', email: 'sam@harbourdesign.example', company: '', role: '', rating: 5, permission: true, submitted_at: now, text: 'GREAT PRODUCT!! Love it, highly recommend!!' },\n  { name: 'Lee Park', email: 'lee@pineco.example', company: 'Pine & Co', role: 'Owner', rating: 4, permission: false, submitted_at: now,\n    text: 'Setup was a damn sight faster than our old tool, about 30 minutes for the whole team. Approvals on mobile cut the back and forth with our site managers.' },\n] } }];\n"
+      },
+      "position": [
+        928,
+        464
+      ]
+    },
+    {
+      "id": "54249a9e-3655-453e-aabc-eabc815d5424",
+      "name": "Combine testimonial sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1152,
+        288
+      ]
+    },
+    {
+      "id": "a8df0182-b8d4-4ce2-ab72-6b720ef1a8df",
+      "name": "Score each testimonial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Score out of 100. Length 0-25, specifics 0-40 (numbers and outcome words),\n// rating 0-20, attribution 0-10, minus shouting. A blocked word, no permission or\n// a low score routes to review; the reasons are kept for the reviewer.\nconst cfg = $('config').first().json;\nconst outcome = cfg.outcome_words, blocked = cfg.blocked_words;\nreturn $input.first().json.testimonials.map(t => {\n  const text = String(t.text || '').trim();\n  const words = text.split(/\\s+/).filter(Boolean);\n  const low = text.toLowerCase();\n  const numbers = (text.match(/\\b\\d+(?:[.,]\\d+)?\\s?(%|percent|hours?|days?|weeks?|minutes?|months?|people|x)?/gi) || []).length;\n  const outcomes = outcome.filter(w => new RegExp('\\\\b' + w + '\\\\b').test(low)).length;\n  const caps = words.filter(w => w.length > 2 && w === w.toUpperCase() && /[A-Z]/.test(w)).length / Math.max(1, words.length);\n  const bad = blocked.filter(w => new RegExp('\\\\b' + w + '\\\\b').test(low));\n  const parts = {\n    length: words.length < 15 ? 0 : words.length < 25 ? 10 : words.length <= 150 ? 25 : 15,\n    specifics: Math.min(20, numbers * 10) + Math.min(20, outcomes * 5),\n    rating: t.rating >= 5 ? 20 : t.rating === 4 ? 10 : 0,\n    attribution: (t.company ? 5 : 0) + (t.role ? 5 : 0),\n    penalty: (caps > 0.3 ? -15 : 0) + (/!!/.test(text) ? -5 : 0),\n  };\n  const score = Math.max(0, Object.values(parts).reduce((a, b) => a + b, 0));\n  const reasons = [];\n  if (bad.length) reasons.push('blocked word: ' + bad.join(', '));\n  if (!t.permission) reasons.push('no permission to publish');\n  if (score < cfg.auto_queue_score) reasons.push('score ' + score + ' under ' + cfg.auto_queue_score);\n  if (t.rating < 4) reasons.push('rating ' + t.rating);\n  const sentences = text.split(/(?<=[.!?])\\s+/).filter(s => { const n = s.split(/\\s+/).length; return n >= 6 && n <= 25; });\n  const spec = s => (s.match(/\\d/g) || []).length * 3 + outcome.filter(w => s.toLowerCase().includes(w)).length * 2 - s.length / 100;\n  const pull = [...sentences].sort((a, b) => spec(b) - spec(a))[0] || '';\n  return { json: { ...t, text, word_count: words.length, score, parts, decision: reasons.length ? 'review' : 'queue', reasons, pull_quote: pull } };\n});\n"
+      },
+      "position": [
+        1456,
+        288
+      ]
+    },
+    {
+      "id": "51aeebd1-cf4d-4481-a4af-a4af749c51ae",
+      "name": "Live with Airtable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d2a4808-9fff-4588-adce-ddce9ebb2d2a",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "2e2a499b-6254-472b-a5d8-a5d807022e2a",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1760,
+        288
+      ]
+    },
+    {
+      "id": "ba4d43c0-62b1-47c0-a9c9-29c90e43ba4d",
+      "name": "Write the thank-you email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Wording follows the permission answer, so nobody is told their words go public by mistake.\nconst cfg = $('config').first().json;\nreturn $input.all().map(({ json: t }) => {\n  const first = (t.name || '').split(' ')[0] || 'there';\n  const body = 'Hi ' + first + ',\\n\\nThank you for taking the time to write this. ' +\n    (t.permission ? 'We may feature it on our site; we will send you the link if we do, and you can ask us to take it down at any time.' : 'You asked us not to publish it, so it stays with our team. It still helps us decide what to build next.') +\n    '\\n\\n' + cfg.sender_name;\n  return { json: { email: t.email, subject: cfg.thanks_subject, body, send_to: cfg.mode === 'test' ? cfg.test_email : t.email } };\n});\n"
+      },
+      "position": [
+        1760,
+        464
+      ]
+    },
+    {
+      "id": "58021de9-14a8-4f19-a36e-a36e0ea45802",
+      "name": "STOP: test run - Airtable untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1984,
+        464
+      ]
+    },
+    {
+      "id": "705ef47d-4011-4f6d-a034-b0349cd8705e",
+      "name": "Shape the Airtable record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Fields: Name, Email, Company, Role, Rating, Testimonial, Permission, Score,\n// Status, Reasons, Pull quote, Submitted at.\nconst records = $input.all().map(({ json: t }) => ({ fields: {\n  Name: t.name, Email: t.email, Company: t.company, Role: t.role, Rating: t.rating, Testimonial: t.text, Permission: t.permission,\n  Score: t.score, Status: t.decision === 'queue' ? 'Ready to publish' : 'Needs review', Reasons: t.reasons.join('; '), 'Pull quote': t.pull_quote, 'Submitted at': t.submitted_at } }));\nreturn [{ json: { payload: { records, typecast: true } } }];\n"
+      },
+      "position": [
+        1984,
+        288
+      ]
+    },
+    {
+      "id": "6e92f1e0-1f0c-4be0-aa82-da8277236e92",
+      "name": "Create the Airtable record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2208,
+        288
+      ]
+    },
+    {
+      "id": "9ad9d62b-9414-46bb-a01c-901cf5d29ad9",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1984,
+        624
+      ]
+    },
+    {
+      "id": "405b9b9c-8267-42dc-ad20-5d200def405b",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2208,
+        800
+      ]
+    },
+    {
+      "id": "90aff917-ec58-47e7-a645-8645c7ee90af",
+      "name": "Email the thank-you",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2208,
+        624
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testimonial form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the form": {
+      "main": [
+        [
+          {
+            "node": "Real submission?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Real submission?": {
+      "main": [
+        [
+          {
+            "node": "Combine testimonial sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample testimonials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample testimonials": {
+      "main": [
+        [
+          {
+            "node": "Combine testimonial sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine testimonial sources": {
+      "main": [
+        [
+          {
+            "node": "Score each testimonial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score each testimonial": {
+      "main": [
+        [
+          {
+            "node": "Live with Airtable?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the thank-you email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with Airtable?": {
+      "main": [
+        [
+          {
+            "node": "Shape the Airtable record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test run - Airtable untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the Airtable record": {
+      "main": [
+        [
+          {
+            "node": "Create the Airtable record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the thank-you email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the thank-you",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

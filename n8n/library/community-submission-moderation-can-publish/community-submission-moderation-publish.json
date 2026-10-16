@@ -1,0 +1,924 @@
+{
+  "name": "Moderate community form posts with OpenAI before posting to Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Moderate community form posts with OpenAI before posting to Discord\n\n**Who's it for**\nCommunity managers who collect posts, tips or showcase entries through a form and publish them to Discord, and spend their mornings deleting spam and link drops by hand.\n\n**How it works**\n1. Each form submission (name, email, title, post, optional link) runs the house rules first. A manual run uses 7 sample submissions.\n2. Banned phrases, duplicates of a post from the last 7 days and posts under 20 characters are rejected. More than 2 links, shortened links, mostly capital letters or a 4th post in a day are held.\n3. With `USE_OPENAI` on, posts that pass the rules are checked by a model against `COMMUNITY_RULES`; the model can hold or reject, never approve something the rules stopped.\n4. Approved posts go to Discord with the author and title. Held posts go to the Review queue tab with the reason; rejected posts stop with theirs.\n\n**How to set up**\n1. Run it once as imported. It judges the sample posts and stops at `STOP: dry run - nothing posted`.\n2. Add a Discord bot credential to `Post to Discord` and set `DISCORD_CHANNEL_ID`.\n3. Create a Review queue tab and put the sheet id in `QUEUE_SHEET_ID`. Optionally add an OpenAI credential and set `USE_OPENAI = true`.\n4. Activate the workflow and share the form URL. Set `DRY_RUN = false` to start posting.\n\n**Requirements**\n- A Discord server with a bot that can post in the channel\n- A Google Sheet for the review queue\n- Optional: an OpenAI API key\n\n**How to customize**\n- `BANNED_PHRASES`, `SHORTENER_DOMAINS` and `MAX_LINKS` hold the hard rules.\n- `COMMUNITY_RULES` is the plain-language rule text the model judges against.\n- `CAPS_RATIO` and `DAILY_POSTS_PER_EMAIL` tune the softer holds.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "b2ec18d5-5717-4c4e-9a00-b2ec18d513e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe form is the way in; the manual trigger replays sample posts. Every rule, threshold and the community rule text live in `config`.",
+        "height": 848,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "173ab388-5717-4c4e-9a00-173ab3881000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read and apply house rules\n\nRules are free and explainable, so they run first on every post. Rejections are reserved for certain spam; anything that might be fine is held for a person instead.",
+        "height": 848,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "183ab51b-5717-4c4e-9a00-183ab51b1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Ask the model\n\nOnly posts that passed every rule reach the model, so spam never costs a call. `Settle the verdict` lets the model add a hold or reject but never approve a post a rule stopped.",
+        "height": 848,
+        "width": 1232,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "193ab6ae-5717-4c4e-9a00-193ab6ae1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post, queue or reject\n\nEach verdict has its own exit. Discord and the review queue are written only on a live run with their ids set, and the duplicate memory is saved only then, so a dry run can be repeated.",
+        "height": 848,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2864,
+        0
+      ],
+      "id": "1a3ab841-5717-4c4e-9a00-1a3ab8411003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "cc1ac060-580c-4260-a08b-008b39a3cc1a",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// MODERATE COMMUNITY FORM POSTS WITH OPENAI BEFORE POSTING TO DISCORD - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE submissions. USE_OPENAI false -> house rules only.\n// DRY_RUN true -> verdicts are shown; nothing is posted, queued or remembered.\n\n// set true after adding an OpenAI credential to the model under Judge against the community rules\nconst USE_OPENAI = false;\n// what the model checks posts against\nconst COMMUNITY_RULES = 'Posts must be about home baking. No selling or affiliate links. Be kind; no insults or personal attacks. No medical or financial advice.';\n// any of these rejects the post\nconst BANNED_PHRASES = [\n  \"casino\",\n  \"crypto giveaway\",\n  \"free money\",\n  \"onlyfans\",\n  \"viagra\",\n  \"dm me for\"\n];\n// links through these are held, since the target is hidden\nconst SHORTENER_DOMAINS = [\n  \"bit.ly\",\n  \"tinyurl.com\",\n  \"t.co\",\n  \"goo.gl\",\n  \"is.gd\"\n];\n// more links than this holds the post\nconst MAX_LINKS = 2;\n// shorter posts are rejected\nconst MIN_CHARS = 20;\n// share of capital letters that holds a post (posts with 20+ letters)\nconst CAPS_RATIO = 0.6;\n// the same text posted again inside this window is rejected\nconst DUPLICATE_DAYS = 7;\n// a 4th post from one email in a day is held\nconst DAILY_POSTS_PER_EMAIL = 3;\n// channel approved posts go to\nconst DISCORD_CHANNEL_ID = '';\n// Google Sheets id with a Review queue tab\nconst QUEUE_SHEET_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_openai: USE_OPENAI,\n    community_rules: COMMUNITY_RULES,\n    banned_phrases: BANNED_PHRASES,\n    shortener_domains: SHORTENER_DOMAINS,\n    max_links: MAX_LINKS,\n    min_chars: MIN_CHARS,\n    caps_ratio: CAPS_RATIO,\n    duplicate_days: DUPLICATE_DAYS,\n    daily_posts_per_email: DAILY_POSTS_PER_EMAIL,\n    discord_channel_id: DISCORD_CHANNEL_ID,\n    queue_sheet_id: QUEUE_SHEET_ID,\n    dry_run: DRY_RUN,\n    queue_enabled: QUEUE_SHEET_ID.trim() !== '',\n    discord_enabled: DISCORD_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "63869da4-86d1-4264-a480-148034876386",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "6dd8db8b-6791-4e1b-a8e8-48e848726dd8",
+      "name": "Community post form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "3b6b09d4-a132-4f94-ae8e-1e8e4bf73b6b",
+      "parameters": {
+        "formTitle": "Share with the community",
+        "formDescription": "Your post is checked and then shared in our Discord. Most posts appear within a minute.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Display name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Title",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Post",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Link"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "e43e500f-b825-415f-a10d-310dec16e43e",
+      "name": "Read the submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form fields arrive under their labels. A manual run has none, so it returns a\n// marker and the sample submissions are used.\nlet subs = [];\ntry { if ($('Community post form').isExecuted) subs = $('Community post form').all().map(i => i.json); } catch (e) { subs = []; }\nif (!subs.length) return [{ json: { source: 'none' } }];\nreturn subs.map(s => ({ json: { source: 'form', name: String(s['Display name'] || '').trim(), email: String(s['Email'] || '').trim().toLowerCase(),\n  title: String(s['Title'] || '').trim(), post: String(s['Post'] || '').trim(), link: String(s['Link'] || '').trim(), submitted_at: s.submittedAt || new Date().toISOString() } }));\n"
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "a0e6dc0e-48a2-43ae-abf2-0bf22e4da0e6",
+      "name": "Form submitted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1f31255-52fc-49c5-a4e4-e4e49640b1f3",
+              "leftValue": "={{ $json.source === 'form' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "84beeaad-3617-469d-a4d6-84d6410884be",
+      "name": "Load sample submissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. One clean post, three holds and three rejects.\nconst sub = (name, email, title, post, link = '') => ({ source: 'sample', name, email, title, post, link, submitted_at: new Date().toISOString() });\nconst loaf = 'My weekday sourdough schedule: feed the starter at 8am, mix at 4pm, shape at 9pm and bake straight from the fridge the next morning. Works with a full-time job.';\nreturn [\n  sub('Ana', 'ana@ryefield.example', 'Weekday sourdough schedule', loaf, 'https://ryefield.example/schedule'),\n  sub('Promo Bot', 'win@cashflow.example', 'Huge win today', 'Join the crypto giveaway now, free money for the first 100 people!!!'),\n  sub('Ben', 'ben@crumbs.example', 'Flour guide', 'Here are the flours I tested this year with notes: https://a.example/1 https://b.example/2 https://c.example/3', 'https://d.example/4'),\n  sub('Cass', 'cass@ovenlight.example', 'Why does nobody answer', 'WHY DOES MY BREAD ALWAYS COLLAPSE IN THE OVEN I HAVE TRIED EVERYTHING'),\n  sub('Dev', 'dev@flourworks.example', 'Copy of a schedule', loaf),\n  sub('Eve', 'eve@sweetloaf.example', 'hi', 'hi'),\n  sub('Finn', 'finn@proofbox.example', 'Banneton tip', 'Rice flour in the banneton stops sticking every time. Photos here:', 'https://bit.ly/3xYzSample'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "96576463-ec24-4373-a386-338653da9657",
+      "name": "Combine submission sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "9d5fac96-aff3-49b6-a728-7728ada59d5f",
+      "name": "Apply the house rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Hard rules reject, soft rules hold. Duplicates are matched on normalised text\n// against this batch and the last DUPLICATE_DAYS (static memory, saved on live runs).\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst prints = memory.prints || {};\nconst perEmail = memory.per_email || {};\nconst today = new Date().toISOString().slice(0, 10);\nconst fp = s => { const t = s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };\nconst cutoff = Date.now() - cfg.duplicate_days * 864e5;\nconst batch = new Set(), counts = {};\nconst out = [];\nfor (const { json: s } of $input.all().filter(i => i.json.source !== 'none')) {\n  const text = s.title + ' ' + s.post;\n  const lower = text.toLowerCase();\n  const links = [...(s.post + ' ' + s.link).matchAll(/https?:\\/\\/[^\\s]+/g)].map(m => m[0]);\n  const hosts = links.map(l => { try { return new URL(l).hostname.replace(/^www\\./, ''); } catch (e) { return ''; } });\n  const letters = text.replace(/[^A-Za-z]/g, '');\n  const caps = letters.length >= 20 ? letters.replace(/[^A-Z]/g, '').length / letters.length : 0;\n  const print = fp(s.post);\n  const dupe = batch.has(print) || (prints[print] && new Date(prints[print]).getTime() > cutoff);\n  const key = s.email + '|' + today;\n  counts[key] = (counts[key] || perEmail[key] || 0) + 1;\n  const banned = cfg.banned_phrases.find(p => lower.includes(p));\n  const shortener = hosts.find(h => cfg.shortener_domains.includes(h));\n  const [verdict, reason] =\n    banned ? ['reject', 'banned phrase \"' + banned + '\"'] :\n    dupe ? ['reject', 'duplicate of a recent post'] :\n    s.post.length < cfg.min_chars ? ['reject', 'shorter than ' + cfg.min_chars + ' characters'] :\n    links.length > cfg.max_links ? ['hold', links.length + ' links (max ' + cfg.max_links + ')'] :\n    shortener ? ['hold', 'shortened link (' + shortener + ')'] :\n    caps > cfg.caps_ratio ? ['hold', Math.round(caps * 100) + '% capital letters'] :\n    counts[key] > cfg.daily_posts_per_email ? ['hold', 'post ' + counts[key] + ' today from this email'] :\n    ['pass', ''];\n  batch.add(print);\n  out.push({ json: { ...s, links, print, rule_verdict: verdict, verdict: verdict === 'pass' ? 'approve' : verdict, reason, judged_by: 'rules' } });\n}\nif (cfg.live) {\n  const now = new Date().toISOString();\n  for (const o of out) prints[o.json.print] = now;\n  for (const [k, n] of Object.entries(counts)) if (k.endsWith(today)) perEmail[k] = n;\n  for (const [k, v] of Object.entries(prints)) if (new Date(v).getTime() < cutoff) delete prints[k];\n  for (const k of Object.keys(perEmail)) if (!k.endsWith(today)) delete perEmail[k];\n  memory.prints = prints; memory.per_email = perEmail;\n}\nreturn out;\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "7af442cd-5680-44bd-aed8-5ed81fe87af4",
+      "name": "Rules decide alone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "929ffb08-dcfb-4888-af42-6f42e5bb929f",
+              "leftValue": "={{ !$('config').first().json.use_openai || $json.rule_verdict !== 'pass' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "93ccf713-e093-4f23-a718-f71842ca93cc",
+      "name": "Keep the rule verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Rejected or held by a rule, or OpenAI is off: the rule verdict stands as final.\nreturn $input.all().map(i => ({ json: { ...i.json, model_checked: false } }));\n"
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "b8507f83-bb12-4493-ab78-db78d2bab850",
+      "name": "Prepare the model check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Exactly the posts that passed the rules, so model replies pair back by position.\nreturn $input.all().map(i => ({ json: { title: i.json.title, post: i.json.post.slice(0, 3000), links: i.json.links.join(' ') || 'none' } }));\n"
+      },
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "823de763-1f6f-4673-a2f3-82f30ada823d",
+      "name": "Judge against the community rules",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "=Community rules: {{ $('config').first().json.community_rules }}\n\nTitle: {{ $json.title }}\nPost: {{ $json.post }}\nLinks: {{ $json.links }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You moderate posts for an online community. Decide: ok (fits the rules), hold (unclear, a person should look) or reject (clearly breaks a rule or is spam). Name the rule in under 15 words. When unsure, choose hold."
+        }
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "ad8e80ce-2aaa-4c6e-a185-d185cc8dad8e",
+      "name": "Judge against the community rules model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        2096,
+        512
+      ]
+    },
+    {
+      "id": "d8a0ebf3-81fd-4e03-acc2-fcc277ead8a0",
+      "name": "Judge against the community rules output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"decision\": \"hold\",\n  \"reason\": \"Links to a shop page, may be selling\"\n}"
+      },
+      "position": [
+        2208,
+        512
+      ]
+    },
+    {
+      "id": "560b9993-b230-49a3-ab11-cb11c54a560b",
+      "name": "Combine verdicts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2448,
+        176
+      ]
+    },
+    {
+      "id": "7cee7d03-cf9f-4a13-ac5d-ac5d803a7cee",
+      "name": "Settle the verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Model replies carry only { output }; they pair, in order, with the posts that\n// passed every rule (exactly what went to the model).\n// The model can turn an approve into hold or reject, never the other way round.\nconst passed = $('Apply the house rules').all().map(i => i.json).filter(s => s.rule_verdict === 'pass');\nlet k = 0;\nreturn $input.all().map(it => {\n  if (!('output' in it.json)) return it;\n  const s = passed[k++] || {};\n  const o = it.json.output || {};\n  const decision = ['ok', 'hold', 'reject'].includes(o.decision) ? o.decision : 'hold';\n  return { json: { ...s, verdict: decision === 'ok' ? 'approve' : decision, reason: decision === 'ok' ? '' : 'model: ' + (o.reason || 'no reason given'), judged_by: 'rules + model' } };\n});\n"
+      },
+      "position": [
+        2672,
+        176
+      ]
+    },
+    {
+      "id": "959a8585-3e85-4df5-aee6-dee61770959a",
+      "name": "Route by verdict",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "059dc5ab-7640-4e3b-a5ab-45abc552059d",
+                    "leftValue": "={{ $json.verdict }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "25e0e51b-5f95-4aab-a249-6249568225e0",
+                    "leftValue": "={{ $json.verdict }}",
+                    "rightValue": "hold",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "hold"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d1e2eff9-9dd3-4c29-aeed-2eed0934d1e2",
+                    "leftValue": "={{ $json.verdict }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reject"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        2912,
+        176
+      ]
+    },
+    {
+      "id": "6af98c26-79f1-4c46-ae72-7e7253756af9",
+      "name": "Post to Discord now?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6263ba0b-ec3f-449b-a4eb-74eb7af26263",
+              "leftValue": "={{ $('config').first().json.live && $('config').first().json.discord_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3136,
+        176
+      ]
+    },
+    {
+      "id": "cacc6a71-71ec-4121-a4be-64be0dfccacc",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3360,
+        352
+      ]
+    },
+    {
+      "id": "93960fc1-78aa-4d71-a79a-679a540c9396",
+      "name": "Post to Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "guildId": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.discord_channel_id }}"
+        },
+        "content": "={{ ('**' + $json.title + '**  ·  shared by ' + $json.name + '\\n\\n' + $json.post + ($json.link ? '\\n' + $json.link : '')).slice(0, 1990) }}",
+        "options": {}
+      },
+      "position": [
+        3360,
+        176
+      ]
+    },
+    {
+      "id": "1294f300-74d7-4300-a440-6440ac031294",
+      "name": "Shape the review row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// What a moderator needs to decide in one row; status starts as open.\nreturn $input.all().map(({ json: s }) => ({ json: { submitted_at: s.submitted_at, name: s.name, email: s.email, title: s.title,\n  post: s.post, link: s.link, reason: s.reason, judged_by: s.judged_by, status: 'open' } }));\n"
+      },
+      "position": [
+        3136,
+        352
+      ]
+    },
+    {
+      "id": "187b826f-d5e4-45bf-a841-b8417eb6187b",
+      "name": "Write to the queue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1c2bd71e-ee6e-49be-a95d-e95d39dd1c2b",
+              "leftValue": "={{ $('config').first().json.live && $('config').first().json.queue_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3360,
+        512
+      ]
+    },
+    {
+      "id": "32674453-9086-4863-a57f-757f898a3267",
+      "name": "STOP: dry run - queue untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3584,
+        688
+      ]
+    },
+    {
+      "id": "189282f8-707b-4578-afc9-0fc95a6b1892",
+      "name": "Add to the review queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.queue_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Review queue"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3584,
+        512
+      ]
+    },
+    {
+      "id": "c994e04e-12b5-43ee-a8ea-08ea480dc994",
+      "name": "STOP: rejected",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3136,
+        512
+      ]
+    },
+    {
+      "id": "8aff96fb-4301-468b-a3a3-a3a344a28aff",
+      "name": "STOP: unknown verdict",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3136,
+        688
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Community post form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the submission": {
+      "main": [
+        [
+          {
+            "node": "Form submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form submitted?": {
+      "main": [
+        [
+          {
+            "node": "Combine submission sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample submissions": {
+      "main": [
+        [
+          {
+            "node": "Combine submission sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine submission sources": {
+      "main": [
+        [
+          {
+            "node": "Apply the house rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply the house rules": {
+      "main": [
+        [
+          {
+            "node": "Rules decide alone?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rules decide alone?": {
+      "main": [
+        [
+          {
+            "node": "Keep the rule verdict",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare the model check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare the model check": {
+      "main": [
+        [
+          {
+            "node": "Judge against the community rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge against the community rules model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Judge against the community rules",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge against the community rules output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Judge against the community rules",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep the rule verdict": {
+      "main": [
+        [
+          {
+            "node": "Combine verdicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge against the community rules": {
+      "main": [
+        [
+          {
+            "node": "Combine verdicts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine verdicts": {
+      "main": [
+        [
+          {
+            "node": "Settle the verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settle the verdict": {
+      "main": [
+        [
+          {
+            "node": "Route by verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by verdict": {
+      "main": [
+        [
+          {
+            "node": "Post to Discord now?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Shape the review row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unknown verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Discord now?": {
+      "main": [
+        [
+          {
+            "node": "Post to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the review row": {
+      "main": [
+        [
+          {
+            "node": "Write to the queue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the queue?": {
+      "main": [
+        [
+          {
+            "node": "Add to the review queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - queue untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

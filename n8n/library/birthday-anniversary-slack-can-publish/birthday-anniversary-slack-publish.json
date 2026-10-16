@@ -1,0 +1,545 @@
+{
+  "name": "Post birthdays and work anniversaries from Google Sheets to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Post birthdays and work anniversaries from Google Sheets to Slack\n\n**Who's it for**\nOffice managers and people teams at companies of 15 to 500 who keep a staff list in Google Sheets and keep missing birthdays that fall on a weekend. One message a day, nobody forgotten, nobody posted against their wishes.\n\n**How it works**\n1. Every weekday at 09:00 it reads the People tab, or sample staff until a sheet id is set.\n2. Birthdays and start-date anniversaries matching today are collected. On Friday, Saturday and Sunday dates are included too, and 29 February counts on 28 February in non-leap years.\n3. People with `birthday`, `anniversary` or `all` in the opt_out column are left out, as are inactive rows and anniversaries under one year.\n4. Anniversaries in `MILESTONE_YEARS` get their own line. Everything goes out as one Slack message, at most once per day.\n\n**How to set up**\n1. Run it once as imported. It builds the message for sample staff and stops at `STOP: dry run - nothing posted`.\n2. Create a People tab with name, slack_user_id, birthday (MM-DD or YYYY-MM-DD), start_date, opt_out and active columns. Connect Google Sheets and set `PEOPLE_SHEET_ID`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Check the text in `Write the message`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Google Sheet listing staff\n- A Slack workspace\n\n**How to customize**\n- `MILESTONE_YEARS` picks the anniversaries that get a bigger shout-out.\n- `LEAP_DAY_RULE` moves 29 February birthdays to `feb28` or `mar1` in non-leap years.\n- `WEEKEND_ON_FRIDAY = false` posts weekend dates on Monday instead.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "bd3368b2-5717-4c4e-9a00-bd3368b213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 09:00 or by hand. `RUN_DATE` lets you preview any day, which is the quickest way to check the Friday and 29 February rules before going live.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9fd8ed87-5717-4c4e-9a00-9fd8ed871000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the staff list\n\n`People sheet set?` reads the People tab once `PEOPLE_SHEET_ID` is filled. `Load sample people` builds dates from the run date, so the sample always has a birthday, an opt-out and a 10-year anniversary to show.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "9ed8ebf4-5717-4c4e-9a00-9ed8ebf41001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find who to celebrate\n\n`Find today's celebrations` works out every calendar day the run covers first, then matches birthdays and start dates against it. Opt-outs and inactive rows are recorded as skipped, not silently dropped, and an empty day ends at its own STOP.",
+        "height": 528,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "a1d8f0ad-5717-4c4e-9a00-a1d8f0ad1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post once\n\nOne message per day. `Post to Slack?` needs a live run, a channel and no post already recorded for the run date, so a manual re-run after the 09:00 post does nothing.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "a0d8ef1a-5717-4c4e-9a00-a0d8ef1a1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "3dba59f6-ea37-4916-a7ff-77ffff453dba",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// POST BIRTHDAYS AND WORK ANNIVERSARIES FROM GOOGLE SHEETS TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// PEOPLE_SHEET_ID blank -> SAMPLE staff. SLACK_CHANNEL_ID blank -> nothing is posted.\n// DRY_RUN true -> the message is built and shown, not posted.\n\n// Google Sheets id with a People tab; blank uses sample staff\nconst PEOPLE_SHEET_ID = '';\n// channel for the daily message; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// anniversaries that get their own line\nconst MILESTONE_YEARS = [\n  1,\n  5,\n  10,\n  15,\n  20,\n  25\n];\n// 29 February in non-leap years: 'feb28' or 'mar1'\nconst LEAP_DAY_RULE = 'feb28';\n// true: Friday also covers Saturday and Sunday. false: Monday covers the weekend just gone\nconst WEEKEND_ON_FRIDAY = true;\n// blank = today. Set 'YYYY-MM-DD' to preview another day\nconst RUN_DATE = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    people_sheet_id: PEOPLE_SHEET_ID,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    milestone_years: MILESTONE_YEARS,\n    leap_day_rule: LEAP_DAY_RULE,\n    weekend_on_friday: WEEKEND_ON_FRIDAY,\n    run_date: RUN_DATE,\n    dry_run: DRY_RUN,\n    sheets_enabled: PEOPLE_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "bf146782-3af6-42e2-a423-1423b8f1bf14",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "aefbebf5-f657-4165-a97d-997dc2a0aefb",
+      "name": "Every weekday at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "976747c1-07c9-4571-aad7-bad74c0c9767",
+      "name": "People sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c02897ba-70bd-419a-ae7b-7e7b1e19c028",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "f1f31bec-d8fc-4a2c-af28-1f28c5fff1f3",
+      "name": "Read People tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.people_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "People"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "1ca26711-31a7-4bc1-abc9-abc9165c1ca2",
+      "name": "Load sample people",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until PEOPLE_SHEET_ID is set. Dates are relative to the run date so there is always a match.\nconst cfg = $('config').first().json;\nconst base = new Date((cfg.run_date || new Date().toISOString().slice(0, 10)) + 'T00:00:00Z');\nconst md = n => new Date(base.getTime() + n * 864e5).toISOString().slice(5, 10);\nconst yearsAgo = (y, n = 0) => (base.getUTCFullYear() - y) + '-' + md(n);\nreturn [\n  { name: 'Amara Osei', slack_user_id: 'U01AMARA', birthday: md(0), start_date: yearsAgo(3, 40), opt_out: '', active: 'yes' },\n  { name: 'Ben Hollis', slack_user_id: 'U01BENH', birthday: '1990-' + md(0), start_date: yearsAgo(2, 90), opt_out: 'birthday', active: 'yes' },\n  { name: 'Carla Mendes', slack_user_id: 'U01CARLA', birthday: md(120), start_date: yearsAgo(10), opt_out: '', active: 'yes' },\n  { name: 'Dev Raman', slack_user_id: '', birthday: md(200), start_date: yearsAgo(3), opt_out: '', active: 'yes' },\n  { name: 'Elif Kaya', slack_user_id: 'U01ELIF', birthday: md(60), start_date: yearsAgo(0), opt_out: '', active: 'yes' },\n  { name: 'Finn Doyle', slack_user_id: 'U01FINN', birthday: md(0), start_date: yearsAgo(6, 10), opt_out: '', active: 'no' },\n  { name: 'Gia Romano', slack_user_id: 'U01GIA', birthday: md(150), start_date: yearsAgo(4), opt_out: 'all', active: 'yes' },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "f0181a1a-0c96-45fa-acb5-8cb595b9f018",
+      "name": "Combine people sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "8d0e1fd9-f970-4609-a420-6420d2548d0e",
+      "name": "Find today's celebrations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Which calendar days this run covers: today, plus Sat/Sun on a Friday (or the weekend\n// just gone on a Monday). 29 Feb maps to LEAP_DAY_RULE in non-leap years.\nconst cfg = $('config').first().json;\nconst runDate = cfg.run_date || new Date().toISOString().slice(0, 10);\nconst base = new Date(runDate + 'T00:00:00Z');\nconst dow = base.getUTCDay();\nconst offsets = [0];\nif (cfg.weekend_on_friday && dow === 5) offsets.push(1, 2);\nif (!cfg.weekend_on_friday && dow === 1) offsets.push(-1, -2);\nconst days = offsets.map(n => new Date(base.getTime() + n * 864e5));\nconst leap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;\nconst label = d => ({ 0: 'today', 1: 'Saturday', 2: 'Sunday', '-1': 'Sunday', '-2': 'Saturday' })[Math.round((d - base) / 864e5)];\n// the day a MM-DD is celebrated in the year of d\nconst celebrated = (mmdd, d) => {\n  if (mmdd !== '02-29' || leap(d.getUTCFullYear())) return mmdd;\n  return cfg.leap_day_rule === 'mar1' ? '03-01' : '02-28';\n};\nconst mmddOf = v => { const m = String(v || '').trim().match(/(\\d{2})-(\\d{2})$/); return m ? m[1] + '-' + m[2] : ''; };\nconst birthdays = [], anniversaries = [], skipped = [];\nfor (const { json: p } of $input.all()) {\n  if (!p.name) continue;\n  const optOut = String(p.opt_out || '').toLowerCase();\n  const inactive = ['no', 'false', 'inactive', 'left'].includes(String(p.active || 'yes').toLowerCase());\n  const tag = p.slack_user_id ? '<@' + p.slack_user_id + '>' : p.name;\n  const b = mmddOf(p.birthday);\n  const bDay = b && days.find(d => celebrated(b, d) === d.toISOString().slice(5, 10));\n  if (bDay) {\n    if (inactive) skipped.push({ name: p.name, reason: 'inactive' });\n    else if (['birthday', 'all'].includes(optOut)) skipped.push({ name: p.name, reason: 'opted out of birthdays' });\n    else birthdays.push({ name: p.name, tag, when: label(bDay) });\n  }\n  const s = String(p.start_date || '').slice(0, 10);\n  const aDay = s && days.find(d => celebrated(s.slice(5), d) === d.toISOString().slice(5, 10));\n  if (aDay) {\n    const years = aDay.getUTCFullYear() - Number(s.slice(0, 4));\n    if (years < 1) continue;\n    if (inactive) skipped.push({ name: p.name, reason: 'inactive' });\n    else if (['anniversary', 'all'].includes(optOut)) skipped.push({ name: p.name, reason: 'opted out of anniversaries' });\n    else anniversaries.push({ name: p.name, tag, years, milestone: cfg.milestone_years.includes(years), when: label(aDay) });\n  }\n}\nanniversaries.sort((a, b) => b.years - a.years);\nreturn [{ json: { run_date: runDate, covers: days.map(d => d.toISOString().slice(0, 10)), birthdays, anniversaries, skipped } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "1a665c83-5ca4-4193-a03b-803b7bba1a66",
+      "name": "Anyone to celebrate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1b0644ae-cb2d-4a4e-ab40-0b40a1ad1b06",
+              "leftValue": "={{ $json.birthdays.length + $json.anniversaries.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "fd6f9736-c93a-4256-a515-6515cf05fd6f",
+      "name": "STOP: nobody to celebrate today",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "debf3613-bad8-4e23-a8c6-18c6b9cadebf",
+      "name": "Write the message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message. Milestones first, then the rest; weekend dates say which day.\nconst store = $getWorkflowStaticData('global');\nconst c = $input.first().json;\nconst when = x => x.when === 'today' ? '' : ' (' + x.when + ')';\nconst ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th');\nconst lines = [];\nconst big = c.anniversaries.filter(a => a.milestone), rest = c.anniversaries.filter(a => !a.milestone);\nif (c.birthdays.length) lines.push(':birthday: Happy birthday ' + c.birthdays.map(b => b.tag + when(b)).join(', ') + '!');\nfor (const a of big) lines.push(':tada: ' + a.tag + ' celebrates ' + a.years + (a.years === 1 ? ' year' : ' years') + ' with us' + when(a) + '. A ' + ord(a.years) + ' work anniversary milestone!');\nif (rest.length) lines.push(':clap: Work anniversaries: ' + rest.map(a => a.tag + ' (' + a.years + ' years)' + when(a)).join(', ') + '.');\nreturn [{ json: { text: lines.join('\\n'), already_posted: store.last_posted === c.run_date, run_date: c.run_date } }];\n"
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "396de3a4-c5ce-4864-a4b0-44b06e87396d",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1fd7b828-3ac9-4ba8-a3ce-83ce359b1fd7",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "22d7bce1-81c6-4091-a919-e919f3ec22d7",
+              "leftValue": "={{ $json.already_posted }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "d9e565b3-6821-4bc3-a7c9-67c9902ad9e5",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "370f3f78-f952-49f8-ac86-ec8672eb370f",
+      "name": "Post celebrations to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $('Write the message').first().json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "8d5e0fda-275c-4fba-a90f-e90f3cf98d5e",
+      "name": "Remember today's post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A second run on the same day stops at Post to Slack? instead of posting twice.\nconst store = $getWorkflowStaticData('global');\nstore.last_posted = $('Write the message').first().json.run_date;\nreturn [{ json: { last_posted: store.last_posted } }];\n"
+      },
+      "position": [
+        2560,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "People sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "People sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read People tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample people",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read People tab": {
+      "main": [
+        [
+          {
+            "node": "Combine people sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample people": {
+      "main": [
+        [
+          {
+            "node": "Combine people sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine people sources": {
+      "main": [
+        [
+          {
+            "node": "Find today's celebrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find today's celebrations": {
+      "main": [
+        [
+          {
+            "node": "Anyone to celebrate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anyone to celebrate?": {
+      "main": [
+        [
+          {
+            "node": "Write the message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nobody to celebrate today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the message": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post celebrations to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post celebrations to Slack": {
+      "main": [
+        [
+          {
+            "node": "Remember today's post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

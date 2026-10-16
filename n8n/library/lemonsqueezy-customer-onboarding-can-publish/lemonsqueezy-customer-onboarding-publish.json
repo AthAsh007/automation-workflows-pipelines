@@ -1,0 +1,568 @@
+{
+  "name": "Welcome new Lemon Squeezy customers and tag them in ConvertKit",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Welcome new Lemon Squeezy customers and tag them in ConvertKit\n\n**Who's it for**\nCreators selling templates, courses or software on Lemon Squeezy who want each buyer to get a product-specific welcome and land in the right ConvertKit segment, instead of one generic receipt.\n\n**How it works**\n1. Lemon Squeezy calls the webhook on every new order. A manual run uses 5 sample payloads instead.\n2. Only `order_created` events for your store with status paid go on. Lemon Squeezy retries are dropped by order id.\n3. Orders placed in Lemon Squeezy test mode are never treated as real: the welcome goes to `TEST_EMAIL` and ConvertKit is skipped.\n4. The first item's product id picks the welcome subject and text, the ConvertKit form and the tag from `PRODUCTS`, with a default for unlisted products.\n5. The welcome is sent from Gmail, then the buyer is added to the form with the tag and their first name.\n\n**How to set up**\n1. Run it once as imported. It processes the sample payloads and stops at `STOP: preview - nothing sent`.\n2. Activate the workflow and add the production URL of `Lemon Squeezy order webhook` in Lemon Squeezy under Settings, Webhooks, with the order_created event. Set `STORE_ID`.\n3. Connect Gmail, add a ConvertKit credential to `Add to the ConvertKit form`, and fill `PRODUCTS` with your product ids, form ids, tag ids and welcome copy.\n4. Put your address in `TEST_EMAIL`, place a test-mode order in Lemon Squeezy, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Lemon Squeezy store\n- A Gmail account\n- A ConvertKit account with a form and tags\n\n**How to customize**\n- `PRODUCTS` holds the subject, welcome lines, form id and tag id per product.\n- `DEFAULT_PRODUCT` covers anything not listed.\n- `SENDER_NAME` signs every email.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "c6c32c57-5717-4c4e-9a00-c6c32c5713e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nThe webhook answers Lemon Squeezy at once and then runs; the manual trigger replays sample payloads. Product copy, form ids and tag ids all live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "30ad70aa-5717-4c4e-9a00-30ad70aa1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the payload\n\n`Read the webhook payload` passes the JSON body on, or a marker on a manual run so `Load sample payloads` takes over with the same Lemon Squeezy shape.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "31ad723d-5717-4c4e-9a00-31ad723d1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check the order and write\n\nCheap checks come first: wrong event, wrong store, unpaid, retry. The `test_mode` flag in the payload is trusted over everything else, so a test purchase can never reach a real inbox or list.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "2ead6d84-5717-4c4e-9a00-2ead6d841002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and subscribe\n\nConvertKit is only touched on a live run, for a real order, with a form id set. The order id is remembered after the subscribe call, so a Lemon Squeezy retry is dropped at the check.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "2fad6f17-5717-4c4e-9a00-2fad6f171003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "af0fcfc5-bc75-4435-a75f-b75f9b30af0f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WELCOME NEW LEMON SQUEEZY CUSTOMERS AND TAG THEM IN CONVERTKIT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE webhook payloads; real orders arrive on the webhook.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Lemon Squeezy test-mode orders never reach a customer or ConvertKit.\n\n// your Lemon Squeezy store id; blank accepts any store\nconst STORE_ID = '';\n// Lemon Squeezy product id -> welcome copy, ConvertKit form id and tag id\nconst PRODUCTS = {\n  \"11\": {\n    name: \"Budget Planner for Notion\",\n    subject: \"Your Budget Planner is ready, {first_name}\",\n    lines: [\n      \"Open the duplicate link on your receipt to copy the planner into your Notion workspace.\",\n      \"Start with the Monthly view: it fills itself from the Transactions table.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  },\n  \"12\": {\n    name: \"Freelance Pricing Course\",\n    subject: \"Welcome to the Freelance Pricing Course\",\n    lines: [\n      \"Lesson 1 is waiting in your account: it takes 20 minutes.\",\n      \"Bring one current client quote; we use it in lesson 3.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  }\n};\n// used for products not in PRODUCTS\nconst DEFAULT_PRODUCT = {\n  subject: \"Thanks for your order, {first_name}\",\n  lines: [\n    \"Your download link and receipt are in the Lemon Squeezy email.\",\n    \"Reply to this email if anything does not work.\"\n  ],\n  form_id: \"\",\n  tag_id: \"\"\n};\n// sign-off on every email\nconst SENDER_NAME = 'Maya at Paperlane';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    store_id: STORE_ID,\n    products: PRODUCTS,\n    default_product: DEFAULT_PRODUCT,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "5ee802dd-4b3f-4fcd-aea7-dea7fc785ee8",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "f0a8f48f-0d21-4ddf-a6fb-96fb4c96f0a8",
+      "name": "Lemon Squeezy order webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "ddd74aa9-7c73-4fd9-a42c-e42c19e4ddd7",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lemonsqueezy-orders",
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "89dfd5e3-2da0-4cf3-aa5f-ea5fd15a89df",
+      "name": "Read the webhook payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// When the webhook fired, pass its JSON body on. A manual run has none, so it\n// returns a marker and the sample payloads are used.\nlet hooks = [];\ntry { if ($('Lemon Squeezy order webhook').isExecuted) hooks = $('Lemon Squeezy order webhook').all().map(i => i.json.body || {}); } catch (e) { hooks = []; }\nif (!hooks.length) return [{ json: { source: 'none' } }];\nreturn hooks.map(body => ({ json: { source: 'webhook', body } }));\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "225524ec-9206-432c-a258-1258d2ff2255",
+      "name": "Webhook received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f467f5a6-59a6-4dc6-a587-258788f5f467",
+              "leftValue": "={{ $json.source === 'webhook' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "0a0db12a-683a-480a-a51c-951cf3090a0d",
+      "name": "Load sample payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run. Shaped like Lemon Squeezy webhook bodies.\nconst p = (id, event, status, testMode, productId, productName, email, name) => ({ source: 'sample', body: {\n  meta: { event_name: event, test_mode: testMode, webhook_id: 'wh_' + id },\n  data: { type: 'orders', id: String(id), attributes: { store_id: 4401, order_number: id, identifier: 'ord-' + id, user_name: name, user_email: email,\n    status, total: 2900, currency: 'USD', test_mode: testMode, urls: { receipt: 'https://app.lemonsqueezy.com/my-orders/ord-' + id },\n    first_order_item: { product_id: productId, product_name: productName, variant_name: 'Default' } } } } });\nreturn [\n  p(1001, 'order_created', 'paid', false, 11, 'Budget Planner for Notion', 'priya@quillworks.example', 'Priya Nair'),\n  p(1002, 'order_created', 'paid', true, 12, 'Freelance Pricing Course', 'me@yourcompany.example', 'Store Owner'),\n  p(1003, 'order_created', 'pending', false, 11, 'Budget Planner for Notion', 'sam@hollowtree.example', 'Sam Reid'),\n  p(1004, 'order_created', 'paid', false, 99, 'Icon Pack Vol. 2', 'lucas@brightfold.example', 'Lucas Moreau'),\n  p(1005, 'subscription_created', 'active', false, 12, 'Freelance Pricing Course', 'amy@northlight.example', 'Amy Cho'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "be2ca08c-7ad1-4ccc-ac88-bc88225fbe2c",
+      "name": "Combine payload sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "b6fadd1b-40c1-42ab-aeb7-9eb7ee82b6fa",
+      "name": "Check and map each order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Gate in this order: event, store, status, retry. Test-mode orders continue but are\n// marked so they can only reach TEST_EMAIL. Then map the product to its welcome.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst orders = [], held = [];\nfor (const { json: { body } } of $input.all()) {\n  const meta = body.meta || {}, a = body.data?.attributes || {};\n  const id = String(body.data?.id || '');\n  const reason =\n    meta.event_name !== 'order_created' ? 'event ' + meta.event_name + ' ignored' :\n    cfg.store_id && String(a.store_id) !== String(cfg.store_id) ? 'other store ' + a.store_id :\n    a.status !== 'paid' ? 'status ' + a.status :\n    done[id] ? 'already welcomed (webhook retry)' :\n    !a.user_email ? 'no email' : '';\n  if (reason) { held.push({ order: id, reason }); continue; }\n  const test = Boolean(meta.test_mode || a.test_mode);\n  if (test && cfg.test_email.trim() === '') { held.push({ order: id, reason: 'test-mode order and TEST_EMAIL is blank' }); continue; }\n  const pid = String(a.first_order_item?.product_id || '');\n  const product = cfg.products[pid] || cfg.default_product;\n  orders.push({ order: id, test_order: test, email: String(a.user_email).toLowerCase(), first_name: String(a.user_name || '').split(' ')[0],\n    product_id: pid, product_name: a.first_order_item?.product_name || product.name || '', receipt: a.urls?.receipt || '',\n    known_product: Boolean(cfg.products[pid]), subject_tpl: product.subject, lines: product.lines, form_id: product.form_id, tag_id: product.tag_id });\n}\nreturn [{ json: { orders, held } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "262a8d7f-4895-4bcf-a94b-394b1a46262a",
+      "name": "Write each welcome email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Product copy from PRODUCTS, receipt link from the order. Test-mode orders and\n// test runs both go to TEST_EMAIL.\nconst cfg = $('config').first().json;\nreturn $input.first().json.orders.map(o => {\n  const fill = s => s.replace('{first_name}', o.first_name || 'there').replace('{product}', o.product_name);\n  const body = ['Hi ' + (o.first_name || 'there') + ',', '', 'Thanks for buying ' + o.product_name + '.', '', ...o.lines.map(fill), '',\n    ...(o.receipt ? ['Your receipt and downloads: ' + o.receipt, ''] : []), cfg.sender_name].join('\\n');\n  const toTest = cfg.mode === 'test' || o.test_order;\n  return { json: { ...o, subject: fill(o.subject_tpl), body, send_to: toTest ? cfg.test_email : o.email } };\n});\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "56d23682-5509-41e2-af85-2f851ff156d2",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled || $json.test_order }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "e14e09c1-e007-4771-a4cd-c4cd0a0ce14e",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "2a906f0a-b97e-4fea-a62a-c62a0e292a90",
+      "name": "Email the welcome",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($json.send_to !== $json.email ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "9a7f26f2-a550-4f52-a090-809021219a7f",
+      "name": "Subscribe in ConvertKit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "71af4ad0-e73f-49d0-a9f9-49f9a9d371af",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "72af4c63-a993-4b73-a4a3-14a37bda72af",
+              "leftValue": "={{ !$('Write each welcome email').item.json.test_order }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "73af4df6-6be8-4d16-acaa-dcaa6b4573af",
+              "leftValue": "={{ $('Write each welcome email').item.json.form_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "48ee8977-2677-4a47-a069-40694c8e48ee",
+      "name": "STOP: test, or no form id - ConvertKit untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2544,
+        384
+      ]
+    },
+    {
+      "id": "3db01861-fd1d-4411-a25f-725f936c3db0",
+      "name": "Add to the ConvertKit form",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.convertkit.com/v3/forms/' + $('Write each welcome email').item.json.form_id + '/subscribe' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "convertKitApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $('Write each welcome email').item.json.email, first_name: $('Write each welcome email').item.json.first_name, tags: $('Write each welcome email').item.json.tag_id ? [Number($('Write each welcome email').item.json.tag_id)] : [] }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "fce137c9-5544-42f9-a4bc-14bc8dc4fce1",
+      "name": "Remember welcomed orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Lemon Squeezy retries a webhook until it gets a 200; this stops a retry from\n// sending a second welcome. Ids older than 30 days are dropped.\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst now = new Date().toISOString();\nfor (const o of $('Write each welcome email').all()) if (!o.json.test_order) done[o.json.order] = now;\nconst cutoff = new Date(Date.now() - 30 * 864e5).toISOString();\nfor (const [k, v] of Object.entries(done)) if (v < cutoff) delete done[k];\nmemory.welcomed = done;\nreturn [{ json: { remembered: Object.keys(done).length } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lemon Squeezy order webhook": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the webhook payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the webhook payload": {
+      "main": [
+        [
+          {
+            "node": "Webhook received?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook received?": {
+      "main": [
+        [
+          {
+            "node": "Combine payload sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample payloads": {
+      "main": [
+        [
+          {
+            "node": "Combine payload sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine payload sources": {
+      "main": [
+        [
+          {
+            "node": "Check and map each order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check and map each order": {
+      "main": [
+        [
+          {
+            "node": "Write each welcome email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each welcome email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the welcome": {
+      "main": [
+        [
+          {
+            "node": "Subscribe in ConvertKit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subscribe in ConvertKit?": {
+      "main": [
+        [
+          {
+            "node": "Add to the ConvertKit form",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test, or no form id - ConvertKit untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to the ConvertKit form": {
+      "main": [
+        [
+          {
+            "node": "Remember welcomed orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

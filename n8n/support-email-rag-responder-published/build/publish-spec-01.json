@@ -1,0 +1,55 @@
+{
+  "title": "Answer support emails in Gmail from a Pinecone knowledge base with OpenAI",
+  "stickies": [
+    {
+      "color": 4,
+      "band": "top",
+      "from": "[cred] Gmail - new email in the inbox",
+      "to": "a readable email?",
+      "width": 780,
+      "content": "## Answer support emails in Gmail from a Pinecone knowledge base with OpenAI\n\n**Who's it for**\nSupport teams and agencies that answer the same customer questions by email every day and want the answerable ones replied to from their own help content, with everything else handed to a person.\n\n**How it works**\nA Gmail trigger picks up each new email. It is read into one shape, with the message and thread ids kept. OpenAI classifies it into typed fields; non-support mail leaves the workflow, and complaints, refunds, legal or low-confidence emails go to a person. The question is embedded and matched in Pinecone. If the best match scores below `MIN_MATCH_SCORE`, it escalates instead of guessing. Otherwise OpenAI writes a reply from the retrieved excerpts only and must cite them, and Gmail replies in the customer's own thread.\n\n**How to set up**\n1. Run **Run the demo emails** first: six sample emails, a sample knowledge base, nothing sent.\n2. Load your help pages with the companion knowledge-base workflow.\n3. Attach Gmail, OpenAI and a Pinecone Header Auth credential (`Api-Key`), set `USE_OPENAI`, `PINECONE_INDEX_HOST` and `SUPPORT_TEAM_EMAIL` in `config`.\n4. Set `TEST_EMAIL` to your address, then `TEST_RUN = false`.\n\n**Requirements**\nA Gmail or Google Workspace account, an OpenAI API key, and a Pinecone index (1536 dimensions, cosine).\n\n**How to customize**\n`MIN_CLASSIFY_CONFIDENCE` and `MIN_MATCH_SCORE` set how sure it must be before answering, `HANDOFF_INTENTS` what always goes to a person, and `SIGNATURE` how replies are signed."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "config",
+      "to": "STOP: unreadable email",
+      "content": "### 1. Read the email\n\n`read the email` keeps the sender, the subject, only the new text of the body, and the Gmail message and thread ids the reply must attach to.\n\n`a readable email?` stops empty mail, your own mail (`OWN_ADDRESSES`) and auto-replies at `STOP: unreadable email`, so the workflow can never answer itself."
+    },
+    {
+      "color": 7,
+      "band": "below",
+      "from": "OpenAI configured?",
+      "to": "needs a person?",
+      "content": "### 2. Classify, and decide who answers\n\n`[cred] OpenAI - classify the email` returns typed JSON: category, intent, handoff, confidence. A failed or malformed answer falls back to `classify by keywords` for that email, and says so.\n\n`a support request?` routes sales pitches and newsletters out. `needs a person?` sends complaints, refunds, legal and cancellations to a person however good the knowledge would be, and so does any classification under `MIN_CLASSIFY_CONFIDENCE`."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "knowledge search configured?",
+      "to": "enough knowledge?",
+      "content": "### 3. Retrieve, and refuse to guess\n\nThe question is embedded with the same model the knowledge base was loaded with, and `[cred] Pinecone - find matching knowledge` returns the top matches with their text.\n\n**`enough knowledge?` is the gate.** Below `MIN_MATCH_SCORE`, or when the search failed after its retries, the email goes to a person. With nothing configured, `search the demo knowledge base` stands in so the gate can be watched."
+    },
+    {
+      "color": 7,
+      "band": "below",
+      "from": "OpenAI writes the reply?",
+      "to": "a reply we can send?",
+      "content": "### 4. Write only from the excerpts\n\n`[cred] OpenAI - write the reply` sees the email and the excerpts, nothing else, must list the excerpts it used, and may refuse.\n\n`apply the AI reply` rejects a refusal, an empty reply, a reply citing nothing, or one citing an excerpt it was not given. Those go to a person with the draft attached."
+    },
+    {
+      "color": 7,
+      "band": "above",
+      "from": "address the reply",
+      "to": "STOP: Gmail refused the send",
+      "content": "### 5. Reply in the customer's thread\n\n`address the reply` decides preview, test or live and enforces `REPLY_CAP_PER_RUN`. `[cred] Gmail - reply in the thread` answers on the customer's own message, so Gmail keeps the conversation together.\n\nIn test mode the reply goes to `TEST_EMAIL` instead, naming the thread it would have joined. A Gmail failure after its retries lands on `STOP: Gmail refused the send` with Gmail's error."
+    },
+    {
+      "color": 3,
+      "band": "below",
+      "from": "prepare the escalation",
+      "to": "STOP: preview - escalation not sent",
+      "content": "## Nothing goes out until you say so\n\nThis ships with `TEST_RUN = true` and a blank `TEST_EMAIL`: every reply and every escalation is built in full and shown on a STOP node, and nothing is sent.\n\nEverything the workflow will not answer reaches `prepare the escalation`: one email to `SUPPORT_TEAM_EMAIL` per case, with the reason, the customer's words, what was retrieved, any draft and a link to the thread."
+    }
+  ]
+}

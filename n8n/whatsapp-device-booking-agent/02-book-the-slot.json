@@ -1,0 +1,497 @@
+{
+  "name": "Tool: Book the slot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Book a slot\nChecks the request (real date, start/end inside school hours, iPad count, not in the past, not too far ahead), returns the existing booking instead of booking the same thing twice, works out which iPads are free for the whole window, appends the booking and returns `toolResult` with a `reply` for the teacher.",
+        "height": 164,
+        "width": 620,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "name": "Sticky Note",
+      "id": "a8f30279-8275-4d54-bbfc-653fd5c4a71f"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "phone"
+            },
+            {
+              "name": "name"
+            },
+            {
+              "name": "devices",
+              "type": "number"
+            },
+            {
+              "name": "date"
+            },
+            {
+              "name": "start"
+            },
+            {
+              "name": "end"
+            }
+          ]
+        }
+      },
+      "id": "1850bc97-d466-4c42-8e4e-91ec9a747a12",
+      "name": "When the chatbot books",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        224
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d54b221b-a1a5-48ff-92ab-98e50611d6ac",
+      "name": "Run a demo booking",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        40,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { phone: '12025550167', name: 'Alice Johnson', devices: 2, date: 'tomorrow', start: '09:00', end: '11:00' } };"
+      },
+      "id": "9fbb74e1-0ef3-419c-b3b2-0dff8b9e9c3c",
+      "name": "Demo request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// School iPad booking - CONFIG (book). Fill in the PUT ... HERE values.\nconst cfg = {\n  SPREADSHEET_ID: 'PUT YOUR GOOGLE SHEET ID HERE',\n  DEVICES_TAB: 'Devices',\n  BOOKINGS_TAB: 'Bookings',\n  TIMEZONE: 'Asia/Kolkata', // school time zone (IANA name)\n  SCHOOL_OPEN: '07:00',\n  SCHOOL_CLOSE: '12:00',\n  CLOSED_WEEKDAYS: [7], // 1 = Mon ... 7 = Sun; no bookings or availability on these days\n  MAX_DEVICES_PER_BOOKING: 10,\n  MAX_DAYS_AHEAD: 60, // furthest a booking can be made, in days from today\n};\nreturn $input.all().map((i) => ({ json: Object.assign({}, i.json, { _cfg: cfg }) }));"
+      },
+      "id": "2f78cd7a-9772-4513-ad6e-4dfc3fbfa4e7",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.DEVICES_TAB }}"
+        },
+        "options": {}
+      },
+      "id": "2bd4132b-d466-4f31-92da-4e87733efdcf",
+      "name": "Sheets - read the devices",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        760,
+        352
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.BOOKINGS_TAB }}"
+        },
+        "options": {}
+      },
+      "id": "ea3786c1-0857-4a0a-a493-76902aae5893",
+      "name": "Sheets - read the bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1000,
+        352
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// BOOK. No fixed slots: any start/end inside school hours can be booked. Free iPads for the window\n// = available fleet minus the iPads held by active bookings that overlap it.\nconst cfg = $('config').first().json._cfg;\nconst req = $('config').first().json;\nconst fleet = $('Sheets - read the devices').all().map((i) => i.json || {});\nconst bookings = $('Sheets - read the bookings').all().map((i) => i.json || {});\n\nconst now = $now.setZone(cfg.TIMEZONE);\nconst today = now.toFormat('yyyy-MM-dd');\nconst nowMin = now.hour * 60 + now.minute;\nconst pad = (n) => String(n).padStart(2, '0');\nconst fmt = (m) => pad(Math.floor(m / 60)) + ':' + pad(m % 60);\nconst digits = (v) => String(v == null ? '' : v).replace(/\\D/g, '');\n\n// '9', '09:00', '9.30', '9am', '9:30 PM', ISO strings and Sheets time fractions -> 'HH:MM'\nfunction toHHMM(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim();\n  if (/^0?\\.\\d+$/.test(s)) return fmt(Math.round(Number(s) * 1440));\n  const iso = s.match(/T(\\d{2}):(\\d{2})/);\n  if (iso) return iso[1] + ':' + iso[2];\n  const m = s.match(/^(\\d{1,2})(?:[:.](\\d{2}))?\\s*([ap])?\\.?\\s*m?\\.?$/i);\n  if (!m) return null;\n  let h = Number(m[1]);\n  const mi = m[2] ? Number(m[2]) : 0;\n  const ap = (m[3] || '').toLowerCase();\n  if (ap === 'p' && h < 12) h += 12;\n  if (ap === 'a' && h === 12) h = 0;\n  return h > 23 || mi > 59 ? null : pad(h) + ':' + pad(mi);\n}\nconst toMin = (v) => {\n  const t = toHHMM(v);\n  return t == null ? null : Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));\n};\n// 'YYYY-MM-DD', 'today', 'tomorrow' and Sheets date serials -> 'YYYY-MM-DD'. Impossible dates (2026-02-31) -> null.\nfunction toYMD(v) {\n  if (v == null || v === '') return null;\n  const s = String(v).trim().toLowerCase();\n  if (s === 'today') return today;\n  if (s === 'tomorrow') return now.plus({ days: 1 }).toFormat('yyyy-MM-dd');\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return DateTime.fromISO(s.slice(0, 10)).isValid ? s.slice(0, 10) : null;\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return DateTime.fromISO('1899-12-30').plus({ days: Math.floor(Number(s)) }).toFormat('yyyy-MM-dd');\n  return null;\n}\nconst prettyDate = (ymd) => DateTime.fromISO(ymd).toFormat('ccc d LLL');\nconst isAvailable = (d) => d.device_id && String(d.status || '').trim().toLowerCase() === 'available';\nconst isActive = (b) => String(b.status || '').trim().toLowerCase() === 'booked';\nfunction busyIds(date, s, e) {\n  const ids = new Set();\n  for (const b of bookings) {\n    if (String(b.status || '').trim().toLowerCase() === 'cancelled' || toYMD(b.date) !== date) continue;\n    const bs = toMin(b.start_time), be = toMin(b.end_time);\n    if (bs == null || be == null || bs >= e || be <= s) continue;\n    for (const id of String(b.device_ids || '').split('|')) if (id.trim()) ids.add(id.trim());\n  }\n  return ids;\n}\nconst fail = (reply, extra) => [{ json: Object.assign({ booked: false, reply }, extra) }];\n\nconst date = toYMD(req.date);\nconst startMin = toMin(req.start), endMin = toMin(req.end);\nconst openMin = toMin(cfg.SCHOOL_OPEN), closeMin = toMin(cfg.SCHOOL_CLOSE);\nconst want = Number(req.devices);\nconst lastDay = now.plus({ days: cfg.MAX_DAYS_AHEAD }).toFormat('yyyy-MM-dd');\n\nif (req.date && !date) return fail('I couldn\\'t read that date. Please send it like 2026-10-14.');\nif (!date) return fail('Which date do you need the iPads for?');\nif (startMin == null || endMin == null) return fail('Please give a start and end time, e.g. 09:00 to 10:00.');\nif (!Number.isInteger(want) || want < 1) return fail('How many iPads do you need?');\nif (want > cfg.MAX_DEVICES_PER_BOOKING) return fail(`You can book up to ${cfg.MAX_DEVICES_PER_BOOKING} iPads at once.`);\nif (endMin <= startMin) return fail('The end time must be after the start time.');\nif (startMin < openMin || endMin > closeMin) return fail(`iPads can only be booked between ${cfg.SCHOOL_OPEN} and ${cfg.SCHOOL_CLOSE}.`);\nif (cfg.CLOSED_WEEKDAYS.includes(DateTime.fromISO(date).weekday)) return fail(`School is closed on ${prettyDate(date)}.`);\nif (date < today || (date === today && startMin < nowMin)) return fail('That time has already passed. Please pick a later time.');\nif (date > lastDay) return fail(`Bookings open ${cfg.MAX_DAYS_AHEAD} days ahead, so the latest date is ${prettyDate(lastDay)}.`);\n\n// Same teacher, same window, same count, still active: a repeated \"yes\" or a retried call. Don't book twice.\nconst phone = digits(req.phone);\nconst same = bookings.find((b) => isActive(b) && phone && digits(b.phone) === phone && toYMD(b.date) === date\n  && toMin(b.start_time) === startMin && toMin(b.end_time) === endMin && Number(b.devices) === want);\nif (same) {\n  const id = String(same.booking_id || '').trim();\n  return fail(`You already have this booking: ${id}, ${prettyDate(date)} ${fmt(startMin)}-${fmt(endMin)}, ${want} iPad${want === 1 ? '' : 's'}.`,\n    { duplicate: true, booking: { booking_id: id, date, start_time: fmt(startMin), end_time: fmt(endMin), devices: want, device_ids: same.device_ids } });\n}\n\nconst busy = busyIds(date, startMin, endMin);\nconst free = fleet.filter((d) => isAvailable(d) && !busy.has(String(d.device_id).trim()));\nif (free.length < want) {\n  return fail(`Sorry, only ${free.length} iPad${free.length === 1 ? '' : 's'} free on ${prettyDate(date)} ${fmt(startMin)}-${fmt(endMin)} (you asked for ${want}).`);\n}\n\nconst assigned = free.slice(0, want);\nlet maxNum = 0;\nfor (const b of bookings) {\n  const m = String(b.booking_id || '').match(/^BK-(\\d+)/i);\n  if (m) maxNum = Math.max(maxNum, Number(m[1]));\n}\n// Two bookings landing at the same moment both see the same max, so a short random tag keeps the IDs unique.\nconst ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';\nconst tag = ALPHABET[Math.floor(Math.random() * ALPHABET.length)] + ALPHABET[Math.floor(Math.random() * ALPHABET.length)];\nconst booking = {\n  booking_id: 'BK-' + String(maxNum + 1).padStart(4, '0') + '-' + tag,\n  phone,\n  teacher_name: req.name || '',\n  date,\n  start_time: fmt(startMin),\n  end_time: fmt(endMin),\n  device_ids: assigned.map((d) => String(d.device_id).trim()).join('|'),\n  devices: want,\n  status: 'booked',\n  created_at: new Date().toISOString(),\n};\nconst reply = `Booked! ${booking.booking_id}\\n${prettyDate(date)}, ${booking.start_time}-${booking.end_time}\\niPads: ${assigned.map((d) => d.label || d.device_id).join(', ')}`;\nreturn [{ json: { booked: true, booking, reply } }];"
+      },
+      "id": "56974aab-d46e-47ec-b231-61b56060214c",
+      "name": "Plan the booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c",
+              "leftValue": "={{ $json.booked }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "46c666d5-99c7-4e6d-a7f9-5a2275cb4a48",
+      "name": "Booked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1480,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json._cfg.SPREADSHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json._cfg.BOOKINGS_TAB }}"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "booking_id": "={{ $json.booking.booking_id }}",
+            "phone": "={{ $json.booking.phone }}",
+            "teacher_name": "={{ $json.booking.teacher_name }}",
+            "date": "={{ $json.booking.date }}",
+            "start_time": "={{ $json.booking.start_time }}",
+            "end_time": "={{ $json.booking.end_time }}",
+            "device_ids": "={{ $json.booking.device_ids }}",
+            "devices": "={{ $json.booking.devices }}",
+            "status": "={{ $json.booking.status }}",
+            "created_at": "={{ $json.booking.created_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "booking_id",
+              "displayName": "booking_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "teacher_name",
+              "displayName": "teacher_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "start_time",
+              "displayName": "start_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "end_time",
+              "displayName": "end_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "device_ids",
+              "displayName": "device_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "devices",
+              "displayName": "devices",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "d2330348-2fcb-4e36-88db-d140d17b0dea",
+      "name": "Sheets - add the booking",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1720,
+        256
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Plan the booking').first().json;\nreturn [{ json: { toolResult: { action: 'book', success: true, data: Object.assign({}, p.booking, { reply: p.reply }) } } }];"
+      },
+      "id": "4e0a72e0-292e-4b4b-b363-41a019725667",
+      "name": "Return success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// A duplicate request is not an error: the booking exists, nothing new was written.\nconst p = $('Plan the booking').first().json;\nreturn [{ json: { toolResult: { action: 'book', success: !!p.duplicate, data: Object.assign({}, p.booking, { duplicate: !!p.duplicate, reply: p.reply }) } } }];"
+      },
+      "id": "897507a5-faba-4a3a-b8ae-d44ddb743f29",
+      "name": "Return failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        464
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When the chatbot books": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run a demo booking": {
+      "main": [
+        [
+          {
+            "node": "Demo request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo request": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sheets - read the devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - read the devices": {
+      "main": [
+        [
+          {
+            "node": "Sheets - read the bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - read the bookings": {
+      "main": [
+        [
+          {
+            "node": "Plan the booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan the booking": {
+      "main": [
+        [
+          {
+            "node": "Booked?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booked?": {
+      "main": [
+        [
+          {
+            "node": "Sheets - add the booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets - add the booking": {
+      "main": [
+        [
+          {
+            "node": "Return success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

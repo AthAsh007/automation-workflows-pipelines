@@ -1,0 +1,783 @@
+{
+  "name": "Turn new blog RSS posts into social post drafts in Google Sheets with OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Turn new blog RSS posts into social post drafts in Google Sheets with OpenAI\n\n**Who's it for**\nContent marketers and founders who publish on a blog and then rewrite every post by hand for LinkedIn, X and Threads. The drafts land in a sheet so a person still approves each one before it goes out.\n\n**How it works**\n1. Every 3 hours it reads your blog RSS feed, or 5 sample posts until the feed is switched on.\n2. Posts already drafted, older than 14 days or missing a link are skipped, and at most 3 new posts are taken per run.\n3. Each post gets one draft per platform from OpenAI, or from a template that uses the title, the first two sentences and the link.\n4. Every draft is trimmed at a word boundary to the platform limit (X counts links as 23 characters), hashtags come from the post categories, and rows are appended to the Drafts tab with status \"needs review\".\n\n**How to set up**\n1. Run it once as imported. It drafts the sample posts and stops at `STOP: dry run - sheet untouched`.\n2. Put your feed address in `FEED_URL` and set `USE_LIVE_FEED = true`.\n3. Connect Google Sheets and set `DRAFTS_SHEET_ID` to a sheet with a Drafts tab. Optionally add an OpenAI credential and set `USE_OPENAI = true`.\n4. Check the drafts in `Fit drafts to platform limits`, then set `DRY_RUN = false` so rows are written and posts are remembered.\n\n**Requirements**\n- A blog with an RSS or Atom feed\n- A Google Sheet with a Drafts tab\n- Optional: an OpenAI API key\n\n**How to customize**\n- `PLATFORMS` holds the character limit and hashtag count for each network. Remove one to stop drafting for it.\n- `MAX_POSTS_PER_RUN` and `MAX_AGE_DAYS` control how much backlog one run picks up.\n- `BLOCKED_HASHTAGS` drops categories such as \"Uncategorized\" that make poor tags.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "051d0a0b-5717-4c4e-9a00-051d0a0b13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 3 hours or by hand. Feed address, platform limits and the hashtag block list all sit in `config`, so nothing downstream needs editing.",
+        "height": 656,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0ea2a20e-5717-4c4e-9a00-0ea2a20e1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the feed\n\n`Live feed switched on?` reads the real feed only once `USE_LIVE_FEED` is true. `Load sample posts` returns the same fields the RSS node does, so the rest of the run behaves identically offline.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "0fa2a3a1-5717-4c4e-9a00-0fa2a3a11001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick posts worth drafting\n\n`Pick new posts` drops posts with no link, old posts and guids already drafted, then caps the batch before any model call is made. An empty batch ends at `STOP: no new posts` instead of calling OpenAI with nothing.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "0ca29ee8-5717-4c4e-9a00-0ca29ee81002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write and fit the drafts\n\nOpenAI is optional; the template path writes from the title and first two sentences. Both feed `Fit drafts to platform limits`, which enforces the character limit in code because a model does not count reliably.",
+        "height": 656,
+        "width": 1232,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "0da2a07b-5717-4c4e-9a00-0da2a07b1003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Save for human review\n\nRows are appended only when `DRY_RUN` is false and a sheet id is set. `Remember drafted posts` runs after the append, so a failed write never marks a post as done.",
+        "height": 656,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        0
+      ],
+      "id": "12a2a85a-5717-4c4e-9a00-12a2a85a1004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "19fd4567-290b-4b37-aa56-ca5683fe19fd",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TURN NEW BLOG RSS POSTS INTO SOCIAL POST DRAFTS IN GOOGLE SHEETS WITH OPENAI - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FEED false -> SAMPLE posts. USE_OPENAI false -> drafts come from the built-in template.\n// DRY_RUN true -> drafts are shown, nothing is appended and no post is marked as drafted.\n\n// set true to read FEED_URL instead of the sample posts\nconst USE_LIVE_FEED = false;\n// your blog RSS or Atom feed\nconst FEED_URL = 'https://blog.yourcompany.example/feed';\n// set true after adding an OpenAI credential to the model node\nconst USE_OPENAI = false;\n// Google Sheets id with a Drafts tab; blank means nothing is written\nconst DRAFTS_SHEET_ID = '';\n// one draft per platform: character limit and how many hashtags to add\nconst PLATFORMS = {\n  linkedin: {\n    limit: 3000,\n    hashtags: 3\n  },\n  x: {\n    limit: 280,\n    hashtags: 2\n  },\n  threads: {\n    limit: 500,\n    hashtags: 1\n  }\n};\n// newest posts drafted per run; the rest wait for the next run\nconst MAX_POSTS_PER_RUN = 3;\n// posts older than this are never drafted\nconst MAX_AGE_DAYS = 14;\n// categories that never become hashtags (lowercase)\nconst BLOCKED_HASHTAGS = [\n  \"uncategorized\",\n  \"news\",\n  \"blog\"\n];\n// tone hint given to OpenAI\nconst BRAND_VOICE = 'plain, specific, no hype, first person plural';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_feed: USE_LIVE_FEED,\n    feed_url: FEED_URL,\n    use_openai: USE_OPENAI,\n    drafts_sheet_id: DRAFTS_SHEET_ID,\n    platforms: PLATFORMS,\n    max_posts_per_run: MAX_POSTS_PER_RUN,\n    max_age_days: MAX_AGE_DAYS,\n    blocked_hashtags: BLOCKED_HASHTAGS,\n    brand_voice: BRAND_VOICE,\n    dry_run: DRY_RUN,\n    sheet_enabled: DRAFTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "a906e357-a8e8-4e27-a4d7-e4d70baea906",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "cee027b6-d7da-4ad6-aaec-caece385cee0",
+      "name": "Every 3 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */3 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "aa94c6dc-c41f-4a1c-a90c-890c36afaa94",
+      "name": "Live feed switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "44d761a4-984d-4664-a275-b275808744d7",
+              "leftValue": "={{ $('config').first().json.use_live_feed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "7325d64a-3558-432a-abe5-8be55ae97325",
+      "name": "Read the blog feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "parameters": {
+        "url": "={{ $('config').first().json.feed_url }}",
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "311d3f32-37d5-4392-ae7d-5e7d2fe1311d",
+      "name": "Load sample posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_FEED is true. Same fields the RSS node returns.\n// One post is too old, one has no link, so the filters have something to do.\nconst ago = d => new Date(Date.now() - d * 864e5).toISOString();\nreturn [\n  { guid: 'post-118', title: 'Why we stopped sending onboarding emails on day one', link: 'https://blog.yourcompany.example/onboarding-day-one', isoDate: ago(1),\n    contentSnippet: 'We moved the first onboarding email from minute zero to hour 20. Activation went from 31% to 38% over six weeks. Here is the test, the numbers and what we would change.', categories: ['Onboarding', 'Email Marketing', 'Uncategorized'] },\n  { guid: 'post-117', title: 'A pricing page teardown: 9 changes in 30 days', link: 'https://blog.yourcompany.example/pricing-teardown', isoDate: ago(3),\n    contentSnippet: 'We rewrote our pricing page nine times in a month. Three changes moved trial starts, six did nothing. This post lists all nine with screenshots.', categories: ['Pricing', 'Conversion'] },\n  { guid: 'post-116', title: 'How a 4-person team runs support across 3 time zones', link: 'https://blog.yourcompany.example/support-time-zones', isoDate: ago(6),\n    contentSnippet: 'Four people, three time zones and a 2 hour first response target. The handover note template we use is at the end.', categories: ['Customer Support', 'Remote Work'] },\n  { guid: 'post-115', title: 'Changelog: September', link: '', isoDate: ago(8), contentSnippet: 'Small fixes and two new exports.', categories: ['News'] },\n  { guid: 'post-109', title: 'What we learned from our first webinar', link: 'https://blog.yourcompany.example/first-webinar', isoDate: ago(40),\n    contentSnippet: '212 people signed up and 64 showed up. The replay did better than the live session.', categories: ['Webinars'] },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "f46ab372-5614-43d2-a35b-635b19a1f46a",
+      "name": "Combine post sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "95b81e65-685d-40d5-afca-bfca649095b8",
+      "name": "Pick new posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Keeps posts with a link, younger than MAX_AGE_DAYS and not drafted before.\n// \"Drafted before\" is the guid list in workflow static data, written only after\n// a live append, so preview runs can be repeated as often as you like.\nconst cfg = $('config').first().json;\nconst seen = new Set(($getWorkflowStaticData('global').drafted || []));\nconst now = Date.now();\nconst posts = [], skipped = [], links = new Set();\nfor (const { json: p } of $input.all()) {\n  const id = String(p.guid || p.id || p.link || p.title || '');\n  const link = String(p.link || '').trim();\n  const published = new Date(p.isoDate || p.pubDate || 0).getTime();\n  const ageDays = Math.floor((now - published) / 864e5);\n  const reason =\n    !link ? 'no link' :\n    seen.has(id) ? 'already drafted' :\n    links.has(link) ? 'duplicate link in feed' :\n    !published || ageDays > cfg.max_age_days ? 'older than MAX_AGE_DAYS' : '';\n  if (reason) { skipped.push({ title: p.title, reason }); continue; }\n  links.add(link);\n  const text = String(p.contentSnippet || p.content || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n  posts.push({ id, title: String(p.title || '').trim(), link, published: new Date(published).toISOString().slice(0, 10),\n    summary: text.split(/(?<=[.!?])\\s+/).slice(0, 2).join(' '), categories: (p.categories || []).map(c => typeof c === 'string' ? c : c._ || c.term || '').filter(Boolean) });\n}\nposts.sort((a, b) => b.published.localeCompare(a.published));\nfor (const p of posts.slice(cfg.max_posts_per_run)) skipped.push({ title: p.title, reason: 'over MAX_POSTS_PER_RUN, next run' });\nreturn [{ json: { posts: posts.slice(0, cfg.max_posts_per_run), skipped } }];\n"
+      },
+      "position": [
+        1200,
+        176
+      ]
+    },
+    {
+      "id": "d22dbcc2-3985-4422-a1e2-61e207b1d22d",
+      "name": "Anything new to draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8e768b96-192a-48b6-a573-3573e8a58e76",
+              "leftValue": "={{ $json.posts.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "fba24771-c63e-4e21-aecb-decb4afcfba2",
+      "name": "STOP: no new posts",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "f3fce49d-3da3-458d-afb8-efb8bcb8f3fc",
+      "name": "One item per post",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "posts",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "07e08ee6-3d37-4306-ac76-4c7633b507e0",
+      "name": "Template drafts only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1ccf5082-7052-4be2-add5-3dd5f5f11ccf",
+              "leftValue": "={{ $('config').first().json.use_openai }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        176
+      ]
+    },
+    {
+      "id": "7fcea592-b880-4bf2-a3a5-13a5a7817fce",
+      "name": "Write drafts with OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Title: ' + $json.title + '\\nSummary: ' + $json.summary + '\\nLink: ' + $json.link + '\\nVoice: ' + $('config').first().json.brand_voice + '\\nLimits: ' + JSON.stringify($('config').first().json.platforms) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You write social posts that announce a new blog post. One draft per platform. Lead with the most concrete fact or number in the summary. No hashtags, no emoji, no links in the text (they are added later). Keep each draft at least 40 characters under its limit."
+        }
+      },
+      "position": [
+        2112,
+        352
+      ]
+    },
+    {
+      "id": "a8ee9503-6f08-4213-a188-7188583aa8ee",
+      "name": "Write drafts with OpenAI model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "position": [
+        2128,
+        512
+      ]
+    },
+    {
+      "id": "9922925a-3569-4a3a-a8b9-28b95b799922",
+      "name": "Write drafts with OpenAI output format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"linkedin\": \"Three-paragraph post...\",\n  \"x\": \"One sentence...\",\n  \"threads\": \"Two sentences...\"\n}"
+      },
+      "position": [
+        2240,
+        512
+      ]
+    },
+    {
+      "id": "60816503-6fda-4213-a512-7512c83a6081",
+      "name": "Read OpenAI drafts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Agent output -> the same shape the template writes. A missing platform falls\n// back to the title so the row is never empty.\nconst posts = $('One item per post').all();\nreturn $input.all().map((it, i) => {\n  const p = posts[i].json; const o = it.json.output || {};\n  const body = {};\n  for (const k of Object.keys($('config').first().json.platforms)) body[k] = String(o[k] || p.title).trim();\n  return { json: { ...p, body, source: 'openai' } };\n});\n"
+      },
+      "position": [
+        2480,
+        352
+      ]
+    },
+    {
+      "id": "2692744e-04fd-47ee-a4f4-a4f4140d2692",
+      "name": "Write drafts from template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Deterministic drafts: hook from the title, facts from the first two sentences.\n// LinkedIn gets room to breathe, X and Threads get the short version.\nreturn $input.all().map(({ json: p }) => {\n  const first = p.summary.split(/(?<=[.!?])\\s+/)[0] || '';\n  return { json: { ...p, source: 'template', body: {\n    linkedin: p.title + '\\n\\n' + p.summary + '\\n\\nThe full write-up is on the blog.',\n    x: p.title + '. ' + first,\n    threads: p.title + '\\n\\n' + first,\n  } } };\n});\n"
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "cb8f96ba-ca7b-409a-a6cc-56cc5519cb8f",
+      "name": "Combine drafts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2704,
+        176
+      ]
+    },
+    {
+      "id": "bef85c78-5b34-46f8-aa3e-fa3e5bebbef8",
+      "name": "Fit drafts to platform limits",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One row per post per platform. Adds the link and hashtags, then trims the body\n// at a word boundary so body + link + tags fits the limit. X counts any URL as 23.\nconst cfg = $('config').first().json;\nconst blocked = new Set(cfg.blocked_hashtags);\nconst tag = c => '#' + c.replace(/&/g, 'and').split(/[^A-Za-z0-9]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('');\nconst rows = [];\nfor (const { json: p } of $input.all()) {\n  const tags = p.categories.filter(c => !blocked.has(c.toLowerCase())).map(tag).filter(t => t.length > 2);\n  for (const [platform, rule] of Object.entries(cfg.platforms)) {\n    const useTags = tags.slice(0, rule.hashtags);\n    const linkLen = platform === 'x' ? 23 : p.link.length;\n    const tail = '\\n\\n' + p.link + (useTags.length ? '\\n' + useTags.join(' ') : '');\n    const tailLen = tail.length - p.link.length + linkLen;\n    let body = String(p.body[platform] || '').trim();\n    let trimmed = false;\n    if (body.length + tailLen > rule.limit) {\n      const room = rule.limit - tailLen - 3;\n      body = body.slice(0, room).replace(/\\s+\\S*$/, '') + '...';\n      trimmed = true;\n    }\n    const draft = body + tail;\n    rows.push({ post_id: p.id, post_title: p.title, post_link: p.link, platform, draft,\n      chars: body.length + tailLen, limit: rule.limit, hashtags: useTags.join(' '), source: p.source,\n      trimmed, status: 'needs review', created_at: new Date().toISOString().slice(0, 16).replace('T', ' ') });\n  }\n}\nreturn rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        2928,
+        176
+      ]
+    },
+    {
+      "id": "aa14bb5e-aa16-49fe-aa7e-ba7e139daa14",
+      "name": "Live and sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79aa084a-f060-452a-ae05-de0528e979aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7aaa09dd-b2b5-46cd-a609-a6099f787aaa",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3168,
+        176
+      ]
+    },
+    {
+      "id": "498649f6-06a8-4916-a5d0-05d08f454986",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3392,
+        352
+      ]
+    },
+    {
+      "id": "3c998ac0-c7fd-4ec0-addb-dddbcd433c99",
+      "name": "Append drafts to the sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.drafts_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Drafts"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3392,
+        176
+      ]
+    },
+    {
+      "id": "cc92aca7-eee5-4e77-a428-0428b9becc92",
+      "name": "Remember drafted posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only after a successful append: store the guids so the next run skips them.\n// The list is capped at 500 so static data never grows without limit.\nconst store = $getWorkflowStaticData('global');\nconst ids = [...new Set($('Fit drafts to platform limits').all().map(r => r.json.post_id))];\nstore.drafted = [...ids, ...(store.drafted || []).filter(x => !ids.includes(x))].slice(0, 500);\nreturn [{ json: { remembered: ids.length, total_remembered: store.drafted.length, rows_written: $input.all().length } }];\n"
+      },
+      "position": [
+        3616,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 3 hours": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Live feed switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live feed switched on?": {
+      "main": [
+        [
+          {
+            "node": "Read the blog feed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the blog feed": {
+      "main": [
+        [
+          {
+            "node": "Combine post sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample posts": {
+      "main": [
+        [
+          {
+            "node": "Combine post sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine post sources": {
+      "main": [
+        [
+          {
+            "node": "Pick new posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick new posts": {
+      "main": [
+        [
+          {
+            "node": "Anything new to draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new to draft?": {
+      "main": [
+        [
+          {
+            "node": "One item per post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per post": {
+      "main": [
+        [
+          {
+            "node": "Template drafts only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Template drafts only?": {
+      "main": [
+        [
+          {
+            "node": "Write drafts from template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write drafts with OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write drafts with OpenAI model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write drafts with OpenAI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write drafts with OpenAI output format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Write drafts with OpenAI",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write drafts with OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Read OpenAI drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write drafts from template": {
+      "main": [
+        [
+          {
+            "node": "Combine drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read OpenAI drafts": {
+      "main": [
+        [
+          {
+            "node": "Combine drafts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine drafts": {
+      "main": [
+        [
+          {
+            "node": "Fit drafts to platform limits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fit drafts to platform limits": {
+      "main": [
+        [
+          {
+            "node": "Live and sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Append drafts to the sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append drafts to the sheet": {
+      "main": [
+        [
+          {
+            "node": "Remember drafted posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

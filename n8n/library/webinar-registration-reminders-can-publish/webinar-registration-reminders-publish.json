@@ -1,0 +1,692 @@
+{
+  "name": "Send webinar reminders and replay emails from registrations in Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send webinar reminders and replay emails from registrations in Google Sheets\n\n**Who's it for**\nMarketers and founders who run webinars with a registration form that writes to Google Sheets, and who would rather not pay for a webinar tool just for reminder emails.\n\n**How it works**\n1. Every 15 minutes it reads the Registrants tab, or sample registrations for three sample events until the sheet is connected.\n2. For each registrant and event it picks at most one email: the 24-hour reminder (24 to 2 hours before), the 1-hour reminder (the last hour), or after the event a replay email for no-shows and a thank-you for attendees.\n3. A filled sent column, an opt-out, a bad email or a sign-up less than an hour old holds the email back with a reason. At most 150 emails go out per run.\n4. Each email goes out through Gmail and the matching sent column is stamped with the time, so nothing is sent twice.\n\n**How to set up**\n1. Run it once as imported. It works through the sample events and stops at `STOP: preview - nothing sent`.\n2. Add your webinar to `EVENTS` with its id, start time (ISO, with timezone), length, join link and replay link.\n3. Connect Google Sheets and set `REGISTRANTS_SHEET_ID`. The tab needs id, event_id, email, name, registered_at, attended, opted_out, reminder_24h_sent, reminder_1h_sent and replay_sent.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet of registrations\n- A Gmail account\n\n**How to customize**\n- `REPLAY_DELAY_HOURS` sets how long after the end the replay goes out.\n- `SEND_THANKS` false skips the attendee thank-you.\n- `MAX_PER_RUN` limits how many emails one run can send.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "79a15aac-5717-4c4e-9a00-79a15aac13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 15 minutes, which is tight enough for the 1-hour reminder. Events, delays and the per-run cap are constants in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7253a5e1-5717-4c4e-9a00-7253a5e11000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read registrations\n\nRegistrations come from the sheet your form already writes to. `Load sample registrations` brings its own three events placed around the current time, so every email type shows up in a preview.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "7153a44e-5717-4c4e-9a00-7153a44e1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Decide who gets what\n\nStages are time windows, not exact times, so a run that is late by 10 minutes still sends. The sent column is the only memory, which makes the sheet the record of what went out.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "7053a2bb-5717-4c4e-9a00-7053a2bb1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and stamp\n\nNothing is sent in preview, and a test send goes to `TEST_EMAIL` without touching the sheet. Only a live send stamps the column, which is what stops the next run from repeating it.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "6f53a128-5717-4c4e-9a00-6f53a1281003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "b8ecc4b5-bd90-4e25-a3fe-93fe71e0b8ec",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND WEBINAR REMINDERS AND REPLAY EMAILS FROM REGISTRATIONS IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// REGISTRANTS_SHEET_ID blank -> SAMPLE registrations for three SAMPLE events.\n// Sent columns are stamped only on a live run.\n\n// Google Sheets id with a Registrants tab; blank uses the sample\nconst REGISTRANTS_SHEET_ID = '';\n// webinars: id matches the event_id column; start is ISO with timezone\nconst EVENTS = [\n  {\n    id: \"nov-demo\",\n    title: \"Live demo: expense approvals in 15 minutes\",\n    start: \"2026-11-05T16:00:00Z\",\n    duration_min: 45,\n    join_url: \"https://meet.yourcompany.example/nov-demo\",\n    replay_url: \"https://www.yourcompany.example/webinars/nov-demo\"\n  }\n];\n// hours after the end before replay and thank-you emails go out\nconst REPLAY_DELAY_HOURS = 2;\n// replay emails stop this many days after the event\nconst REPLAY_WINDOW_DAYS = 7;\n// attendees get a thank-you with the replay link\nconst SEND_THANKS = true;\n// hard ceiling on emails per run\nconst MAX_PER_RUN = 150;\n// sign-off on every email\nconst HOST_NAME = 'The Tallyroom team';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    registrants_sheet_id: REGISTRANTS_SHEET_ID,\n    events: EVENTS,\n    replay_delay_hours: REPLAY_DELAY_HOURS,\n    replay_window_days: REPLAY_WINDOW_DAYS,\n    send_thanks: SEND_THANKS,\n    max_per_run: MAX_PER_RUN,\n    host_name: HOST_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheet_enabled: REGISTRANTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "baf61c4d-3214-463d-a951-09512168baf6",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "14182599-d056-4fc9-a04a-b04a3e941418",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "01963179-6539-45a9-ad51-bd5142b40196",
+      "name": "Registrants sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a6d6b2a9-8532-47d9-a6e3-e6e3a1e4a6d6",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "1f275691-3944-4341-aae7-1ae781dc1f27",
+      "name": "Read registrants",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.registrants_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Registrants"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "69a2f51e-3cf8-47be-a258-e258ebdd69a2",
+      "name": "Attach the event schedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Sheet rows + EVENTS from config, in the shape the picker reads.\nreturn [{ json: { events: $('config').first().json.events, registrants: $input.all().map(i => i.json).filter(r => r.email) } }];\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "10c5b449-d497-4779-a34d-b34df24410c5",
+      "name": "Load sample registrations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until REGISTRANTS_SHEET_ID is set. Three sample events placed around now so\n// every email type is due: one tomorrow, one within the hour, one that just ended.\nconst at = h => new Date(Date.now() + h * 3600e3).toISOString();\nconst events = [\n  { id: 'ev-tomorrow', title: 'Expense policies that people follow', start: at(20), duration_min: 45, join_url: 'https://meet.yourcompany.example/ev1', replay_url: 'https://www.yourcompany.example/webinars/ev1' },\n  { id: 'ev-soon', title: 'Month-end close in one afternoon', start: at(0.6), duration_min: 30, join_url: 'https://meet.yourcompany.example/ev2', replay_url: 'https://www.yourcompany.example/webinars/ev2' },\n  { id: 'ev-done', title: 'Receipts without the shoebox', start: at(-4), duration_min: 60, join_url: 'https://meet.yourcompany.example/ev3', replay_url: 'https://www.yourcompany.example/webinars/ev3' },\n];\nconst r = (id, event_id, name, email, regH, extra = {}) => ({ id, event_id, name, email, registered_at: at(regH), attended: '', opted_out: '', reminder_24h_sent: '', reminder_1h_sent: '', replay_sent: '', ...extra });\nconst registrants = [\n  r('R1', 'ev-tomorrow', 'Alma Price', 'alma@northwind-labs.example', -72),\n  r('R2', 'ev-tomorrow', 'Ben Cho', 'ben@harbourdesign.example', -0.3),\n  r('R3', 'ev-tomorrow', 'Cora Diaz', 'cora@pineco.example', -50, { reminder_24h_sent: at(-1) }),\n  r('R4', 'ev-soon', 'Dev Patel', 'dev@lumenphysio.example', -30),\n  r('R5', 'ev-soon', 'Eli Grant', 'eli@orchardlane.example', -30, { reminder_1h_sent: at(-0.1) }),\n  r('R6', 'ev-done', 'Fay Moss', 'fay@northfield.example', -100, { attended: 'FALSE' }),\n  r('R7', 'ev-done', 'Gus Lind', 'gus@harbour-dental.example', -100, { attended: 'TRUE' }),\n  r('R8', 'ev-done', 'Hana Ito', 'hana@studio.example', -100, { replay_sent: at(-0.5) }),\n  r('R9', 'ev-tomorrow', 'Ivo Kerr', 'ivo@mailbox.example', -60, { opted_out: 'yes' }),\n  r('R10', 'ev-tomorrow', 'Jo Park', 'jo-at-inbox.example', -60),\n];\nreturn [{ json: { events, registrants } }];\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "1d15b1ef-1972-4d3f-a2ca-62ca4e361d15",
+      "name": "Combine registration sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "463fc01d-e01c-490d-abcc-6bccdc38463f",
+      "name": "Pick emails due now",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// At most one email per registrant per run. The stage comes from where \"now\"\n// sits relative to the event; the matching sent column must be empty.\nconst cfg = $('config').first().json;\nconst { events, registrants } = $input.first().json;\nconst byId = Object.fromEntries(events.map(e => [e.id, e]));\nconst truthy = v => ['true', 'yes', '1', 'y', 'x'].includes(String(v).trim().toLowerCase());\nconst now = Date.now();\nconst due = [], held = [];\nfor (const r of registrants) {\n  const ev = byId[r.event_id];\n  const who = r.name || r.email;\n  if (!ev) { held.push({ who, reason: 'unknown event_id ' + r.event_id }); continue; }\n  const start = new Date(ev.start).getTime(), end = start + ev.duration_min * 60e3;\n  const toStart = (start - now) / 3600e3, sinceEnd = (now - end) / 3600e3;\n  let stage = null, column = null;\n  if (toStart <= 24 && toStart > 2) { stage = 'reminder_24h'; column = 'reminder_24h_sent'; }\n  else if (toStart <= 1 && toStart > 0) { stage = 'reminder_1h'; column = 'reminder_1h_sent'; }\n  else if (sinceEnd >= cfg.replay_delay_hours && sinceEnd <= cfg.replay_window_days * 24) { stage = truthy(r.attended) ? 'thanks' : 'replay'; column = 'replay_sent'; }\n  if (!stage) continue;\n  const reason =\n    truthy(r.opted_out) ? 'opted out' :\n    !/^[^\\s@]+@[^\\s@]+\\.[a-z]{2,}$/i.test(String(r.email).trim()) ? 'invalid email' :\n    String(r[column] || '').trim() ? column + ' already filled' :\n    stage === 'thanks' && !cfg.send_thanks ? 'SEND_THANKS is off' :\n    stage.startsWith('reminder') && (now - new Date(r.registered_at).getTime()) < 3600e3 ? 'registered under an hour ago' : '';\n  if (reason) { held.push({ who, stage, reason }); continue; }\n  due.push({ id: r.id, name: r.name, email: String(r.email).trim(), stage, column, event: ev });\n}\nfor (const d of due.slice(cfg.max_per_run)) held.push({ who: d.name, stage: d.stage, reason: 'over MAX_PER_RUN, next run' });\nreturn [{ json: { emails: due.slice(0, cfg.max_per_run), held } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "910b12e3-ad5a-49f3-ac3e-bc3eda5a910b",
+      "name": "Any emails due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5d58d923-c994-4c33-a389-1389cb1a5d58",
+              "leftValue": "={{ $json.emails.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "70d83312-4a7c-4172-a3fd-53fd450170d8",
+      "name": "STOP: nothing due right now",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "4ec1bb3f-21fc-4d8f-a986-9986ae864ec1",
+      "name": "One item per email",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "emails",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "0c6e125b-ba54-43eb-a7a8-57a83d420c6e",
+      "name": "Write each email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Wording per stage. Times are shown in UTC with the date, so nobody misreads a time zone.\nconst cfg = $('config').first().json;\nconst when = iso => new Date(iso).toUTCString().replace(':00 GMT', ' UTC');\nreturn $input.all().map(({ json: e }) => {\n  const first = (e.name || '').split(' ')[0] || 'there';\n  const ev = e.event;\n  const copy = {\n    reminder_24h: ['Tomorrow: ' + ev.title, 'A reminder that \"' + ev.title + '\" starts ' + when(ev.start) + ' and runs ' + ev.duration_min + ' minutes.\\n\\nJoin here: ' + ev.join_url + '\\n\\nBring a question; the last 10 minutes are open Q&A.'],\n    reminder_1h: ['Starting in an hour: ' + ev.title, '\"' + ev.title + '\" starts at ' + when(ev.start) + '.\\n\\nJoin link: ' + ev.join_url],\n    replay: ['The replay of ' + ev.title + ' is ready', 'Sorry we missed you. The full recording is here: ' + ev.replay_url + '\\n\\nIt is ' + ev.duration_min + ' minutes, and the chapters let you jump to the part you need.'],\n    thanks: ['Thanks for joining ' + ev.title, 'Thanks for coming. The recording and slides are here if you want to look back: ' + ev.replay_url],\n  }[e.stage];\n  return { json: { ...e, subject: copy[0], body: 'Hi ' + first + ',\\n\\n' + copy[1] + '\\n\\n' + cfg.host_name, send_to: cfg.mode === 'test' ? cfg.test_email : e.email } };\n});\n"
+      },
+      "position": [
+        2096,
+        176
+      ]
+    },
+    {
+      "id": "3c6c78d2-9d38-4b32-a964-496408413c6c",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "e2b9c251-4cae-4301-a064-20645f1ce2b9",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "589e477f-d383-45cf-a413-e4130046589e",
+      "name": "Email the registrant",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "a8ac19d0-e2e1-48d0-aa59-0a5934d3a8ac",
+      "name": "Live with a sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "06152262-10eb-47c2-ab2a-9b2a44110615",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "071523f5-d33f-4965-a32e-632ebaa00715",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "4545b422-86a3-4d82-a3b7-23b714514545",
+      "name": "STOP: test send - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "c09fe46d-1aef-445d-aa64-8a641048c09f",
+      "name": "Stamp the sent column",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One update per sent email: the row id and the stage's column set to now.\nconst sent = $('Write each email').all();\nconst stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');\nreturn $input.all().map((_, i) => ({ json: { id: sent[i].json.id, [sent[i].json.column]: stamp } }));\n"
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "b5ab6883-ee0e-4d93-a7fd-d7fd4fbab5ab",
+      "name": "Mark sent in the sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.registrants_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Registrants"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Registrants sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrants sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read registrants",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample registrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read registrants": {
+      "main": [
+        [
+          {
+            "node": "Attach the event schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach the event schedule": {
+      "main": [
+        [
+          {
+            "node": "Combine registration sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample registrations": {
+      "main": [
+        [
+          {
+            "node": "Combine registration sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine registration sources": {
+      "main": [
+        [
+          {
+            "node": "Pick emails due now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick emails due now": {
+      "main": [
+        [
+          {
+            "node": "Any emails due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any emails due?": {
+      "main": [
+        [
+          {
+            "node": "One item per email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing due right now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per email": {
+      "main": [
+        [
+          {
+            "node": "Write each email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the registrant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the registrant": {
+      "main": [
+        [
+          {
+            "node": "Live with a sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live with a sheet?": {
+      "main": [
+        [
+          {
+            "node": "Stamp the sent column",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp the sent column": {
+      "main": [
+        [
+          {
+            "node": "Mark sent in the sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

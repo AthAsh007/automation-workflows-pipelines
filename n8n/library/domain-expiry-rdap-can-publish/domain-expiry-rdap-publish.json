@@ -1,0 +1,569 @@
+{
+  "name": "Warn in Slack before domains expire with RDAP lookups",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Warn in Slack before domains expire with RDAP lookups\n\n**Who's it for**\nAgencies and IT leads who hold 5 to 200 domains across several registrars, often bought on different cards by different people. One Slack thread replaces checking every registrar dashboard.\n\n**How it works**\n1. Every day at 08:15 it fetches the RDAP record for each domain in `DOMAINS` from rdap.org, which forwards to the right registry. Sample records are used until `USE_RDAP` is true.\n2. The expiration event gives days left. A warning fires once per tier in `WARN_DAYS` for each expiry date, so a renewal resets the ladder.\n3. Status codes are checked: `REQUIRED_STATUS` (a transfer lock by default) must be present, and hold, redemption or pending-delete statuses are critical. The registrar and nameservers are compared with what you expect and with the last run.\n4. Only new issues and resolved ones are posted, in one Slack message.\n\n**How to set up**\n1. Run it once as imported. It checks sample records and stops at `STOP: dry run - nothing posted`.\n2. List your domains in `DOMAINS`, with an optional expected registrar each, and set `USE_RDAP = true`. RDAP needs no account.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `DRY_RUN = false` and activate the workflow. Reported issues are kept in workflow static data, saved for active workflows.\n\n**Requirements**\n- A Slack workspace\n- Domains on TLDs that publish RDAP (all gTLDs and most ccTLDs)\n\n**How to customize**\n- `WARN_DAYS` sets the expiry tiers.\n- `REQUIRED_STATUS` lists statuses every domain should carry, such as client delete prohibited.\n- `CRITICAL_STATUS` lists statuses that get a `MENTION` in Slack.",
+        "height": 944,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "bae3d812-5717-4c4e-9a00-bae3d81213e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns daily at 08:15. Domains, expected registrars, tiers and the status rules live in `config`; `List domains` makes one item per domain for the lookup.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "13d50f67-5717-4c4e-9a00-13d50f671000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read RDAP records\n\nThe rdap.org service forwards to the registry that owns each TLD, so one URL pattern covers every domain. A 404 for an unsupported TLD comes back as data, and `Load sample RDAP records` includes one.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        0
+      ],
+      "id": "12d50dd4-5717-4c4e-9a00-12d50dd41001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find what changed\n\nEvery issue has a stable key, and only keys not posted before count as new. Expiry keys include the expiry date, so a renewal quietly restarts the 60, 30, 14 and 7-day ladder.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "15d5128d-5717-4c4e-9a00-15d5128d1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\n`Post to Slack?` needs a live run and a channel. `Remember reported issues` runs only after a post, so a dry run never hides an issue from the first real one.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "14d510fa-5717-4c4e-9a00-14d510fa1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "04502c6b-756a-48fb-ad14-9d144d920450",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WARN IN SLACK BEFORE DOMAINS EXPIRE WITH RDAP LOOKUPS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_RDAP false -> SAMPLE records, so the run works offline.\n// SLACK_CHANNEL_ID blank -> nothing is posted.\n\n// true fetches https://rdap.org/domain/<name> for each domain\nconst USE_RDAP = false;\n// domains to watch; registrar = a fragment of the expected registrar name, blank to skip\nconst DOMAINS = [\n  {\n    domain: \"northwind.example\",\n    registrar: \"Example Registrar\"\n  },\n  {\n    domain: \"northwind-shop.example\",\n    registrar: \"\"\n  },\n  {\n    domain: \"orchardlane.example\",\n    registrar: \"\"\n  },\n  {\n    domain: \"harbourdigital.example\",\n    registrar: \"Example Registrar\"\n  },\n  {\n    domain: \"oldbrand.invalid\",\n    registrar: \"\"\n  }\n];\n// expiry tiers in days left\nconst WARN_DAYS = [\n  60,\n  30,\n  14,\n  7\n];\n// RDAP statuses every domain should have\nconst REQUIRED_STATUS = [\n  \"client transfer prohibited\"\n];\n// statuses that mean the domain is or will soon be offline\nconst CRITICAL_STATUS = [\n  \"redemption period\",\n  \"pending delete\",\n  \"client hold\",\n  \"server hold\"\n];\n// channel for the daily message; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// added when a critical issue is new; blank for none\nconst MENTION = '<!channel>';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_rdap: USE_RDAP,\n    domains: DOMAINS,\n    warn_days: WARN_DAYS,\n    required_status: REQUIRED_STATUS,\n    critical_status: CRITICAL_STATUS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    mention: MENTION,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "34fe4c63-5932-4b73-abaa-4baa7bda34fe",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "c7ce9e37-be74-4307-a698-f698afcec7ce",
+      "name": "Every day at 08:15",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 8 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "23a7a950-a622-4050-ad61-dd61805323a7",
+      "name": "List domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per domain; the RDAP answer for item i belongs to domain i.\nreturn $('config').first().json.domains.filter(d => d.domain).map(d => ({ json: { domain: d.domain.toLowerCase().trim(), registrar: d.registrar || '' } }));\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "36a4f7d7-b264-4aa7-acd6-ccd63c2e36a4",
+      "name": "RDAP lookups on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f472ea19-0d78-4c49-a836-58362b14f472",
+              "leftValue": "={{ $('config').first().json.use_rdap }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "b4646e84-6808-4d44-a95c-895c82a7b464",
+      "name": "Look up the RDAP record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://rdap.org/domain/' + encodeURIComponent($json.domain) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/rdap+json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "fcf74d42-1fae-4ca2-a30a-c30a1c31fcf7",
+      "name": "Load sample RDAP records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_RDAP is true. RDAP JSON as registries return it, dates relative to now.\nconst at = d => new Date(Date.now() + d * 864e5).toISOString().replace(/\\.\\d{3}/, '');\nconst registrar = name => [{ objectClassName: 'entity', roles: ['registrar'], publicIds: [{ type: 'IANA Registrar ID', identifier: '9999' }], vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ['fn', {}, 'text', name]]] }];\nconst ns = (...n) => n.map(ldhName => ({ objectClassName: 'nameserver', ldhName }));\nconst rec = (name, days, status, reg, nameservers) => ({ objectClassName: 'domain', ldhName: name.toUpperCase(), status, entities: registrar(reg), nameservers,\n  events: [{ eventAction: 'registration', eventDate: at(-900) }, { eventAction: 'expiration', eventDate: at(days) }, { eventAction: 'last changed', eventDate: at(-30) }] });\nreturn [\n  rec('northwind.example', 25.5, ['client delete prohibited', 'client transfer prohibited', 'client update prohibited'], 'Example Registrar, Inc.', ns('NS1.DNSHOST.EXAMPLE', 'NS2.DNSHOST.EXAMPLE')),\n  rec('northwind-shop.example', 200.5, ['active'], 'Budget Names LLC', ns('NS1.DNSHOST.EXAMPLE', 'NS2.DNSHOST.EXAMPLE')),\n  rec('orchardlane.example', -4.5, ['redemption period'], 'Budget Names LLC', ns('NS1.PARKING.EXAMPLE')),\n  rec('harbourdigital.example', 400.5, ['client transfer prohibited'], 'Other Registrar GmbH', ns('A.NS.EXAMPLE', 'B.NS.EXAMPLE')),\n  { error: { message: 'Request failed with status code 404', name: 'AxiosError' } },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "f93c5f7f-c22a-4dcf-a7f6-b7f6b846f93c",
+      "name": "Combine RDAP records",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "fc9da067-31ed-4637-a707-07073efefc9d",
+      "name": "Check expiry and status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Turn each record into a list of issues with stable keys. Expiry keys include the\n// expiry date, so renewing restarts the tiers; other keys are per domain and code.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nconst nsSeen = store.nameservers || {};\nconst domains = $('List domains').all().map(i => i.json);\nconst tiers = [...cfg.warn_days].sort((a, b) => a - b);\nconst out = [];\n$input.all().forEach(({ json: r }, i) => {\n  const want = domains.find(d => d.domain === String(r.ldhName || '').toLowerCase()) || domains[i] || { domain: 'unknown', registrar: '' };\n  const d = want.domain;\n  const issues = [];\n  if (r.error || !r.ldhName) {\n    issues.push({ key: d + '|lookup', severity: 'warn', text: 'RDAP lookup failed (' + (r.error?.message || 'no record').slice(0, 60) + ')' });\n    out.push({ domain: d, issues, days_left: null });\n    return;\n  }\n  const exp = (r.events || []).find(e => e.eventAction === 'expiration')?.eventDate;\n  const daysLeft = exp ? Math.floor((new Date(exp) - Date.now()) / 864e5) : null;\n  if (daysLeft === null) issues.push({ key: d + '|noexpiry', severity: 'warn', text: 'no expiration date in RDAP' });\n  else if (daysLeft < 0) issues.push({ key: d + '|expired|' + exp.slice(0, 10), severity: 'critical', text: 'expired ' + -daysLeft + ' days ago (' + exp.slice(0, 10) + ')' });\n  else {\n    const t = tiers.find(x => daysLeft <= x);\n    if (t !== undefined) issues.push({ key: d + '|expiry|' + exp.slice(0, 10) + '|' + t, severity: t <= 14 ? 'critical' : 'warn', text: 'expires in ' + daysLeft + ' days (' + exp.slice(0, 10) + ')' });\n  }\n  const status = (r.status || []).map(s => s.toLowerCase());\n  for (const s of cfg.required_status) if (!status.includes(s)) issues.push({ key: d + '|missing|' + s, severity: 'warn', text: 'status \"' + s + '\" is missing' });\n  for (const s of cfg.critical_status) if (status.includes(s)) issues.push({ key: d + '|status|' + s, severity: 'critical', text: 'status is \"' + s + '\"' });\n  const reg = (r.entities || []).find(e => (e.roles || []).includes('registrar'));\n  const regName = ((reg?.vcardArray?.[1] || []).find(v => v[0] === 'fn') || [])[3] || '';\n  if (want.registrar && !regName.toLowerCase().includes(want.registrar.toLowerCase()))\n    issues.push({ key: d + '|registrar|' + regName, severity: 'critical', text: 'registrar is \"' + regName + '\", expected ' + want.registrar });\n  const ns = (r.nameservers || []).map(n => n.ldhName.toLowerCase()).sort().join(',');\n  if (nsSeen[d] && nsSeen[d] !== ns) issues.push({ key: d + '|ns|' + ns, severity: 'warn', text: 'nameservers changed to ' + ns.replace(/,/g, ', ') });\n  out.push({ domain: d, issues, days_left: daysLeft, registrar: regName, nameservers: ns });\n});\nconst reported = store.reported || {};\nconst now = out.flatMap(o => o.issues.map(x => ({ ...x, domain: o.domain })));\nconst nowKeys = new Set(now.map(x => x.key));\nconst checked = new Set(out.map(o => o.domain));\nconst fresh = now.filter(x => !reported[x.key]);\nconst resolved = Object.keys(reported).filter(k => checked.has(k.split('|')[0]) && !nowKeys.has(k) && !k.includes('|expiry|')).map(k => ({ key: k, domain: k.split('|')[0], text: reported[k] }));\nreturn [{ json: { domains: out, fresh, resolved, open: now.length } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "bcda6806-db76-4226-ad71-bd719095bcda",
+      "name": "Anything new?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f745d63e-44de-4ede-a325-932537bdf745",
+              "leftValue": "={{ $json.fresh.length + $json.resolved.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "a74649cf-7df4-4f1f-a98a-d98aff56a746",
+      "name": "STOP: nothing new to report",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "3e876bf0-8e36-40f0-aa10-2a1059b33e87",
+      "name": "Write the Slack message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Critical first, then warnings, then what got fixed since the last post.\nconst cfg = $('config').first().json;\nconst c = $input.first().json;\nconst crit = c.fresh.filter(x => x.severity === 'critical'), warn = c.fresh.filter(x => x.severity !== 'critical');\nconst lines = [\n  ...(crit.length && cfg.mention ? [cfg.mention] : []),\n  '*Domain check*: ' + c.fresh.length + ' new, ' + c.resolved.length + ' resolved, ' + c.open + ' open in total.',\n  ...crit.map(x => ':rotating_light: *' + x.domain + '*: ' + x.text),\n  ...warn.map(x => ':warning: *' + x.domain + '*: ' + x.text),\n  ...c.resolved.map(x => ':white_check_mark: *' + x.domain + '*: resolved (' + x.text + ')'),\n];\nreturn [{ json: { text: lines.join('\\n') } }];\n"
+      },
+      "position": [
+        2112,
+        176
+      ]
+    },
+    {
+      "id": "818d1dfd-dd19-40ed-a8d0-48d0b258818d",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1fd7b828-3ac9-4ba8-a3ce-83ce359b1fd7",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "80453386-2afc-45a6-ab92-0b9294158045",
+      "name": "STOP: dry run - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "336f74e6-4fba-4906-a620-2620cdb5336f",
+      "name": "Post the domain report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "02da1a2b-3867-4abb-a200-8200a1d202da",
+      "name": "Remember reported issues",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: store what was posted and the nameservers seen, so tomorrow posts only changes.\nconst store = $getWorkflowStaticData('global');\nconst c = $('Check expiry and status').first().json;\nconst reported = store.reported || {};\nfor (const x of c.fresh) reported[x.key] = x.text;\nfor (const x of c.resolved) delete reported[x.key];\nstore.reported = reported;\nstore.nameservers = Object.fromEntries(c.domains.filter(d => d.nameservers).map(d => [d.domain, d.nameservers]));\nreturn [{ json: { open_issues: Object.keys(reported).length } }];\n"
+      },
+      "position": [
+        2784,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 08:15": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "List domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List domains": {
+      "main": [
+        [
+          {
+            "node": "RDAP lookups on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RDAP lookups on?": {
+      "main": [
+        [
+          {
+            "node": "Look up the RDAP record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample RDAP records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up the RDAP record": {
+      "main": [
+        [
+          {
+            "node": "Combine RDAP records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample RDAP records": {
+      "main": [
+        [
+          {
+            "node": "Combine RDAP records",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine RDAP records": {
+      "main": [
+        [
+          {
+            "node": "Check expiry and status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check expiry and status": {
+      "main": [
+        [
+          {
+            "node": "Anything new?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new?": {
+      "main": [
+        [
+          {
+            "node": "Write the Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing new to report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack message": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post the domain report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the domain report": {
+      "main": [
+        [
+          {
+            "node": "Remember reported issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

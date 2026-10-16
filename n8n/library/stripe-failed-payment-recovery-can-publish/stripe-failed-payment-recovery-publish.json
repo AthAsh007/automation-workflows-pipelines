@@ -1,0 +1,774 @@
+{
+  "name": "Email card update links for failed Stripe subscription payments with Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Email card update links for failed Stripe subscription payments with Gmail\n\n**Who's it for**\nSubscription businesses on Stripe that lose renewals to expired or declined cards. It sends a short, plain email with a link to update the card, three times at most, and stops the moment the invoice is paid.\n\n**How it works**\n1. Every day at 10:00 it reads open subscription invoices with at least one failed charge from Stripe, or a sample set until Stripe is connected.\n2. Each invoice gets the next step of a day 0, day 3 and day 7 ladder, counted from the first failed charge. The step already sent is stored in the invoice metadata.\n3. Paid, canceled and finished invoices are held back with a reason, and `DAILY_CAP` limits sends per run.\n4. A fresh billing portal link is created for each customer, the email goes out through Gmail, and the step is written back to Stripe. Slack gets one summary.\n\n**How to set up**\n1. Run it once as imported. It previews against sample invoices and stops at `STOP: preview - nothing sent`.\n2. Add a Stripe credential to the three Stripe nodes, turn on the customer portal in Stripe Billing settings, then set `USE_STRIPE = true`.\n3. Connect Gmail and, optionally, Slack with `SLACK_CHANNEL_ID`.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false` to go live.\n\n**Requirements**\n- A Stripe account with subscriptions and the customer portal turned on\n- A Gmail account\n- Optional: a Slack workspace\n\n**How to customize**\n- `LADDER` holds the day, subject and opening line of each step.\n- `PORTAL_RETURN_URL` is where customers land after updating their card.\n- `MIN_AMOUNT` and `DAILY_CAP` keep small balances and big batches out.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "4dd1f5e1-5717-4c4e-9a00-4dd1f5e113e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns daily at 10:00, a few hours after Stripe usually retries cards, or by hand. The ladder wording and every limit live in `config`.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d1104514-5717-4c4e-9a00-d11045141000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read failed invoices\n\nOnly open, automatically charged invoices tied to a subscription are read. `Load sample invoices` stands in until `USE_STRIPE` is true, with the same fields `Read failed invoices` produces.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "d21046a7-5717-4c4e-9a00-d21046a71001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Choose the step and report it\n\nThe sent step lives in invoice metadata, so a rerun never repeats an email. Paid and canceled invoices stop the ladder, `DAILY_CAP` is enforced in code, and Slack gets every held reason.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "d310483a-5717-4c4e-9a00-d310483a1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Link, send and record\n\nThe portal link is created only after `Sending switched on?`, because portal sessions expire. A test send goes to `TEST_EMAIL` and leaves Stripe alone; only `Live run?` writes the step back.",
+        "height": 688,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "d41049cd-5717-4c4e-9a00-d41049cd1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "1d006535-b17f-46a5-abcf-8bcff6601d00",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EMAIL CARD UPDATE LINKS FOR FAILED STRIPE SUBSCRIPTION PAYMENTS WITH GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_STRIPE false -> SAMPLE invoices so the run works before any credential exists.\n// SLACK_CHANNEL_ID blank -> no summary is posted.\n\n// set true after adding the Stripe credential to the Stripe nodes\nconst USE_STRIPE = false;\n// days after the first failed charge that unlock each step\nconst LADDER = [\n  {\n    step: 1,\n    day: 0,\n    subject: \"Your payment for {product} did not go through\",\n    opening: \"Your card was declined when we tried to renew your subscription. It happens, often because a card expired.\"\n  },\n  {\n    step: 2,\n    day: 3,\n    subject: \"Reminder: please update your card for {product}\",\n    opening: \"We still have not been able to collect your renewal payment.\"\n  },\n  {\n    step: 3,\n    day: 7,\n    subject: \"Last notice before {product} is paused\",\n    opening: \"This is our final reminder. Without a working card your subscription will be paused when Stripe stops retrying.\"\n  }\n];\n// balances below this are not chased (major units)\nconst MIN_AMOUNT = 5;\n// hard ceiling on emails per run\nconst DAILY_CAP = 40;\n// where the billing portal sends customers back to\nconst PORTAL_RETURN_URL = 'https://www.yourcompany.example/account';\n// sign-off on every email\nconst SENDER_NAME = 'The billing team';\n// channel for the run summary; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_stripe: USE_STRIPE,\n    ladder: LADDER,\n    min_amount: MIN_AMOUNT,\n    daily_cap: DAILY_CAP,\n    portal_return_url: PORTAL_RETURN_URL,\n    sender_name: SENDER_NAME,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "4c68b8cd-8dcb-4abd-a904-7904c9e84c68",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "2c746498-2cad-4518-a19f-e19f53cb2c74",
+      "name": "Every day at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "8c6f2832-2198-4c92-a580-1580ace18c6f",
+      "name": "Stripe connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c52a34d4-76b2-4a94-aaaa-9aaaa6f7c52a",
+              "leftValue": "={{ $('config').first().json.use_stripe }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "b29c9894-a22f-4254-ab61-eb61e537b29c",
+      "name": "Fetch open subscription invoices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.stripe.com/v1/invoices",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "open"
+            },
+            {
+              "name": "collection_method",
+              "value": "charge_automatically"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "expand[0]",
+              "value": "data.customer"
+            },
+            {
+              "name": "expand[1]",
+              "value": "data.subscription"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "9c01c770-ad8e-4470-aaab-6aab69339c01",
+      "name": "Read failed invoices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Keep invoices that belong to a subscription and have at least one failed charge.\n// The first failure is close to finalisation, so days are counted from finalized_at.\nconst out = [];\nfor (const page of $input.all()) {\n  for (const inv of page.json.data || []) {\n    if (!inv.subscription) continue;\n    const sub = typeof inv.subscription === 'object' ? inv.subscription : { id: inv.subscription, status: 'past_due' };\n    const cust = typeof inv.customer === 'object' ? inv.customer : { id: inv.customer };\n    out.push({ json: {\n      id: inv.id, number: inv.number || inv.id, customer_id: cust.id, customer_name: inv.customer_name || cust.name || '',\n      email: inv.customer_email || cust.email || '', amount_due: (inv.amount_remaining ?? inv.amount_due ?? 0) / 100,\n      currency: (inv.currency || 'usd').toUpperCase(), product: inv.lines?.data?.[0]?.description || 'your subscription',\n      failed_at: new Date((inv.status_transitions?.finalized_at || inv.created) * 1000).toISOString().slice(0, 10),\n      attempt_count: inv.attempt_count || 0, subscription_status: sub.status, last_step: Number(inv.metadata?.dunning_step || 0),\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "729001e1-8bcb-4591-aaa0-8aa088ec7290",
+      "name": "Load sample invoices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_STRIPE is true. Seven invoices covering every ladder decision.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst inv = (id, name, email, amt, d, step, extra = {}) => ({ id, number: id.toUpperCase(), customer_id: 'cus_' + id, customer_name: name, email,\n  amount_due: amt, currency: 'USD', product: 'Pro plan (monthly)', failed_at: day(d), attempt_count: 1, subscription_status: 'past_due', last_step: step, ...extra });\nreturn [\n  inv('in_s1', 'Maya Ortiz', 'maya@brightloom.example', 49, 0, 0),\n  inv('in_s2', 'Theo Grant', 'theo@quarry-labs.example', 99, 4, 1, { attempt_count: 2 }),\n  inv('in_s3', 'Lena Fox', 'lena@fox-and-fern.example', 29, 8, 2, { attempt_count: 3 }),\n  inv('in_s4', 'Ravi Shah', 'ravi@tallow.example', 49, 9, 3, { attempt_count: 4 }),\n  inv('in_s5', 'Ines Park', 'ines@parkhaus.example', 99, 2, 1, { attempt_count: 2 }),\n  inv('in_s6', 'Owen Blake', 'owen@blakeworks.example', 49, 5, 1, { subscription_status: 'canceled' }),\n  inv('in_s7', 'Sara Lind', 'sara@lindgren.example', 0, 3, 1),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "6acd44c5-39c0-4935-a020-40209c306acd",
+      "name": "Combine invoice sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "7bb887dd-5948-44cd-a8b7-08b721787bb8",
+      "name": "Pick the next recovery step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One step per invoice per run. A step is due when the first failure is at least\n// that many days old AND the step has not been sent. Paid or canceled stops the ladder.\nconst cfg = $('config').first().json;\nconst ladder = [...cfg.ladder].sort((a, b) => a.day - b.day);\nconst today = new Date(new Date().toISOString().slice(0, 10));\nconst due = [], held = [];\nfor (const { json: inv } of $input.all()) {\n  const age = Math.floor((today - new Date(inv.failed_at)) / 864e5);\n  const next = ladder.find(s => s.step > inv.last_step && age >= s.day);\n  const reason =\n    inv.amount_due <= 0 ? 'paid since the failure' :\n    inv.subscription_status === 'canceled' ? 'subscription canceled' :\n    inv.attempt_count < 1 ? 'no failed charge yet' :\n    !inv.email ? 'no customer email' :\n    inv.amount_due < cfg.min_amount ? 'below MIN_AMOUNT' :\n    !next ? (inv.last_step >= ladder.length ? 'ladder finished' : 'next step not due yet') : '';\n  if (reason) held.push({ number: inv.number, customer: inv.customer_name, reason });\n  else due.push({ ...inv, days_since_failure: age, step: next.step, subject_tpl: next.subject, opening: next.opening });\n}\ndue.sort((a, b) => b.amount_due - a.amount_due);\nconst capped = due.slice(0, cfg.daily_cap);\nfor (const x of due.slice(cfg.daily_cap)) held.push({ number: x.number, customer: x.customer_name, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { emails: capped, held, checked: $input.all().length, at_risk: capped.reduce((s, x) => s + x.amount_due, 0) } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "233ef81f-9279-446f-a82f-882ff0a6233e",
+      "name": "Split into one item per email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Fan out so the portal link, the email and the write-back each run once per invoice.\nconst cfg = $('config').first().json;\nreturn $input.first().json.emails.map(e => ({ json: { ...e,\n  subject: e.subject_tpl.replace('{product}', e.product),\n  send_to: cfg.mode === 'test' ? cfg.test_email : e.email } }));\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "50c62552-2141-4fb2-a27f-127fd0c150c6",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "a5cc7ed1-873b-4781-abb7-dbb7779ca5cc",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "ef59d4cc-9284-4d0c-af22-df221c1fef59",
+      "name": "Create card update link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/billing_portal/sessions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "customer",
+              "value": "={{ $json.customer_id }}"
+            },
+            {
+              "name": "return_url",
+              "value": "={{ $('config').first().json.portal_return_url }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "80eec2f4-79a6-4eb4-a758-17582fd780ee",
+      "name": "Write the recovery email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The portal session url is single-use and short-lived, so it is created right before the send.\nconst cfg = $('config').first().json;\nconst e = $('Split into one item per email').item.json;\nconst money = new Intl.NumberFormat('en-US', { style: 'currency', currency: e.currency }).format(e.amount_due);\nconst body = [\n  'Hi ' + (e.customer_name.split(' ')[0] || 'there') + ',', '',\n  e.opening, '',\n  'Amount: ' + money + ' for ' + e.product,\n  'Update your card here: ' + $json.url, '',\n  'Once the card is updated we retry the payment automatically. No need to reply.', '',\n  cfg.sender_name,\n].join('\\n');\nreturn { json: { ...e, body, link: $json.url } };\n"
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "218c5e83-b2de-4393-a121-2121e9ba218c",
+      "name": "Email the card update link",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "b82bf04d-4180-4a3d-a6ae-56aedd68b82b",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        176
+      ]
+    },
+    {
+      "id": "079b2594-01d3-4f54-adfa-fdfa7237079b",
+      "name": "STOP: test send - Stripe untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        352
+      ]
+    },
+    {
+      "id": "8ed13c4f-5b25-499f-a72a-472a7dd68ed1",
+      "name": "Record recovery step on Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.stripe.com/v1/invoices/' + $('Write the recovery email').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "metadata[dunning_step]",
+              "value": "={{ $('Write the recovery email').item.json.step }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3440,
+        176
+      ]
+    },
+    {
+      "id": "230386ab-58d3-4f3b-a5de-d5de2a522303",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message whatever happened, with the revenue at risk and every held reason.\nconst cfg = $('config').first().json;\nconst p = $('Pick the next recovery step').first().json;\nconst lines = p.emails.map(e => '- ' + e.number + ' ' + e.customer_name + ': step ' + e.step + ', ' + e.currency + ' ' + e.amount_due);\nconst text = [\n  '*Failed payment recovery* (' + cfg.mode + ')',\n  p.checked + ' failed invoices checked, ' + p.emails.length + ' emails' + (cfg.mode === 'preview' ? ' prepared' : ' sent') + ', ' + p.at_risk.toFixed(2) + ' at risk.',\n  ...(lines.length ? ['', ...lines] : []),\n  ...(p.held.length ? ['', 'Held back:', ...p.held.map(h => '- ' + h.number + ' ' + h.customer + ': ' + h.reason)] : []),\n].join('\\n');\nreturn [{ json: { text } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "e020d24b-f233-48db-a3c6-43c6e0b2e020",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "7aa5b12d-f3f8-451d-aec0-fec09f887aa5",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        512
+      ]
+    },
+    {
+      "id": "853d0b07-a9eb-4ed7-a8ba-18bac95e853d",
+      "name": "Post the summary to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2096,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Stripe connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch open subscription invoices",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch open subscription invoices": {
+      "main": [
+        [
+          {
+            "node": "Read failed invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read failed invoices": {
+      "main": [
+        [
+          {
+            "node": "Combine invoice sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample invoices": {
+      "main": [
+        [
+          {
+            "node": "Combine invoice sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine invoice sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the next recovery step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the next recovery step": {
+      "main": [
+        [
+          {
+            "node": "Split into one item per email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into one item per email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Create card update link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create card update link": {
+      "main": [
+        [
+          {
+            "node": "Write the recovery email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the recovery email": {
+      "main": [
+        [
+          {
+            "node": "Email the card update link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the card update link": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record recovery step on Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - Stripe untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise the run": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

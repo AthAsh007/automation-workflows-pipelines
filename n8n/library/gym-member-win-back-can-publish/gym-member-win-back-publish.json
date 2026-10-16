@@ -1,0 +1,588 @@
+{
+  "name": "Win back gym members with no recent check-ins via Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Win back gym members with no recent check-ins via Gmail\n\n**Who's it for**\nIndependent gyms, studios and climbing walls that track members in a spreadsheet and notice lapsed members only when they cancel. It catches people at two weeks away, while a friendly nudge still works.\n\n**How it works**\n1. Every Tuesday at 10:00 it reads the Members tab, or 10 sample members until a sheet is set.\n2. Days inactive = days since the last check-in, or since joining for someone who never came. Members inactive 14, 30 or 60 days land on that tier, each with its own offer and tone.\n3. Frozen and cancelled memberships, opted-out members, members who joined in the last 14 days and anyone contacted in the last 30 days are held back with a reason.\n4. The 14-day tier goes first because those members come back most often, then `WEEKLY_CAP` applies. Each email is sent through Gmail and the contact date and offer are written to the member row.\n\n**How to set up**\n1. Run it once as imported. It previews against sample members and stops at `STOP: preview - nothing sent`.\n2. Make sure your Members tab has Member ID, Name, Email, Status, Joined, Last check-in, Last contacted and Opt out columns, connect Google Sheets and set `MEMBERS_SHEET_ID`.\n3. Connect Gmail and edit the offers in `TIERS` and the sign-off in `GYM_NAME`.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet of members with a last check-in date\n- A Gmail account\n\n**How to customize**\n- `TIERS` sets the day thresholds, offers and subject lines.\n- `CONTACT_COOLDOWN_DAYS` stops the same member hearing from you more than once a month.\n- `WEEKLY_CAP` limits emails per run so front desk can handle the replies.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "805a0c3e-5717-4c4e-9a00-805a0c3e13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every Tuesday at 10:00, after the Monday rush shows who did not come back. Tiers, offers, the cooldown and the weekly cap all live in `config`.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "15ef2853-5717-4c4e-9a00-15ef28531000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read members\n\nOne read of the Members tab gives status, join date, last check-in and last contact in a single row per member. `Load sample members` covers every hold-back rule until `MEMBERS_SHEET_ID` is set.",
+        "height": 576,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "14ef26c0-5717-4c4e-9a00-14ef26c01001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick tiers and write emails\n\nHold-back rules run before tiering, so a frozen member at 60 days never gets the half-price offer. A member who joined and never came uses the join date and gets different wording.",
+        "height": 576,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "17ef2b79-5717-4c4e-9a00-17ef2b791002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and record\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. Only a live run writes Last contacted, which is what the 30-day cooldown reads next week.",
+        "height": 576,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        0
+      ],
+      "id": "16ef29e6-5717-4c4e-9a00-16ef29e61003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "3fe06f5a-b724-473a-a7d7-17d7b8793fe0",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// WIN BACK GYM MEMBERS WITH NO RECENT CHECK-INS VIA GMAIL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// MEMBERS_SHEET_ID blank -> SAMPLE members so the run works before any credential exists.\n// Only a live run writes Last contacted back to the sheet.\n\n// Google Sheets id holding the Members tab; blank uses sample members\nconst MEMBERS_SHEET_ID = '';\n// days inactive that unlock each tier, the offer and the subject line\nconst TIERS = [\n  {\n    tier: 1,\n    days: 14,\n    offer: \"a free session with a coach\",\n    subject: \"We have missed you at {gym}\"\n  },\n  {\n    tier: 2,\n    days: 30,\n    offer: \"a free week to get back into it\",\n    subject: \"A free week on us, {first}\"\n  },\n  {\n    tier: 3,\n    days: 60,\n    offer: \"50% off your next month\",\n    subject: \"Half price to come back to {gym}\"\n  }\n];\n// members contacted this recently are skipped\nconst CONTACT_COOLDOWN_DAYS = 30;\n// members who joined this recently are never chased\nconst NEW_MEMBER_DAYS = 14;\n// membership statuses that are never emailed\nconst SKIP_STATUSES = [\n  \"frozen\",\n  \"cancelled\",\n  \"canceled\",\n  \"paused\"\n];\n// hard ceiling on emails per run\nconst WEEKLY_CAP = 40;\n// used in subjects and the sign-off\nconst GYM_NAME = 'Northside Strength';\n// link in every email\nconst BOOKING_URL = 'https://northside-strength.example/book';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    members_sheet_id: MEMBERS_SHEET_ID,\n    tiers: TIERS,\n    contact_cooldown_days: CONTACT_COOLDOWN_DAYS,\n    new_member_days: NEW_MEMBER_DAYS,\n    skip_statuses: SKIP_STATUSES,\n    weekly_cap: WEEKLY_CAP,\n    gym_name: GYM_NAME,\n    booking_url: BOOKING_URL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: MEMBERS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        240
+      ]
+    },
+    {
+      "id": "afb52d0e-7091-44ae-a2fd-b2fde74dafb5",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        240
+      ]
+    },
+    {
+      "id": "2c93ea14-5e34-4bd4-ad58-5d585eb72c93",
+      "name": "Every Tuesday at 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 2"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        416
+      ]
+    },
+    {
+      "id": "afa251b5-6bbc-4b25-a080-f0804ee0afa2",
+      "name": "Members sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b04be310-6b3a-4e10-a096-b0965893b04b",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        240
+      ]
+    },
+    {
+      "id": "615d1e8b-aeae-411b-a4cd-94cd9b72615d",
+      "name": "Read the Members tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.members_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Members"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        240
+      ]
+    },
+    {
+      "id": "4ea77749-37d9-4a79-a287-d287e9444ea7",
+      "name": "Load sample members",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until MEMBERS_SHEET_ID is set. One member per rule the picker has.\nconst day = n => n === null ? '' : new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst m = (id, name, status, joined, last, contacted, optOut = '') => ({\n  'Member ID': id, Name: name, Email: name.toLowerCase().replace(/[^a-z]+/g, '.') + '@mail.example',\n  Status: status, Joined: day(joined), 'Last check-in': day(last), 'Last contacted': day(contacted), 'Opt out': optOut });\nreturn [\n  m('M-101', 'Sam Patel', 'active', 400, 3, null),\n  m('M-102', 'Rosa Diaz', 'active', 300, 16, null),\n  m('M-103', 'Ken Ito', 'active', 500, 41, null),\n  m('M-104', 'Mia Novak', 'active', 700, 95, null),\n  m('M-105', 'Joel Grant', 'frozen', 200, 50, null),\n  m('M-106', 'Ana Ruiz', 'active', 250, 33, 12),\n  m('M-107', 'Lee Chen', 'active', 9, null, null),\n  m('M-108', 'Dana Okafor', 'active', 40, null, null),\n  m('M-109', 'Tom Becker', 'Cancelled', 900, 120, null),\n  m('M-110', 'Priya Natarajan', 'active', 365, 20, null, 'yes'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        416
+      ]
+    },
+    {
+      "id": "7906979b-0784-452b-ac18-7c18b9027906",
+      "name": "Combine member sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "id": "40ba4488-7465-4a08-a8fa-58fa173b40ba",
+      "name": "Pick members to win back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Tier = highest threshold reached by days inactive. Hold-back rules run first and\n// each one says why. Tier 1 goes first (most likely to return), then WEEKLY_CAP.\nconst cfg = $('config').first().json;\nconst tiers = [...cfg.tiers].sort((a, b) => a.days - b.days);\nconst today = Date.parse(new Date().toISOString().slice(0, 10));\nconst daysSince = s => { const t = Date.parse(String(s || '').slice(0, 10)); return t ? Math.floor((today - t) / 864e5) : null; };\nconst pick = [], held = [];\nlet read = 0;\nfor (const { json: r } of $input.all()) {\n  if (!r['Member ID']) continue;\n  read++;\n  const joined = daysSince(r.Joined);\n  const lastIn = daysSince(r['Last check-in']);\n  const inactive = lastIn ?? joined;\n  const contacted = daysSince(r['Last contacted']);\n  const tier = inactive === null ? null : [...tiers].reverse().find(t => inactive >= t.days);\n  const reason =\n    !String(r.Email || '').includes('@') ? 'no email' :\n    cfg.skip_statuses.includes(String(r.Status || '').trim().toLowerCase()) ? 'status ' + String(r.Status).toLowerCase() :\n    /^(yes|true|x|1)$/i.test(String(r['Opt out'] || '').trim()) ? 'opted out' :\n    joined !== null && joined < cfg.new_member_days ? 'joined ' + joined + ' days ago' :\n    contacted !== null && contacted < cfg.contact_cooldown_days ? 'contacted ' + contacted + ' days ago' :\n    !tier ? 'active (' + inactive + ' days since last visit)' : '';\n  if (reason) { held.push({ id: r['Member ID'], name: r.Name, reason }); continue; }\n  pick.push({ id: r['Member ID'], name: r.Name, email: String(r.Email).trim(), inactive, never_visited: lastIn === null, tier: tier.tier, offer: tier.offer, subject_tpl: tier.subject });\n}\npick.sort((a, b) => a.tier - b.tier || a.inactive - b.inactive);\nfor (const p of pick.slice(cfg.weekly_cap)) held.push({ id: p.id, name: p.name, reason: 'over WEEKLY_CAP, next week' });\nreturn [{ json: { members: pick.slice(0, cfg.weekly_cap), held, read } }];\n"
+      },
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "id": "b9bed502-9f0d-4862-ad4b-4d4b3671b9be",
+      "name": "Write each win-back email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Wording changes with the tier; the facts (days away, offer, link) come from the row.\nconst cfg = $('config').first().json;\nconst first = n => String(n || '').split(' ')[0] || 'there';\nconst openers = {\n  1: 'We noticed it has been a couple of weeks since your last visit.',\n  2: 'It has been about a month since we last saw you, and routines slip. That is normal.',\n  3: 'It has been a while, and we would love to have you back.',\n};\nreturn $input.first().json.members.map(m => {\n  const subject = m.subject_tpl.replace('{gym}', cfg.gym_name).replace('{first}', first(m.name));\n  const body = [\n    'Hi ' + first(m.name) + ',', '',\n    m.never_visited ? 'You joined ' + m.inactive + ' days ago and we have not seen you on the floor yet.' : (openers[m.tier] || openers[1]),\n    'To make it easy, here is ' + m.offer + '. Just mention this email at the desk.', '',\n    'Book a time: ' + cfg.booking_url, '',\n    'See you soon,', cfg.gym_name,\n  ].join('\\n');\n  return { json: { ...m, subject, body, send_to: cfg.mode === 'test' ? cfg.test_email : m.email } };\n});\n"
+      },
+      "position": [
+        1424,
+        240
+      ]
+    },
+    {
+      "id": "c88945fe-5690-429e-a277-627714fdc889",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Execution log: who gets which tier and who was held back.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst by = t => r.members.filter(m => m.tier === t).length;\nconst text = [\n  'Win-back (' + cfg.mode + '): ' + r.read + ' members read, ' + r.members.length + ' emails (tier 1: ' + by(1) + ', tier 2: ' + by(2) + ', tier 3: ' + by(3) + ').',\n  ...r.held.map(h => '- held ' + h.name + ': ' + h.reason),\n].join('\\n');\nreturn [{ json: { text, emails: r.members.length, held: r.held.length } }];\n"
+      },
+      "position": [
+        1424,
+        416
+      ]
+    },
+    {
+      "id": "674eae21-64ca-4dd1-a479-54797fac674e",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1664,
+        240
+      ]
+    },
+    {
+      "id": "c429eca2-44a3-4e02-a181-718110d1c429",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1888,
+        416
+      ]
+    },
+    {
+      "id": "718434eb-61e8-497b-a726-17265a127184",
+      "name": "Email the member",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        1888,
+        240
+      ]
+    },
+    {
+      "id": "a59e2d24-306f-49e4-ae88-de888007a59e",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2096,
+        240
+      ]
+    },
+    {
+      "id": "feef07a3-7be5-42b3-a78a-578a819afeef",
+      "name": "STOP: test send - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2320,
+        416
+      ]
+    },
+    {
+      "id": "6a4e1707-ad61-4ad7-a87d-687dcd5e6a4e",
+      "name": "Shape the contact update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the match column and the two columns being written.\nconst today = new Date().toISOString().slice(0, 10);\nreturn $('Write each win-back email').all().map((m, i) => ({ json: { 'Member ID': m.json.id, 'Last contacted': today, 'Last offer': 'tier ' + m.json.tier + ': ' + m.json.offer } }))\n  .slice(0, $input.all().length);\n"
+      },
+      "position": [
+        2320,
+        240
+      ]
+    },
+    {
+      "id": "eb5575f2-cdd3-4e52-a505-c5052c21eb55",
+      "name": "Record the contact date",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.members_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Members"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Member ID"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Tuesday at 10:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Members sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Members sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Members tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Members tab": {
+      "main": [
+        [
+          {
+            "node": "Combine member sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample members": {
+      "main": [
+        [
+          {
+            "node": "Combine member sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine member sources": {
+      "main": [
+        [
+          {
+            "node": "Pick members to win back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick members to win back": {
+      "main": [
+        [
+          {
+            "node": "Write each win-back email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each win-back email": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the member",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the member": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Shape the contact update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the contact update": {
+      "main": [
+        [
+          {
+            "node": "Record the contact date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

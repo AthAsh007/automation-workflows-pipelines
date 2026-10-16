@@ -1,0 +1,628 @@
+{
+  "name": "Validate, normalise and deduplicate webhook leads before forwarding to a CRM",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Validate, normalise and deduplicate webhook leads before forwarding to a CRM\n\n**Who's it for**\nMarketing and sales ops teams whose landing pages, ad forms and partners all post leads straight into the CRM, along with typos, throwaway addresses, bots and the same person three times. The CRM only sees leads that pass.\n\n**How it works**\n1. Each form posts its lead to `Receive a lead`. A manual run pushes 7 sample leads through the same rules.\n2. Field names are matched loosely (email, Email, email_address), and a filled honeypot field marks the lead as a bot.\n3. The email is trimmed and lower-cased, common typos like gmial.com are corrected, and syntax and `DISPOSABLE_PROVIDERS` are checked. Phone numbers become E.164 and names become proper case, including O'Neill and Smith-Jones.\n4. A lead whose email or phone was accepted in the last `DEDUPE_HOURS` hours is a duplicate. The hash is kept in workflow static data on live runs.\n5. The form gets 200 with a lead id, 200 with duplicate true, or 422 with every reason. Accepted leads are posted to `CRM_WEBHOOK_URL` on a live run.\n\n**How to set up**\n1. Run it once as imported. It validates the sample leads and stops at `STOP: not live - lead not forwarded`.\n2. Point your forms at the production URL of `Receive a lead` and show the 422 reasons next to the form fields.\n3. Set `CRM_WEBHOOK_URL` to your CRM or automation inbound webhook and check `REQUIRED_FIELDS`.\n4. Send a few test submissions and read the replies, then set `TEST_RUN = false` to forward.\n\n**Requirements**\n- Web forms that can POST JSON\n- A CRM or tool with an inbound webhook URL\n\n**How to customize**\n- `DISPOSABLE_PROVIDERS` and `DOMAIN_TYPOS` are plain lists you can extend.\n- `DEDUPE_HOURS` sets how long a repeat counts as a duplicate.\n- `DEFAULT_COUNTRY_CODE` decides how local phone numbers are read.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "00e58e1b-5717-4c4e-9a00-00e58e1b13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nForms post to `Receive a lead`, which waits for a reply node so the form learns the outcome. Typo and disposable lists, the dedupe window and required fields all live in `config`.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f122771e-5717-4c4e-9a00-f122771e1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the lead\n\n`Read the incoming lead` rejects an empty body before any rule runs. A manual run uses `Load sample leads`, seven leads that between them trip every rule once.",
+        "height": 880,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "f22278b1-5717-4c4e-9a00-f22278b11001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Validate, dedupe and reply\n\nAll reasons are collected, not just the first, so a form can highlight every bad field in one round trip. Typos are fixed before the disposable check, and duplicates get a 200 so the visitor sees no error.",
+        "height": 880,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "ef2273f8-5717-4c4e-9a00-ef2273f81002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Forward clean leads\n\nThe reply goes out before the CRM call, so a slow CRM never delays the form. Forwarding needs a live run and a `CRM_WEBHOOK_URL`; otherwise the lead ends at the STOP with its normalised fields visible.",
+        "height": 880,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "f022758b-5717-4c4e-9a00-f022758b1003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "ee23dfb6-ffa4-42d6-a473-94733b85ee23",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// VALIDATE, NORMALISE AND DEDUPLICATE WEBHOOK LEADS BEFORE FORWARDING TO A CRM - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run validates SAMPLE leads. Nothing is forwarded unless the run is live and CRM_WEBHOOK_URL is set.\n// Dedupe hashes are stored only on live runs, so tests never block a real lead.\n\n// inbound webhook of your CRM; blank keeps leads here\nconst CRM_WEBHOOK_URL = '';\n// fields that must be present; at least one of email or phone is always required\nconst REQUIRED_FIELDS = [\n  \"name\"\n];\n// throwaway mail providers, matched on the domain name before the TLD\nconst DISPOSABLE_PROVIDERS = [\n  \"mailinator\",\n  \"guerrillamail\",\n  \"10minutemail\",\n  \"tempmail\",\n  \"yopmail\",\n  \"trashmail\",\n  \"sharklasers\"\n];\n// mistyped provider name -> correct one (gmial.com -> gmail.com)\nconst DOMAIN_TYPOS = {\n  gmial: \"gmail\",\n  gmai: \"gmail\",\n  gamil: \"gmail\",\n  hotmial: \"hotmail\",\n  yaho: \"yahoo\",\n  outlok: \"outlook\"\n};\n// country code for phone numbers written without +\nconst DEFAULT_COUNTRY_CODE = '1';\n// same email or phone inside this window is a duplicate\nconst DEDUPE_HOURS = 72;\n// hidden form field; bots fill it, people do not\nconst HONEYPOT_FIELD = 'website';\n// more links than this in the message is treated as spam\nconst MAX_LINKS_IN_MESSAGE = 2;\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    crm_webhook_url: CRM_WEBHOOK_URL,\n    required_fields: REQUIRED_FIELDS,\n    disposable_providers: DISPOSABLE_PROVIDERS,\n    domain_typos: DOMAIN_TYPOS,\n    default_country_code: DEFAULT_COUNTRY_CODE,\n    dedupe_hours: DEDUPE_HOURS,\n    honeypot_field: HONEYPOT_FIELD,\n    max_links_in_message: MAX_LINKS_IN_MESSAGE,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    crm_enabled: CRM_WEBHOOK_URL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "e2e085c2-7523-4d22-aa7b-4a7bf8b1e2e0",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "ecabe894-3395-4254-a7d4-b7d4d537ecab",
+      "name": "Receive a lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "1d36c5c9-a289-40f9-a90b-e90b4fc41d36",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "f7544845-f441-44b5-aa94-8a9423b0f754",
+      "name": "Read the incoming lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The webhook body when one arrived; an empty marker on a manual run.\nlet body = null;\ntry { body = $('Receive a lead').first().json.body; } catch (e) { body = null; }\nif (!body || typeof body !== 'object' || !Object.keys(body).length) return [{ json: { has_lead: false } }];\nreturn [{ json: { has_lead: true, raw: body, received_at: new Date().toISOString() } }];\n"
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "ea6eab0a-5081-4bea-ab35-3b357229ea6e",
+      "name": "Lead received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "894fae1d-e79e-470d-a027-f0274e38894f",
+              "leftValue": "={{ $json.has_lead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "40b62d89-2fea-4cb9-ae54-ee546a0440b6",
+      "name": "Load sample leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run: one lead per rule, including a repeat of the first.\nconst now = new Date().toISOString();\nreturn [\n  { first_name: 'jOHN', last_name: \"o'neill\", Email: ' John.ONeill@Gmial.example ', phone: '(212) 555-0142', company: 'harbour dental', source: 'google-ads' },\n  { name: 'Test Person', email: 'test@mailinator.example', phone: '' },\n  { name: 'Mia Novak', company: 'Novak Joinery' },\n  { name: 'Ana Ruiz', email: 'ana@@mail.example', phone: '646-555-0119' },\n  { name: 'Cheap Pills', email: 'offers@pills.example', website: 'http://pills.example' },\n  { full_name: 'JOHN ONEILL', email_address: 'john.oneill@gmail.example', source: 'facebook' },\n  { name: 'dana smith-jones', tel: '+1 646 555 0123', message: 'Please call me about a quote for 3 sites.' },\n].map(raw => ({ json: { has_lead: true, raw, received_at: now } }));\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "77bbfbe3-dacc-42f3-a22e-022ecb5a77bb",
+      "name": "Combine lead sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "aeeb08a0-a1f4-46a0-a6a5-06a51863aeeb",
+      "name": "Validate and normalise each lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every rule adds a reason instead of stopping at the first, so a form can show all of\n// them. Dedupe key = normalised email and phone; remembered only on live runs.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst seen = memory.lead_hashes || {};\nconst now = Date.now();\nfor (const k of Object.keys(seen)) if (now - seen[k] > cfg.dedupe_hours * 36e5) delete seen[k];\nconst pick = (o, keys) => { for (const k of keys) for (const f of Object.keys(o)) if (f.toLowerCase() === k && String(o[f] ?? '').trim()) return String(o[f]).trim(); return ''; };\nconst proper = s => s.toLowerCase().replace(/(^|[\\s'-])([a-z])/g, (m, p, c) => p + c.toUpperCase()).replace(/\\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase());\nconst toE164 = raw => {\n  let s = raw.replace(/[^\\d+]/g, '');\n  if (!s) return '';\n  if (s.startsWith('00')) s = '+' + s.slice(2);\n  if (!s.startsWith('+')) {\n    const cc = String(cfg.default_country_code);\n    s = cc === '1' ? (s.length === 10 ? '+1' + s : s.length === 11 && s.startsWith('1') ? '+' + s : '') : '+' + cc + s.replace(/^0/, '');\n  }\n  return /^\\+[1-9]\\d{9,14}$/.test(s) ? s : null;\n};\nconst hash = s => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); };\nconst batch = new Set();\nconst out = [];\nfor (const { json } of $input.all()) {\n  const raw = json.raw || {};\n  const errors = [], notes = [];\n  let first = pick(raw, ['first_name', 'firstname', 'first name']), last = pick(raw, ['last_name', 'lastname', 'last name', 'surname']);\n  const full = pick(raw, ['name', 'full_name', 'fullname', 'your name']);\n  if (!first && full) { const parts = full.split(/\\s+/); first = parts.shift(); last = last || parts.join(' '); }\n  first = proper(first); last = proper(last);\n  let email = pick(raw, ['email', 'email_address', 'e-mail']).toLowerCase();\n  const rawPhone = pick(raw, ['phone', 'tel', 'mobile', 'phone_number']);\n  const company = pick(raw, ['company', 'organisation', 'organization']);\n  const message = pick(raw, ['message', 'comments', 'notes']);\n  if (String(raw[cfg.honeypot_field] ?? '').trim()) errors.push('spam: honeypot field filled');\n  if ((message.match(/https?:\\/\\//g) || []).length > cfg.max_links_in_message) errors.push('spam: too many links in message');\n  for (const f of cfg.required_fields) if (f === 'name' ? !first : !pick(raw, [f])) errors.push(f + ' is required');\n  if (email) {\n    const at = email.split('@');\n    if (at.length === 2) {\n      const labels = at[1].split('.');\n      const name = labels.length > 1 ? labels[labels.length - 2] : '';\n      if (cfg.domain_typos[name]) {\n        labels[labels.length - 2] = cfg.domain_typos[name];\n        notes.push('email domain ' + at[1] + ' corrected to ' + labels.join('.'));\n        email = at[0] + '@' + labels.join('.');\n      }\n    }\n    if (!/^[^\\s@]+@[^\\s@]+\\.[a-z]{2,}$/i.test(email)) errors.push('email is not valid');\n    else if (cfg.disposable_providers.includes(email.split('@')[1].split('.').slice(-2, -1)[0])) errors.push('disposable email domain');\n  }\n  let phone = '';\n  if (rawPhone) { const p = toE164(rawPhone); if (p === null) errors.push('phone is not a valid number'); else phone = p; }\n  if (!email && !phone && !rawPhone) errors.push('email or phone is required');\n  const key = hash((email || '-') + '|' + (phone || '-'));\n  const emailKey = email ? hash('e|' + email) : '', phoneKey = phone ? hash('p|' + phone) : '';\n  const dup = !errors.length && [emailKey, phoneKey].some(k => k && (seen[k] || batch.has(k)));\n  const status = errors.length ? 'rejected' : dup ? 'duplicate' : 'accepted';\n  if (status === 'accepted') {\n    [emailKey, phoneKey].filter(Boolean).forEach(k => { batch.add(k); if (cfg.live) seen[k] = now; });\n  }\n  out.push({ status, errors, notes, lead_id: 'L-' + key, lead: { first_name: first, last_name: last, email, phone, company: company ? proper(company) : '',\n    message, source: pick(raw, ['source', 'utm_source']) || 'web', received_at: json.received_at } });\n}\nmemory.lead_hashes = seen;\nreturn out.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "21474407-a0ee-47d7-a57f-557f665e2147",
+      "name": "Route by result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "212a8f91-626f-4c41-a4f9-94f962dc212a",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "accepted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "accepted"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d60c0849-83eb-4b79-ac11-6c114e44d60c",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "duplicate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "duplicate"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8906b03a-8f61-421a-a59e-359e46998906",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "rejected"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "f2eb2186-ff34-43a6-a31c-a31cb615f2eb",
+      "name": "STOP: unexpected result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        720
+      ]
+    },
+    {
+      "id": "2feed007-07f2-43d7-af1d-ff1d7a5e2fee",
+      "name": "Reply 200 accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, lead_id: $json.lead_id, notes: $json.notes }) }}",
+        "options": {}
+      },
+      "position": [
+        1872,
+        208
+      ]
+    },
+    {
+      "id": "60039577-a2b0-4647-a34c-c34c508e6003",
+      "name": "Reply 200 duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, duplicate: true, lead_id: $json.lead_id }) }}",
+        "options": {}
+      },
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "b36decde-eba7-437e-aba9-0ba96d1db36d",
+      "name": "STOP: duplicate not forwarded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        384
+      ]
+    },
+    {
+      "id": "291dc491-38a4-4141-ada6-ada623dc291d",
+      "name": "Reply 422 with reasons",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: $json.errors }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "position": [
+        1872,
+        544
+      ]
+    },
+    {
+      "id": "b3b6e626-9a67-4646-a9d4-89d4d975b3b6",
+      "name": "Forward to the CRM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8cbc22bb-1aab-464b-abfd-0bfd0ae28cbc",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "8bbc2128-5856-44a8-a97a-897ac69b8bbc",
+              "leftValue": "={{ $('config').first().json.crm_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "f9fd6633-0c76-4443-a83b-583b50aaf9fd",
+      "name": "STOP: not live - lead not forwarded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        384
+      ]
+    },
+    {
+      "id": "bb4407a4-7de1-4c64-a938-c9386a87bb44",
+      "name": "Post the lead to the CRM webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.crm_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$json.lead, lead_id: $json.lead_id }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2560,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive a lead": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the incoming lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the incoming lead": {
+      "main": [
+        [
+          {
+            "node": "Lead received?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead received?": {
+      "main": [
+        [
+          {
+            "node": "Combine lead sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample leads": {
+      "main": [
+        [
+          {
+            "node": "Combine lead sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine lead sources": {
+      "main": [
+        [
+          {
+            "node": "Validate and normalise each lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and normalise each lead": {
+      "main": [
+        [
+          {
+            "node": "Route by result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by result": {
+      "main": [
+        [
+          {
+            "node": "Reply 200 accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply 200 duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply 422 with reasons",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unexpected result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply 200 duplicate": {
+      "main": [
+        [
+          {
+            "node": "STOP: duplicate not forwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply 200 accepted": {
+      "main": [
+        [
+          {
+            "node": "Forward to the CRM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to the CRM?": {
+      "main": [
+        [
+          {
+            "node": "Post the lead to the CRM webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - lead not forwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

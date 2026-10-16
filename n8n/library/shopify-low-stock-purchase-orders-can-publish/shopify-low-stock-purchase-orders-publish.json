@@ -1,0 +1,757 @@
+{
+  "name": "Draft purchase orders in Google Sheets for low Shopify stock",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Draft purchase orders in Google Sheets for low Shopify stock\n\n**Who's it for**\nShopify store owners who reorder from a handful of suppliers and currently eyeball the inventory page every Monday. It writes the draft PO; you still decide whether to send it.\n\n**How it works**\n1. Every weekday at 07:30 it reads products, the last 28 days of orders and unit costs from Shopify, or a 9-variant sample until Shopify is connected.\n2. For each tracked variant: daily sales = units sold / 28; reorder point = daily sales x supplier lead time + 7 days of safety stock.\n3. Below the reorder point it orders enough to cover lead time plus 30 days, rounded up to the case pack and at least the supplier MOQ.\n4. Lines are grouped into one PO per supplier. A supplier under its minimum order value is held, and a SKU already on an open draft is skipped.\n5. New lines are appended to the PO lines tab as status draft.\n\n**How to set up**\n1. Run it once as imported. It drafts POs from the sample and stops at `STOP: dry run - sheet untouched`.\n2. Add a Shopify access token credential to the three Shopify nodes, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Fill `SUPPLIERS` with each vendor name as it appears in Shopify, plus lead time, case pack, MOQ and minimum order value.\n4. Create a sheet with a PO lines tab and put its id in `PO_SHEET_ID`, then set `DRY_RUN = false`.\n\n**Requirements**\n- A Shopify store with inventory tracking on\n- A custom app access token with read_products, read_orders and read_inventory\n- A Google Sheet\n\n**How to customize**\n- `SAFETY_DAYS` and `COVER_DAYS` set how much buffer and how many days each order covers.\n- `SALES_WINDOW_DAYS` changes how far back sales are averaged.\n- `SKIP_TAGS` keeps discontinued products out of every PO.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "9020a12c-5717-4c4e-9a00-9020a12c13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 07:30, before suppliers open. Lead times, case packs, MOQs and minimum order values live per supplier in `config`, so a new supplier is one entry.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "620ee861-5717-4c4e-9a00-620ee8611000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read stock, sales and cost\n\nThree read-only Shopify calls: products for stock, orders for the last `SALES_WINDOW_DAYS`, and inventory items for unit cost. Cancelled orders are ignored so a refunded rush does not inflate demand.",
+        "height": 528,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "610ee6ce-5717-4c4e-9a00-610ee6ce1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check open POs and compute\n\nOpen draft and ordered lines are read first, so a SKU drafted on Monday is not drafted again on Tuesday. Every skipped variant keeps its reason, from untracked stock to above reorder point.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        0
+      ],
+      "id": "600ee53b-5717-4c4e-9a00-600ee53b1002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Draft and write\n\nA supplier below its minimum order value is held whole rather than sent a partial PO. `Write to the sheet?` needs both a live run and a sheet id; the summary is built either way.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        0
+      ],
+      "id": "5f0ee3a8-5717-4c4e-9a00-5f0ee3a81003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "d691a47d-ae4c-4f6d-a8e5-08e5ecd8d691",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// DRAFT PURCHASE ORDERS IN GOOGLE SHEETS FOR LOW SHOPIFY STOCK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE stock and sales. PO_SHEET_ID blank -> SAMPLE open PO lines.\n// DRY_RUN true -> POs are drafted and shown, nothing is written.\n\n// set true after adding the Shopify credential to the three Shopify nodes\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// days of orders used to average daily sales\nconst SALES_WINDOW_DAYS = 28;\n// days of average sales kept as safety stock\nconst SAFETY_DAYS = 7;\n// each order covers lead time plus this many days\nconst COVER_DAYS = 30;\n// Shopify vendor name -> lead time (days), case pack, minimum units per line, minimum order value\nconst SUPPLIERS = {\n  \"Kiln & Co\": {\n    lead_time_days: 21,\n    case_pack: 12,\n    moq: 24,\n    min_order_value: 0,\n    email: \"orders@kilnco.example\"\n  },\n  Brewline: {\n    lead_time_days: 14,\n    case_pack: 6,\n    moq: 6,\n    min_order_value: 200,\n    email: \"trade@brewline.example\"\n  },\n  \"Weave Studio\": {\n    lead_time_days: 10,\n    case_pack: 5,\n    moq: 10,\n    min_order_value: 300,\n    email: \"hello@weavestudio.example\"\n  }\n};\n// used for vendors not listed above\nconst DEFAULT_SUPPLIER = {\n  lead_time_days: 14,\n  case_pack: 1,\n  moq: 1,\n  min_order_value: 0,\n  email: \"\"\n};\n// product tags that are never reordered\nconst SKIP_TAGS = [\n  \"discontinued\",\n  \"made-to-order\"\n];\n// a SKU on a draft or ordered line newer than this is not drafted again\nconst OPEN_PO_DAYS = 30;\n// Google Sheets id with a PO lines tab; blank uses sample open lines and writes nothing\nconst PO_SHEET_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    sales_window_days: SALES_WINDOW_DAYS,\n    safety_days: SAFETY_DAYS,\n    cover_days: COVER_DAYS,\n    suppliers: SUPPLIERS,\n    default_supplier: DEFAULT_SUPPLIER,\n    skip_tags: SKIP_TAGS,\n    open_po_days: OPEN_PO_DAYS,\n    po_sheet_id: PO_SHEET_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: PO_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "a3894f65-5d29-41d5-a213-1213fd90a389",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "57330e8f-cee7-47df-af61-cf61b2965733",
+      "name": "Every weekday at 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "50b8286d-cfda-485d-a96f-b96fbc4850b8",
+      "name": "Sample mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b0b4d85-0807-45f5-a03b-203b1f705b0b",
+              "leftValue": "={{ !$('config').first().json.use_shopify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "eb7086e0-32ad-40e0-a579-95792823eb70",
+      "name": "Load sample stock and sales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_SHOPIFY is true. Nine variants: four to reorder, one held by a\n// supplier minimum, and one of each skip reason.\nreturn [{ json: { window_days: 28, variants: [\n  { sku: 'MUG-12', title: 'Speckled mug 12oz', vendor: 'Kiln & Co', tags: [], tracked: true, on_hand: 14, sold: 84, unit_cost: 4.2 },\n  { sku: 'MUG-16', title: 'Speckled mug 16oz', vendor: 'Kiln & Co', tags: [], tracked: true, on_hand: 120, sold: 56, unit_cost: 4.8 },\n  { sku: 'CST-4', title: 'Stoneware coaster set', vendor: 'Kiln & Co', tags: [], tracked: true, on_hand: 4, sold: 28, unit_cost: 6.5 },\n  { sku: 'KTL-1', title: 'Pour-over kettle', vendor: 'Brewline', tags: [], tracked: true, on_hand: 3, sold: 21, unit_cost: 22 },\n  { sku: 'FLT-100', title: 'Paper filters x100', vendor: 'Brewline', tags: [], tracked: true, on_hand: 40, sold: 84, unit_cost: 1.9 },\n  { sku: 'GRN-2', title: 'Hand grinder', vendor: 'Brewline', tags: [], tracked: true, on_hand: 5, sold: 14, unit_cost: 31 },\n  { sku: 'APR-L', title: 'Linen apron', vendor: 'Weave Studio', tags: [], tracked: true, on_hand: 1, sold: 14, unit_cost: 9 },\n  { sku: 'TOTE-1', title: 'Canvas tote', vendor: 'Canvas Lab', tags: [], tracked: true, on_hand: 2, sold: 0, unit_cost: 3 },\n  { sku: 'GIFT-25', title: 'Gift card', vendor: 'Store', tags: [], tracked: false, on_hand: 0, sold: 9, unit_cost: 0 },\n] } }];\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "8ce6d5cc-5d7b-4e0c-a41c-541ce51f8ce6",
+      "name": "Fetch products and variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/products.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "status",
+              "value": "active"
+            },
+            {
+              "name": "fields",
+              "value": "id,title,vendor,tags,variants"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "e13df73e-6806-4fde-a3a8-e3a820bde13d",
+      "name": "Fetch orders in the sales window",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/orders.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "any"
+            },
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "fields",
+              "value": "id,created_at,cancelled_at,line_items"
+            },
+            {
+              "name": "created_at_min",
+              "value": "={{ new Date(Date.now() - $('config').first().json.sales_window_days * 864e5).toISOString() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "1519e73b-ece0-42cb-a60a-660a8b621519",
+      "name": "Fetch unit costs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://' + $('config').first().json.shop_domain + '/admin/api/2024-10/inventory_items.json' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "={{ $('Fetch products and variants').first().json.products.flatMap(p => p.variants.map(v => v.inventory_item_id)).slice(0, 100).join(',') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        1168,
+        384
+      ]
+    },
+    {
+      "id": "cd0c4e9a-85bf-427a-a6ba-36ba2639cd0c",
+      "name": "Read Shopify stock and sales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Units sold per variant from non-cancelled orders, joined to stock and cost.\n// One page of each list (250 products, 250 orders); larger stores should page.\nconst cfg = $('config').first().json;\nconst products = $('Fetch products and variants').first().json.products || [];\nconst orders = $('Fetch orders in the sales window').first().json.orders || [];\nconst costs = Object.fromEntries(($input.first().json.inventory_items || []).map(i => [i.id, Number(i.cost || 0)]));\nconst sold = {};\nfor (const o of orders) if (!o.cancelled_at) for (const li of o.line_items || []) sold[li.variant_id] = (sold[li.variant_id] || 0) + li.quantity;\nconst variants = [];\nfor (const p of products) for (const v of p.variants || []) variants.push({\n  sku: v.sku || String(v.id), title: p.title + (v.title && v.title !== 'Default Title' ? ' - ' + v.title : ''), vendor: p.vendor || '',\n  tags: String(p.tags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean),\n  tracked: v.inventory_management === 'shopify', on_hand: Number(v.inventory_quantity || 0), sold: sold[v.id] || 0,\n  unit_cost: costs[v.inventory_item_id] || 0,\n});\nreturn [{ json: { window_days: cfg.sales_window_days, variants } }];\n"
+      },
+      "position": [
+        1392,
+        384
+      ]
+    },
+    {
+      "id": "1aa535c4-07bf-4084-a015-301553671aa5",
+      "name": "Combine stock sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1616,
+        208
+      ]
+    },
+    {
+      "id": "91b60296-e84a-4fb6-af5f-9f5f57a591b6",
+      "name": "PO sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "285e97e0-804f-41e0-a3e0-63e06123285e",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "id": "f1d88da9-4efd-42d9-a3e1-53e190e4f1d8",
+      "name": "Read open PO lines",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.po_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "PO lines"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "id": "5a9a2545-1804-41b5-afb1-0fb160b05a9a",
+      "name": "Load sample open PO lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until PO_SHEET_ID is set. The grinder is already on a draft from 6 days ago.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [\n  { po_number: 'PO-SAMPLE-BREW', supplier: 'Brewline', sku: 'GRN-2', order_qty: 12, status: 'draft', created_at: day(6) },\n  { po_number: 'PO-OLD-KILN', supplier: 'Kiln & Co', sku: 'MUG-12', order_qty: 96, status: 'received', created_at: day(40) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        2080,
+        384
+      ]
+    },
+    {
+      "id": "c9948f93-2a28-4fa3-a1e0-41e09f4ac994",
+      "name": "Combine open PO sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2304,
+        208
+      ]
+    },
+    {
+      "id": "be75e42e-d23e-41ce-a6b8-96b85d2dbe75",
+      "name": "Work out reorder quantities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// reorder point = daily sales x lead time + daily sales x SAFETY_DAYS.\n// order = daily sales x (lead time + COVER_DAYS) + safety - on hand,\n// rounded up to the case pack and never below the supplier MOQ.\nconst cfg = $('config').first().json;\nconst { variants, window_days } = $('Combine stock sources').first().json;\nconst cutoff = new Date(Date.now() - cfg.open_po_days * 864e5).toISOString().slice(0, 10);\nconst open = {};\nfor (const { json: r } of $input.all()) {\n  if (!r.sku || !['draft', 'ordered'].includes(String(r.status || '').toLowerCase())) continue;\n  if (String(r.created_at || '').slice(0, 10) >= cutoff) open[r.sku] = r.po_number;\n}\nconst lines = [], skipped = [];\nfor (const v of variants) {\n  const sup = cfg.suppliers[v.vendor] || cfg.default_supplier;\n  const daily = v.sold / window_days;\n  const safety = Math.ceil(daily * cfg.safety_days);\n  const rp = Math.ceil(daily * sup.lead_time_days) + safety;\n  const reason =\n    !v.tracked ? 'stock not tracked' :\n    v.tags.some(t => cfg.skip_tags.includes(t)) ? 'tagged ' + v.tags.find(t => cfg.skip_tags.includes(t)) :\n    v.sold === 0 ? 'no sales in ' + window_days + ' days' :\n    v.on_hand > rp ? 'above reorder point (' + v.on_hand + ' > ' + rp + ')' :\n    open[v.sku] ? 'already on ' + open[v.sku] : '';\n  if (reason) { skipped.push({ sku: v.sku, reason }); continue; }\n  const need = Math.ceil(daily * (sup.lead_time_days + cfg.cover_days)) + safety - v.on_hand;\n  const qty = Math.max(sup.moq, Math.ceil(need / sup.case_pack) * sup.case_pack);\n  lines.push({ sku: v.sku, title: v.title, supplier: v.vendor, on_hand: v.on_hand, daily_sales: Math.round(daily * 100) / 100,\n    reorder_point: rp, order_qty: qty, unit_cost: v.unit_cost, line_total: Math.round(qty * v.unit_cost * 100) / 100 });\n}\nreturn [{ json: { lines, skipped } }];\n"
+      },
+      "position": [
+        2528,
+        208
+      ]
+    },
+    {
+      "id": "83a17a80-a70c-4280-aaf6-faf68f8383a1",
+      "name": "Draft one PO per supplier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Group lines by supplier and number each PO. A supplier whose total is below its\n// min_order_value is held back whole: topping it up is a human decision.\nconst cfg = $('config').first().json;\nconst { lines, skipped } = $input.first().json;\nconst date = new Date().toISOString().slice(0, 10);\nconst bySup = {};\nfor (const l of lines) (bySup[l.supplier] ||= []).push(l);\nconst pos = [], held = [];\nfor (const [supplier, ls] of Object.entries(bySup)) {\n  const sup = cfg.suppliers[supplier] || cfg.default_supplier;\n  const total = Math.round(ls.reduce((s, l) => s + l.line_total, 0) * 100) / 100;\n  const code = supplier.toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 6);\n  if (total < sup.min_order_value) { held.push({ supplier, total, reason: 'below minimum order value ' + sup.min_order_value, skus: ls.map(l => l.sku) }); continue; }\n  pos.push({ po_number: 'PO-' + date.replace(/-/g, '') + '-' + code, supplier, email: sup.email, total, lines: ls });\n}\nconst rows = pos.flatMap(po => po.lines.map(l => ({ po_number: po.po_number, supplier: po.supplier, supplier_email: po.email, sku: l.sku, title: l.title,\n  on_hand: l.on_hand, daily_sales: l.daily_sales, reorder_point: l.reorder_point, order_qty: l.order_qty, unit_cost: l.unit_cost,\n  line_total: l.line_total, status: 'draft', created_at: date, mode: cfg.mode })));\nreturn [{ json: { pos, held, skipped, rows } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    },
+    {
+      "id": "effddcb6-aaf1-4fd6-ae4b-fe4b0485effd",
+      "name": "Summarise the drafts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Readable result for the execution log, in every mode.\nconst d = $input.first().json;\nconst text = [\n  d.pos.length + ' draft PO(s), ' + d.rows.length + ' lines',\n  ...d.pos.map(p => '- ' + p.po_number + ' ' + p.supplier + ': ' + p.lines.length + ' lines, ' + p.total.toFixed(2)),\n  ...d.held.map(h => '- held ' + h.supplier + ' (' + h.total.toFixed(2) + '): ' + h.reason),\n  ...d.skipped.map(s => '- skip ' + s.sku + ': ' + s.reason),\n].join('\\n');\nreturn [{ json: { text } }];\n"
+      },
+      "position": [
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "f1077909-bd4e-4039-a159-21595984f107",
+      "name": "Split into PO lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per sheet row.\nreturn $input.first().json.rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        2992,
+        208
+      ]
+    },
+    {
+      "id": "85661e24-3195-4ae4-a465-646575078566",
+      "name": "Write to the sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ffccb7ae-79be-4d4e-a277-6277a8adffcc",
+              "leftValue": "={{ $('config').first().json.live && $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3216,
+        208
+      ]
+    },
+    {
+      "id": "f4c6511c-ae78-405c-a1fd-41fd336ff4c6",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3440,
+        384
+      ]
+    },
+    {
+      "id": "49d50b10-fef7-4610-a2da-e2dac09349d5",
+      "name": "Append PO draft lines",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.po_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "PO lines"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3440,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 07:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Sample mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample mode?": {
+      "main": [
+        [
+          {
+            "node": "Load sample stock and sales",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch products and variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch products and variants": {
+      "main": [
+        [
+          {
+            "node": "Fetch orders in the sales window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch orders in the sales window": {
+      "main": [
+        [
+          {
+            "node": "Fetch unit costs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch unit costs": {
+      "main": [
+        [
+          {
+            "node": "Read Shopify stock and sales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample stock and sales": {
+      "main": [
+        [
+          {
+            "node": "Combine stock sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Shopify stock and sales": {
+      "main": [
+        [
+          {
+            "node": "Combine stock sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine stock sources": {
+      "main": [
+        [
+          {
+            "node": "PO sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read open PO lines",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample open PO lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read open PO lines": {
+      "main": [
+        [
+          {
+            "node": "Combine open PO sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample open PO lines": {
+      "main": [
+        [
+          {
+            "node": "Combine open PO sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine open PO sources": {
+      "main": [
+        [
+          {
+            "node": "Work out reorder quantities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out reorder quantities": {
+      "main": [
+        [
+          {
+            "node": "Draft one PO per supplier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft one PO per supplier": {
+      "main": [
+        [
+          {
+            "node": "Split into PO lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into PO lines": {
+      "main": [
+        [
+          {
+            "node": "Write to the sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write to the sheet?": {
+      "main": [
+        [
+          {
+            "node": "Append PO draft lines",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

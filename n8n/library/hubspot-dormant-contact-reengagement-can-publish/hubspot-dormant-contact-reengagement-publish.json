@@ -1,0 +1,681 @@
+{
+  "name": "Re-engage dormant HubSpot contacts with a three-touch Gmail sequence",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Re-engage dormant HubSpot contacts with a three-touch Gmail sequence\n\n**Who's it for**\nSmall sales and marketing teams with a HubSpot database full of leads nobody has spoken to in months. It works through them a few at a time from your own Gmail, so replies come back to a person, not a marketing tool.\n\n**How it works**\n1. Every weekday at 09:30 it searches HubSpot for contacts in the chosen lifecycle stages with no activity for `DORMANT_DAYS`, or uses sample contacts until HubSpot is connected.\n2. The touch already sent, its date and the sequence status are read from three custom contact properties. Touch 2 waits 5 days after touch 1, touch 3 waits 7 days after touch 2.\n3. A reply since the sequence started, or an email opt-out, closes the sequence at once. Fourteen days after touch 3 it is marked completed.\n4. Up to `DAILY_CAP` emails go out through Gmail. On a live run each send updates the touch properties and each closed sequence gets its final status.\n\n**How to set up**\n1. Run it once as imported. It plans sample touches and stops at `STOP: preview - nothing sent` and `STOP: not live - statuses unchanged`.\n2. In HubSpot create contact properties reengage_touch (number), reengage_started and reengage_last_sent (date), and reengage_status (single-line text).\n3. Add a HubSpot private app credential to the three HubSpot nodes, set `USE_HUBSPOT = true`, and connect Gmail.\n4. Put your address in `TEST_EMAIL` to receive the touches yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A HubSpot account with a private app (contacts read and write)\n- A Gmail account\n\n**How to customize**\n- `TOUCHES` holds the gap, subject and body of each email.\n- `LIFECYCLE_STAGES` and `DORMANT_DAYS` decide who enters the sequence.\n- `DAILY_CAP` keeps sending volume low enough for a personal mailbox.",
+        "height": 1056,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "587214f4-5717-4c4e-9a00-587214f413e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nWeekday mornings only, so touches never land on a weekend. The three emails, gaps and the daily cap live in `config`.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c8797eb9-5717-4c4e-9a00-c8797eb91000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Find dormant contacts\n\nHubSpot filters by lifecycle stage and last activity, and `Plan the next touch` checks lifecycle again in case a contact moved stage. `Load sample contacts` stands in until `USE_HUBSPOT` is true.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "c7797d26-5717-4c4e-9a00-c7797d261001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Plan touches and close sequences\n\nReplies and opt-outs are checked before any send, so nobody who answered gets another email. Closed sequences are written back only on a live run.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "c6797b93-5717-4c4e-9a00-c6797b931002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and record the touch\n\nA test send goes to `TEST_EMAIL` and leaves the contact unchanged, so the real touch still goes later. The touch number is written after the email, never before.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "c5797a00-5717-4c4e-9a00-c5797a001003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "cd875ffe-7a8a-4c9e-a137-d1373afdcd87",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// RE-ENGAGE DORMANT HUBSPOT CONTACTS WITH A THREE-TOUCH GMAIL SEQUENCE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_HUBSPOT false -> SAMPLE contacts so the run works before any credential exists.\n// Sequence state lives on the contact (reengage_* properties), so it survives re-imports.\n\n// set true after adding the HubSpot credential and creating the reengage_* properties\nconst USE_HUBSPOT = false;\n// no activity for this many days makes a contact dormant\nconst DORMANT_DAYS = 120;\n// HubSpot lifecycle stage ids that may enter the sequence\nconst LIFECYCLE_STAGES = [\n  \"lead\",\n  \"marketingqualifiedlead\",\n  \"salesqualifiedlead\"\n];\n// gap_days = days after the previous touch; {first_name} {company} {topic} are filled in\nconst TOUCHES = [\n  {\n    gap_days: 0,\n    subject: \"Still looking at {topic}, {first_name}?\",\n    body: \"Hi {first_name},\\n\\nWe last spoke a while ago about {topic} at {company}. Is that still on your list this quarter? If so, I can send over what has changed since then.\"\n  },\n  {\n    gap_days: 5,\n    subject: \"A 2-minute overview for {company}\",\n    body: \"Hi {first_name},\\n\\nIn case it is useful, here is a 2-minute overview of how teams handle {topic} with us now: https://www.yourcompany.example/overview. Happy to walk you through it in 20 minutes.\"\n  },\n  {\n    gap_days: 7,\n    subject: \"Should I close your file?\",\n    body: \"Hi {first_name},\\n\\nI have not heard back, so I will assume the timing is not right and stop emailing. If that changes, just reply to this email.\"\n  }\n];\n// used for {topic} when the contact has no interest recorded\nconst DEFAULT_TOPIC = 'scheduling';\n// days after the last touch before the sequence is marked completed\nconst COMPLETE_AFTER_DAYS = 14;\n// hard ceiling on emails per run\nconst DAILY_CAP = 25;\n// sign-off on every touch\nconst SENDER_NAME = 'Maya Ortiz';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_hubspot: USE_HUBSPOT,\n    dormant_days: DORMANT_DAYS,\n    lifecycle_stages: LIFECYCLE_STAGES,\n    touches: TOUCHES,\n    default_topic: DEFAULT_TOPIC,\n    complete_after_days: COMPLETE_AFTER_DAYS,\n    daily_cap: DAILY_CAP,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "1e0661da-587f-41ba-a76f-076f0af91e06",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "5b56dce6-9ee1-4106-a009-900975b55b56",
+      "name": "Every weekday at 09:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "b3926fe1-4677-4391-a37d-937d7aecb392",
+      "name": "Use sample contacts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5d460764-e565-4024-a01d-301d13c75d46",
+              "leftValue": "={{ !$('config').first().json.use_hubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "f7a85523-b025-4833-a09f-309fdf1af7a8",
+      "name": "Load sample contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_HUBSPOT is true. One contact for every branch of the sequence logic.\nconst ago = n => n === null ? '' : new Date(Date.now() - n * 864e5).toISOString();\nconst c = (id, first, company, touch, lastSent, extra = {}) => ({ id, email: first.toLowerCase() + '@' + company.toLowerCase().replace(/\\s+/g, '') + '.example', first_name: first, company,\n  lifecycle: 'lead', last_activity: ago(200), optout: false, last_reply: '', touch, started: touch ? ago(lastSent + 12) : '', last_sent: ago(touch ? lastSent : null), status: touch ? 'in sequence' : '', topic: '', ...extra });\nreturn [\n  c('1', 'Amy', 'Harbour Dental', 0, null),\n  c('2', 'Bo', 'Northfield', 1, 6),\n  c('3', 'Cy', 'Lumen Physio', 2, 3),\n  c('4', 'Di', 'Orchard Lane', 2, 8, { topic: 'online booking' }),\n  c('5', 'Ed', 'Quarry Labs', 3, 15),\n  c('6', 'Flo', 'Tallow', 1, 4, { last_reply: ago(2) }),\n  c('7', 'Gil', 'Driftwood', 1, 3, { optout: true }),\n  c('8', 'Hal', 'Beacon', 2, 30, { status: 'replied' }),\n  c('9', 'Ivy', 'Pinecrest', 0, null, { lifecycle: 'customer' }),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "435ab0aa-4fba-4f8a-a705-47050e89435a",
+      "name": "Search dormant contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [\n        { propertyName: 'lifecyclestage', operator: 'IN', values: $('config').first().json.lifecycle_stages },\n        { propertyName: 'notes_last_updated', operator: 'LT', value: String(Date.now() - $('config').first().json.dormant_days * 864e5) } ] }],\n        properties: ['email', 'firstname', 'company', 'lifecyclestage', 'notes_last_updated', 'hs_email_optout', 'hs_email_last_reply_date', 'reengage_touch', 'reengage_started', 'reengage_last_sent', 'reengage_status'],\n        sorts: [{ propertyName: 'notes_last_updated', direction: 'ASCENDING' }], limit: 100 }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "ace62f24-b02a-4be4-a99c-899cee07ace6",
+      "name": "Read HubSpot contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Search response -> the sample shape.\nconst out = [];\nfor (const page of $input.all()) for (const r of page.json.results || []) {\n  const p = r.properties || {};\n  out.push({ json: { id: r.id, email: (p.email || '').toLowerCase(), first_name: p.firstname || '', company: p.company || '', lifecycle: p.lifecyclestage || '',\n    last_activity: p.notes_last_updated || '', optout: p.hs_email_optout === 'true', last_reply: p.hs_email_last_reply_date || '',\n    touch: Number(p.reengage_touch || 0), started: p.reengage_started || '', last_sent: p.reengage_last_sent || '', status: p.reengage_status || '', topic: '' } });\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "cd45e103-264f-4e13-a71a-b71a6c3acd45",
+      "name": "Combine contact sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "1771c152-1ea4-4bb2-af93-4f9394c11771",
+      "name": "Plan the next touch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Order of checks matters: a finished sequence is left alone, then an opt-out or a\n// reply closes it, then the next touch is sent only once its gap has passed.\nconst cfg = $('config').first().json;\nconst days = d => d ? Math.floor((Date.now() - new Date(d).getTime()) / 864e5) : Infinity;\nconst sends = [], closes = [], waiting = [], skipped = [];\nfor (const { json: c } of $input.all()) {\n  if (!cfg.lifecycle_stages.includes(c.lifecycle)) { skipped.push({ id: c.id, reason: 'lifecycle ' + c.lifecycle + ' not targeted' }); continue; }\n  if (['replied', 'unsubscribed', 'completed'].includes(c.status)) { skipped.push({ id: c.id, reason: 'sequence already ' + c.status }); continue; }\n  if (!c.email) { skipped.push({ id: c.id, reason: 'no email' }); continue; }\n  if (c.optout) { if (c.touch > 0) closes.push({ id: c.id, email: c.email, status: 'unsubscribed' }); else skipped.push({ id: c.id, reason: 'opted out' }); continue; }\n  if (c.touch > 0 && c.last_reply && c.started && new Date(c.last_reply) > new Date(c.started)) { closes.push({ id: c.id, email: c.email, status: 'replied' }); continue; }\n  if (c.touch >= cfg.touches.length) {\n    if (days(c.last_sent) >= cfg.complete_after_days) closes.push({ id: c.id, email: c.email, status: 'completed' });\n    else waiting.push({ id: c.id, reason: 'after last touch' });\n    continue;\n  }\n  const next = cfg.touches[c.touch];\n  if (c.touch > 0 && days(c.last_sent) < next.gap_days) { waiting.push({ id: c.id, reason: 'touch ' + (c.touch + 1) + ' due in ' + (next.gap_days - days(c.last_sent)) + ' days' }); continue; }\n  sends.push({ ...c, next_touch: c.touch + 1 });\n}\nfor (const s of sends.splice(cfg.daily_cap)) waiting.push({ id: s.id, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { sends, closes, waiting, skipped } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "3140fe87-c73e-4a57-a169-716910de3140",
+      "name": "Write each touch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Templates from TOUCHES with the contact's own details; missing values get neutral words.\nconst cfg = $('config').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst fill = (s, c) => s.replace(/{first_name}/g, c.first_name || 'there').replace(/{company}/g, c.company || 'your team').replace(/{topic}/g, c.topic || cfg.default_topic);\nreturn $input.first().json.sends.map(c => {\n  const t = cfg.touches[c.next_touch - 1];\n  return { json: { ...c, subject: fill(t.subject, c), body: fill(t.body, c) + '\\n\\n' + cfg.sender_name,\n    props: { reengage_touch: String(c.next_touch), reengage_last_sent: today, reengage_status: 'in sequence', ...(c.next_touch === 1 ? { reengage_started: today } : {}) },\n    send_to: cfg.mode === 'test' ? cfg.test_email : c.email } };\n});\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "a8b816a5-5d6e-4515-a745-b7457350a8b8",
+      "name": "One item per closed sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Replies, opt-outs and finished sequences each get their final status written back.\nreturn $input.first().json.closes.map(c => ({ json: c }));\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "1dadac19-02ca-4e49-a79f-d79f59141dad",
+      "name": "Status writes switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c3a71cbc-7783-49fc-acdd-2cddf9cfc3a7",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "a3f22683-eec5-4b93-a981-698111baa3f2",
+      "name": "STOP: not live - statuses unchanged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        512
+      ]
+    },
+    {
+      "id": "ff04634c-a24b-438c-a592-3592c29fff04",
+      "name": "Close the sequence in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.hubapi.com/crm/v3/objects/contacts/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: { reengage_status: $json.status } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "a67ec405-3b5e-4475-aec1-9ec1a9f0a67e",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "d46ea1ce-123a-4d6e-a0c0-f0c0b58dd46e",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "f7e279ac-bb0c-4bec-a217-d2172a3ff7e2",
+      "name": "Email the touch",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "e03f9e30-ba11-4f30-ae13-8e138a73e03f",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "e7250a7b-7cfd-420b-ad49-bd49dc22e725",
+      "name": "STOP: test send - HubSpot untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3008,
+        352
+      ]
+    },
+    {
+      "id": "86e9774d-c859-413d-a933-7933706886e9",
+      "name": "Record the touch on the contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.hubapi.com/crm/v3/objects/contacts/' + $('Write each touch').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: $('Write each touch').item.json.props }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3008,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample contacts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample contacts?": {
+      "main": [
+        [
+          {
+            "node": "Load sample contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search dormant contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search dormant contacts": {
+      "main": [
+        [
+          {
+            "node": "Read HubSpot contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read HubSpot contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine contact sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine contact sources": {
+      "main": [
+        [
+          {
+            "node": "Plan the next touch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan the next touch": {
+      "main": [
+        [
+          {
+            "node": "Write each touch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "One item per closed sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per closed sequence": {
+      "main": [
+        [
+          {
+            "node": "Status writes switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status writes switched on?": {
+      "main": [
+        [
+          {
+            "node": "Close the sequence in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not live - statuses unchanged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each touch": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the touch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the touch": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record the touch on the contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - HubSpot untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

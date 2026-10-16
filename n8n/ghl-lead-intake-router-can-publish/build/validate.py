@@ -91,7 +91,9 @@ check(a == b, 'the two config nodes are identical')
 
 js = a
 check(re.search(r'const DRY_RUN\s*=\s*true', js) is not None, 'DRY_RUN ships true (ships in preview)')
-for name in ('GHL_LOCATION_ID', 'GHL_API_KEY', 'GHL_PIPELINE_ID'):
+check(re.search(r'const GHL_CREDENTIAL_ADDED\s*=\s*false', js) is not None, 'GHL_CREDENTIAL_ADDED ships false')
+check('ghl_api_key' not in js, 'no API key is read from config')
+for name in ('GHL_LOCATION_ID', 'GHL_PIPELINE_ID'):
     m = re.search(r"const " + name + r"\s*=\s*'([^']*)'", js)
     check(bool(m) and m.group(1) == '', name + ' ships blank')
 check(re.search(r'const MAX_TOUCHES\s*=\s*(\d+)', js) is not None, 'the touch cap is a number in code')

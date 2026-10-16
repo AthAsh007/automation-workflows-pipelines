@@ -1,0 +1,885 @@
+{
+  "name": "Track PageSpeed Insights scores in Google Sheets and alert on drops",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Track PageSpeed Insights scores in Google Sheets and alert on drops\n\n**Who's it for**\nDevelopers and marketers who own a site's speed and only notice a slow release when rankings or conversions drop. One Lighthouse run is noisy, so drops are measured against a rolling median instead of yesterday.\n\n**How it works**\n1. Every day at 06:00 it runs PageSpeed Insights for each URL in `PAGES` on mobile and desktop, or uses sample results until it is switched on.\n2. The last 7 results per page and device are read from the Scores tab and their median becomes the baseline.\n3. A score 10+ points under the median, an LCP 25% and 300 ms over it, or CLS crossing 0.1 is a drop. Pages with fewer than 3 past runs are still building a baseline.\n4. Drops are posted to Slack with before and after numbers, and every result is appended to the Scores tab.\n\n**How to set up**\n1. Run it once as imported. It compares sample results and stops at `STOP: preview - nothing posted` and `STOP: test run - history not written`.\n2. List your pages in `PAGES` and set `USE_LIVE_PSI = true`. Add a free API key to `PSI_API_KEY` if you test more than a few pages.\n3. Connect Google Sheets, create a Scores tab with date, url, strategy, score, lcp_ms, cls and tbt_ms columns, and set `HISTORY_SHEET_ID`. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post alerts with a [TEST] prefix. Set `TEST_RUN = false` to post and record history.\n\n**Requirements**\n- Public pages to test\n- A Google Sheet for the history\n- A Slack workspace\n\n**How to customize**\n- `DROP_POINTS`, `LCP_RISE_PCT` and `CLS_LIMIT` set what counts as a drop.\n- `WINDOW` and `MIN_HISTORY` control the baseline.\n- `STRATEGIES` can be reduced to mobile only.",
+        "height": 1008,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "f5706cfd-5717-4c4e-9a00-f5706cfd13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every day at 06:00 or by hand. Pages, devices and every drop threshold are constants in `config`.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2e3a8240-5717-4c4e-9a00-2e3a82401000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Run PageSpeed Insights\n\nOne API call per page and device, which takes 10 to 30 seconds each. A failed Lighthouse run is passed on as an error and reported, so one broken page never hides the others.",
+        "height": 688,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "2f3a83d3-5717-4c4e-9a00-2f3a83d31001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read the history\n\nThe history lives in your own sheet, so the trend is visible outside n8n too. `Read the Lighthouse results` emits a single item so the sheet is read once, not once per page.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "303a8566-5717-4c4e-9a00-303a85661002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Compare and alert\n\nA median of 7 runs absorbs normal Lighthouse noise of a few points. Pages with under 3 runs stay quiet while the baseline builds. Alerts go out only when posting is on and a channel is set.",
+        "height": 688,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        0
+      ],
+      "id": "313a86f9-5717-4c4e-9a00-313a86f91003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Record today\n\nRows are appended only on a live run with a sheet set. Test runs never add rows, so they cannot shift tomorrow's median.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3392,
+        0
+      ],
+      "id": "323a888c-5717-4c4e-9a00-323a888c1004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "92bf409b-6711-4e2b-a31c-931cf60292bf",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// TRACK PAGESPEED INSIGHTS SCORES IN GOOGLE SHEETS AND ALERT ON DROPS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_PSI false -> SAMPLE Lighthouse results. HISTORY_SHEET_ID blank -> SAMPLE history.\n// SLACK_CHANNEL_ID blank -> alerts are built but not posted.\n\n// set true to call the PageSpeed Insights API (public)\nconst USE_LIVE_PSI = false;\n// optional Google API key for higher quota; blank works for a few pages a day\nconst PSI_API_KEY = '';\n// pages to test\nconst PAGES = [\n  \"https://www.yourcompany.example/\",\n  \"https://www.yourcompany.example/pricing\"\n];\n// devices to test each page on\nconst STRATEGIES = [\n  \"mobile\",\n  \"desktop\"\n];\n// Google Sheets id with a Scores tab; blank uses sample history\nconst HISTORY_SHEET_ID = '';\n// past runs per page and device used for the median\nconst WINDOW = 7;\n// past runs needed before a drop is reported\nconst MIN_HISTORY = 3;\n// score points under the median that count as a drop (0-100 scale)\nconst DROP_POINTS = 10;\n// LCP this many percent over the median (and 300 ms or more) is a drop\nconst LCP_RISE_PCT = 25;\n// CLS crossing this from below is a drop\nconst CLS_LIMIT = 0.1;\n// channel for alerts; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_psi: USE_LIVE_PSI,\n    psi_api_key: PSI_API_KEY,\n    pages: PAGES,\n    strategies: STRATEGIES,\n    history_sheet_id: HISTORY_SHEET_ID,\n    window: WINDOW,\n    min_history: MIN_HISTORY,\n    drop_points: DROP_POINTS,\n    lcp_rise_pct: LCP_RISE_PCT,\n    cls_limit: CLS_LIMIT,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheet_enabled: HISTORY_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "66449393-8dbf-43a3-ac6c-7c6ceb4a6644",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "5ac8043f-19d5-468f-ad40-3d40fb865ac8",
+      "name": "Every day at 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "249dd311-c088-47c1-a57e-657e0a5c249d",
+      "name": "Use sample results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1a1d35f-6934-4baf-a265-72654d66c1a1",
+              "leftValue": "={{ $('config').first().json.use_live_psi }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "f975bec5-b3e7-4335-af32-5f322230f975",
+      "name": "Load sample PageSpeed results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_PSI is true. The parts of a runPagespeed response this\n// workflow reads: home on mobile has regressed, pricing on mobile has a slow LCP.\nconst r = (url, ff, score, lcp, cls, tbt) => ({ id: url, analysisUTCTimestamp: new Date().toISOString(), lighthouseResult: { requestedUrl: url, finalUrl: url,\n  configSettings: { formFactor: ff }, categories: { performance: { score } }, audits: {\n    'largest-contentful-paint': { numericValue: lcp }, 'cumulative-layout-shift': { numericValue: cls }, 'total-blocking-time': { numericValue: tbt } } } });\nconst home = 'https://www.yourcompany.example/', pricing = 'https://www.yourcompany.example/pricing';\nreturn [r(home, 'mobile', 0.62, 3900, 0.04, 610), r(home, 'desktop', 0.95, 1100, 0.01, 40), r(pricing, 'mobile', 0.78, 4100, 0.12, 280), r(pricing, 'desktop', 0.97, 900, 0.0, 20)].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "6f967256-e789-4376-ad84-6d84d0e56f96",
+      "name": "List pages to test",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per page and device.\nconst cfg = $('config').first().json;\nreturn cfg.pages.flatMap(url => cfg.strategies.map(strategy => ({ json: { url, strategy } })));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "d3e438f9-4b38-4529-aad0-7ad0a634d3e4",
+      "name": "Run PageSpeed Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed' + ($('config').first().json.psi_api_key ? '?key=' + $('config').first().json.psi_api_key : '') }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.url }}"
+            },
+            {
+              "name": "strategy",
+              "value": "={{ $json.strategy }}"
+            },
+            {
+              "name": "category",
+              "value": "performance"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "a62f1efd-fa95-41ed-ae79-ee795758a62f",
+      "name": "Combine result sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1168,
+        176
+      ]
+    },
+    {
+      "id": "20e1e5e0-24f6-4fe0-af02-1f02e32320e1",
+      "name": "Read the Lighthouse results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// PSI response -> one compact result per page and device, all in one item so the\n// history read below runs once. A failed run keeps its error for the alert.\nconst pairs = (() => { try { return $('List pages to test').all().map(i => i.json); } catch (e) { return []; } })();\nconst results = $input.all().map((it, i) => {\n  const j = it.json, lh = j.lighthouseResult;\n  if (!lh) return { url: pairs[i]?.url || '', strategy: pairs[i]?.strategy || '', error: String(j.error?.message || j.error || 'no Lighthouse result').slice(0, 140) };\n  const a = lh.audits || {};\n  return { url: lh.requestedUrl || j.id, strategy: lh.configSettings?.formFactor || pairs[i]?.strategy,\n    score: Math.round((lh.categories?.performance?.score ?? 0) * 100),\n    lcp_ms: Math.round(a['largest-contentful-paint']?.numericValue || 0), cls: Math.round((a['cumulative-layout-shift']?.numericValue || 0) * 1000) / 1000,\n    tbt_ms: Math.round(a['total-blocking-time']?.numericValue || 0) };\n});\nreturn [{ json: { results } }];\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "813d2aa1-cb07-4251-a958-2958082c813d",
+      "name": "History sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e28e287-2a57-4e57-ad56-bd567cde1e28",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "2ef2981f-f04a-446f-aab0-0ab090a62ef2",
+      "name": "Read score history",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.history_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Scores"
+        },
+        "options": {}
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "efddb4c9-87eb-4ff9-a046-5046d6c4efdd",
+      "name": "Load sample history",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until HISTORY_SHEET_ID is set: 7 days for three of the four pairs, one day\n// for pricing on desktop, which is still building its baseline.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst home = 'https://www.yourcompany.example/', pricing = 'https://www.yourcompany.example/pricing';\nconst rows = [];\n[80, 82, 79, 81, 83, 80, 81].forEach((s, i) => rows.push({ date: day(i + 1), url: home, strategy: 'mobile', score: s, lcp_ms: 2500 + i * 20, cls: 0.03, tbt_ms: 300 }));\n[96, 95, 97, 96, 96, 94, 96].forEach((s, i) => rows.push({ date: day(i + 1), url: home, strategy: 'desktop', score: s, lcp_ms: 1050, cls: 0.01, tbt_ms: 30 }));\n[80, 79, 81, 80, 82, 78, 80].forEach((s, i) => rows.push({ date: day(i + 1), url: pricing, strategy: 'mobile', score: s, lcp_ms: 2600, cls: 0.05, tbt_ms: 250 }));\nrows.push({ date: day(1), url: pricing, strategy: 'desktop', score: 98, lcp_ms: 880, cls: 0, tbt_ms: 10 });\nreturn rows.map(json => ({ json }));\n"
+      },
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "342428a8-904f-4428-ab10-bb102a1b3424",
+      "name": "Combine history sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "67d9e23c-6c77-477c-acec-dceccf4f67d9",
+      "name": "Compare with the rolling median",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Baseline = median of the last WINDOW runs per url + device (today excluded, so\n// a second run on the same day does not compare with itself).\nconst cfg = $('config').first().json;\nconst { results } = $('Read the Lighthouse results').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst hist = $input.all().map(i => i.json).filter(r => r.url && r.strategy && String(r.date).slice(0, 10) !== today);\nconst median = xs => { const s = [...xs].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };\nconst checks = results.map(r => {\n  if (r.error) return { ...r, verdict: 'failed', reasons: ['PageSpeed run failed: ' + r.error] };\n  const past = hist.filter(h => h.url === r.url && h.strategy === r.strategy).sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, cfg.window);\n  if (past.length < cfg.min_history) return { ...r, verdict: 'baseline', reasons: [], history: past.length };\n  const m = { score: median(past.map(p => Number(p.score))), lcp: median(past.map(p => Number(p.lcp_ms))), cls: median(past.map(p => Number(p.cls))) };\n  const reasons = [];\n  if (m.score - r.score >= cfg.drop_points) reasons.push('score ' + r.score + ' vs median ' + m.score);\n  if (r.lcp_ms > m.lcp * (1 + cfg.lcp_rise_pct / 100) && r.lcp_ms - m.lcp >= 300) reasons.push('LCP ' + (r.lcp_ms / 1000).toFixed(1) + 's vs median ' + (m.lcp / 1000).toFixed(1) + 's');\n  if (r.cls > cfg.cls_limit && m.cls <= cfg.cls_limit) reasons.push('CLS ' + r.cls + ' crossed ' + cfg.cls_limit + ' (median ' + m.cls + ')');\n  return { ...r, verdict: reasons.length ? 'drop' : 'steady', reasons, median: m, history: past.length };\n});\nconst rows = results.filter(r => !r.error).map(r => ({ date: today, url: r.url, strategy: r.strategy, score: r.score, lcp_ms: r.lcp_ms, cls: r.cls, tbt_ms: r.tbt_ms }));\nconst alerts = checks.filter(c => c.verdict === 'drop' || c.verdict === 'failed');\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*PageSpeed: ' + alerts.length + ' page' + (alerts.length === 1 ? '' : 's') + ' need a look*',\n  ...alerts.map(a => '- ' + a.url + ' (' + a.strategy + '): ' + a.reasons.join('; '))].join('\\n');\nreturn [{ json: { checks, rows, alert_count: alerts.length, text } }];\n"
+      },
+      "position": [
+        2320,
+        176
+      ]
+    },
+    {
+      "id": "d4d43aa5-e5e7-4915-a297-5297ff50d4d4",
+      "name": "One row per result",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "parameters": {
+        "fieldToSplitOut": "rows",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "0551b39f-048c-47ef-a525-852584260551",
+      "name": "Any drops to report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9e5f5f9-afc0-4229-a2bc-32bcc334a9e5",
+              "leftValue": "={{ $json.alert_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        352
+      ]
+    },
+    {
+      "id": "392d133a-c3b6-451a-a711-6711dd99392d",
+      "name": "STOP: no drops",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2752,
+        512
+      ]
+    },
+    {
+      "id": "d43c370c-6f3a-4b4c-ab7d-bb7d40dfd43c",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2752,
+        352
+      ]
+    },
+    {
+      "id": "8f91916a-bb26-444a-a487-648760c98f91",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2976,
+        512
+      ]
+    },
+    {
+      "id": "b7089105-d78a-4175-ab21-1b21c6f0b708",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        352
+      ]
+    },
+    {
+      "id": "42da6abb-cda3-4e4b-ac6f-7c6f92e242da",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        512
+      ]
+    },
+    {
+      "id": "fee7a92f-183c-407f-aa9a-fa9ab3f6fee7",
+      "name": "Post the alert to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3200,
+        352
+      ]
+    },
+    {
+      "id": "5eaf9932-3c8f-4d92-a7b1-37b145e15eaf",
+      "name": "Live and sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79aa084a-f060-452a-ae05-de0528e979aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7aaa09dd-b2b5-46cd-a609-a6099f787aaa",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3440,
+        176
+      ]
+    },
+    {
+      "id": "440ae4c7-2a6b-4c97-aa48-0a48789e440a",
+      "name": "STOP: test run - history not written",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3664,
+        352
+      ]
+    },
+    {
+      "id": "2aee0ff1-5ee8-4ea1-a4ec-c4ec377c2aee",
+      "name": "Append scores to the history sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.history_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Scores"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3664,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day at 06:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample results?": {
+      "main": [
+        [
+          {
+            "node": "Load sample PageSpeed results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List pages to test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List pages to test": {
+      "main": [
+        [
+          {
+            "node": "Run PageSpeed Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample PageSpeed results": {
+      "main": [
+        [
+          {
+            "node": "Combine result sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run PageSpeed Insights": {
+      "main": [
+        [
+          {
+            "node": "Combine result sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine result sources": {
+      "main": [
+        [
+          {
+            "node": "Read the Lighthouse results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Lighthouse results": {
+      "main": [
+        [
+          {
+            "node": "History sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "History sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read score history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read score history": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample history": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine history sources": {
+      "main": [
+        [
+          {
+            "node": "Compare with the rolling median",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare with the rolling median": {
+      "main": [
+        [
+          {
+            "node": "One row per result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Any drops to report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any drops to report?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no drops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One row per result": {
+      "main": [
+        [
+          {
+            "node": "Live and sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Append scores to the history sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test run - history not written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

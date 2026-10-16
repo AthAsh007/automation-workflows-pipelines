@@ -1,0 +1,791 @@
+{
+  "name": "Route tenant maintenance requests from a form to vendors by trade and urgency",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Route tenant maintenance requests from a form to vendors by trade and urgency\n\n**Who's it for**\nProperty managers and small landlords who get repair requests by text, email and phone and then forward each one to the right contractor by hand. Every request gets a ticket number, a vendor and a deadline within a minute.\n\n**How it works**\n1. A tenant fills in the form with their unit, area, category and a description. A manual run uses a sample gas-smell report.\n2. The description is checked for emergency phrases (gas, flood, burst pipe, no heat, sparks, sewage) and urgent ones (leak, no hot water, fridge). That sets the level and a deadline of 4 hours, 24 hours or 5 days.\n3. The category maps to a trade. Emergency phrases can override it, so a gas smell reported under Appliance still goes to a gas-safe heating engineer.\n4. The Vendors tab is filtered by trade and area. Emergencies only go to vendors marked for emergency call-outs, then the lowest Priority number wins. With no match, the property manager gets the job.\n5. The vendor gets a work order, the tenant gets a confirmation with the ticket id and deadline, the manager is copied on emergencies and the ticket is logged.\n\n**How to set up**\n1. Run it once as imported. It routes the sample request and stops at `STOP: preview - nothing sent`.\n2. Create Vendors (Vendor, Trade, Email, Areas, Emergency, Priority) and Tickets tabs, connect Google Sheets and set `MAINTENANCE_SHEET_ID`.\n3. Connect Gmail, set `MANAGER_EMAIL`, and edit the Area options on the form to your patches.\n4. Put your address in `TEST_EMAIL` to receive every email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Google Sheet with Vendors and Tickets tabs\n- A Gmail account\n\n**How to customize**\n- `EMERGENCY_PATTERNS` and `URGENT_PATTERNS` decide the level from the description.\n- `SLA_HOURS` sets the deadline for each level.\n- `CATEGORY_TRADES` and `KEYWORD_TRADES` map requests to the Trade column of your vendors.",
+        "height": 1152,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "7e4d935a-5717-4c4e-9a00-7e4d935a13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nTenants submit `Maintenance request form`; `Run manually` replays a sample gas report. Emergency phrases, deadlines and trade mappings all live in `config`, so the rules are readable in one place.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a761c0bf-5717-4c4e-9a00-a761c0bf1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the request\n\n`Read the request` lower-cases the email and keeps the description as typed, because the urgency rules read it word by word. A manual run uses `Load sample request`.",
+        "height": 560,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "a661bf2c-5717-4c4e-9a00-a661bf2c1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Read the vendor table\n\nVendors live in a sheet the office already keeps, with trade, areas covered, emergency call-outs and a priority. `Load sample vendors` includes a cheaper firm with no emergency cover, so the rule is visible.",
+        "height": 560,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "a961c3e5-5717-4c4e-9a00-a961c3e51002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Route and write\n\nEmergency phrases are matched as whole words and can override the category, so gas reported as an appliance fault still goes to a gas engineer. With no covering vendor, the manager gets the job instead of nobody.",
+        "height": 560,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "a861c252-5717-4c4e-9a00-a861c2521003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Send and log\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. The ticket is logged only on a live run, so test requests never appear in the Tickets tab.",
+        "height": 560,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2528,
+        0
+      ],
+      "id": "a361ba73-5717-4c4e-9a00-a361ba731004",
+      "name": "Section 5 note"
+    },
+    {
+      "id": "02986ee5-0101-4955-a063-906339100298",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ROUTE TENANT MAINTENANCE REQUESTS FROM A FORM TO VENDORS BY TRADE AND URGENCY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// MAINTENANCE_SHEET_ID blank -> SAMPLE vendors so the run works before any credential exists.\n// Only a live run logs the ticket; test mode emails TEST_EMAIL only.\n\n// Google Sheets id with Vendors and Tickets tabs; blank uses sample vendors\nconst MAINTENANCE_SHEET_ID = '';\n// copied on emergencies and gets jobs no vendor covers\nconst MANAGER_EMAIL = 'maintenance@harbour-lettings.example';\n// timezone for the deadline shown in emails\nconst TIMEZONE = 'Europe/London';\n// any of these in the description makes it an emergency\nconst EMERGENCY_PATTERNS = [\n  \"smell of gas\",\n  \"gas leak\",\n  \"gas\",\n  \"carbon monoxide\",\n  \"flood\",\n  \"flooding\",\n  \"burst pipe\",\n  \"no heat\",\n  \"no heating\",\n  \"sparks\",\n  \"burning smell\",\n  \"smoke\",\n  \"sewage\",\n  \"no power\",\n  \"locked out\"\n];\n// any of these makes it urgent\nconst URGENT_PATTERNS = [\n  \"leak\",\n  \"leaking\",\n  \"no hot water\",\n  \"not flushing\",\n  \"fridge\",\n  \"freezer\",\n  \"broken window\",\n  \"no water\",\n  \"front door\"\n];\n// hours until a vendor must respond, per level\nconst SLA_HOURS = {\n  emergency: 4,\n  urgent: 24,\n  routine: 120\n};\n// form category -> Trade on the Vendors tab\nconst CATEGORY_TRADES = {\n  Plumbing: \"plumbing\",\n  Electrical: \"electrical\",\n  Heating: \"heating\",\n  Appliance: \"appliance\",\n  \"Locks and doors\": \"locksmith\",\n  Pest: \"pest\",\n  Other: \"\"\n};\n// phrase -> trade; used for emergencies and for the Other category\nconst KEYWORD_TRADES = {\n  gas: \"heating\",\n  \"carbon monoxide\": \"heating\",\n  boiler: \"heating\",\n  flood: \"plumbing\",\n  \"burst pipe\": \"plumbing\",\n  leak: \"plumbing\",\n  sparks: \"electrical\",\n  \"no power\": \"electrical\",\n  \"locked out\": \"locksmith\"\n};\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    maintenance_sheet_id: MAINTENANCE_SHEET_ID,\n    manager_email: MANAGER_EMAIL,\n    timezone: TIMEZONE,\n    emergency_patterns: EMERGENCY_PATTERNS,\n    urgent_patterns: URGENT_PATTERNS,\n    sla_hours: SLA_HOURS,\n    category_trades: CATEGORY_TRADES,\n    keyword_trades: KEYWORD_TRADES,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: MAINTENANCE_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "id": "b884febd-d0f6-45ad-ab92-5b92a998b884",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        224
+      ]
+    },
+    {
+      "id": "35cc12c7-81ba-4a97-a98d-298d9a9e35cc",
+      "name": "Maintenance request form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "ef23dfd7-15cb-42a7-ad86-5d86642eef23",
+      "parameters": {
+        "formTitle": "Report a repair",
+        "formDescription": "Tell us what needs fixing. For a gas smell, leave the property and call the gas emergency line first.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Your name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone"
+            },
+            {
+              "fieldLabel": "Address and unit",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Area",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Northside"
+                  },
+                  {
+                    "option": "Riverside"
+                  },
+                  {
+                    "option": "Eastgate"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Category",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Plumbing"
+                  },
+                  {
+                    "option": "Electrical"
+                  },
+                  {
+                    "option": "Heating"
+                  },
+                  {
+                    "option": "Appliance"
+                  },
+                  {
+                    "option": "Locks and doors"
+                  },
+                  {
+                    "option": "Pest"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What is the problem?",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Can we enter if you are out?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        400
+      ]
+    },
+    {
+      "id": "6f6590b1-5aa3-4361-a58a-b58a3ebc6f65",
+      "name": "Read the request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form submission when there is one; an empty marker on a manual run.\nlet f = null;\ntry { f = $('Maintenance request form').first().json; } catch (e) { f = null; }\nif (!f || !f['Email']) return [{ json: { has_request: false } }];\nreturn [{ json: { has_request: true, name: String(f['Your name'] || '').trim(), email: String(f['Email']).trim().toLowerCase(), phone: f['Phone'] || '',\n  unit: f['Address and unit'] || '', area: f['Area'] || '', category: f['Category'] || 'Other', problem: String(f['What is the problem?'] || '').trim(),\n  access: f['Can we enter if you are out?'] || 'No', submitted_at: f.submittedAt || new Date().toISOString() } }];\n"
+      },
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "id": "ea2d2b74-30b0-4f34-ad94-3d94bc57ea2d",
+      "name": "Request from the form?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "774ef5d2-3be6-4832-a9a2-c9a2e541774e",
+              "leftValue": "={{ $json.has_request }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        224
+      ]
+    },
+    {
+      "id": "088695da-3fb7-45ba-a684-e68476f90886",
+      "name": "Load sample request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used on a manual run: a gas smell reported under Appliance, which must still go\n// to an emergency heating engineer.\nreturn [{ json: { has_request: true, name: 'Rosa Diaz', email: 'rosa.diaz@mail.example', phone: '(212) 555-0119', unit: '14 Quay Street, Flat 3',\n  area: 'Riverside', category: 'Appliance', problem: 'There is a smell of gas near the cooker and the boiler keeps cutting out.', access: 'Yes',\n  submitted_at: new Date().toISOString() } }];\n"
+      },
+      "position": [
+        960,
+        400
+      ]
+    },
+    {
+      "id": "ac5ee28f-f569-4bdf-a895-78956e96ac5e",
+      "name": "Combine request sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        224
+      ]
+    },
+    {
+      "id": "b8752362-fcc4-48c2-adac-9dac0d11b875",
+      "name": "Vendors sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e42f82a0-09f6-40a0-a5d3-45d3be63e42f",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        224
+      ]
+    },
+    {
+      "id": "d4be69b4-e549-4974-a208-a208e517d4be",
+      "name": "Read the Vendors tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.maintenance_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Vendors"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        224
+      ]
+    },
+    {
+      "id": "27c51fe8-b637-4768-a8a2-98a21adb27c5",
+      "name": "Load sample vendors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until MAINTENANCE_SHEET_ID is set. Two heating firms: the cheaper one does no\n// emergency call-outs, so an emergency must skip it.\nconst V = (Vendor, Trade, Email, Areas, Emergency, Priority) => ({ Vendor, Trade, Email, Areas, Emergency, Priority });\nreturn [\n  V('Boilerworks', 'heating', 'jobs@boilerworks.example', 'Riverside, Northside', 'no', 1),\n  V('Warmline Heating', 'heating', 'dispatch@warmline.example', 'Riverside, Northside, Eastgate', 'yes', 2),\n  V('Quay Plumbing', 'plumbing', 'office@quayplumbing.example', 'Riverside', 'yes', 1),\n  V('Northside Drains', 'plumbing', 'hello@northsidedrains.example', 'Northside', 'no', 1),\n  V('Brightspark Electrical', 'electrical', 'jobs@brightspark.example', 'Riverside, Northside, Eastgate', 'yes', 1),\n  V('Fixit Appliances', 'appliance', 'repairs@fixit.example', 'Riverside', 'no', 1),\n  V('PestAway', 'pest', 'book@pestaway.example', 'Northside', 'no', 1),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        1648,
+        400
+      ]
+    },
+    {
+      "id": "52537fe4-952a-40a4-a3e8-a3e810475253",
+      "name": "Combine vendor sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1872,
+        224
+      ]
+    },
+    {
+      "id": "b01ba7a2-d528-4902-a4bc-84bcbfd1b01b",
+      "name": "Route the request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Level from the description, trade from category or emergency phrase, vendor from\n// the table (trade + area, emergency-capable when needed, lowest Priority).\nconst cfg = $('config').first().json;\nconst r = $('Combine request sources').first().json;\nconst vendors = $input.all().map(i => i.json).filter(v => v.Vendor && v.Email);\nconst text = (r.problem + ' ' + r.category).toLowerCase();\nconst has = p => new RegExp('(^|[^a-z])' + p.toLowerCase().replace(/[.*+?^$()|[\\]\\\\]/g, '\\\\$&') + '([^a-z]|$)').test(text);\nconst emergencyHit = cfg.emergency_patterns.find(has);\nconst urgentHit = cfg.urgent_patterns.find(has);\nconst level = emergencyHit ? 'emergency' : urgentHit ? 'urgent' : 'routine';\nconst kwTrade = Object.entries(cfg.keyword_trades).find(([k]) => has(k));\nconst catTrade = cfg.category_trades[r.category] || '';\nconst trade = (level === 'emergency' && kwTrade ? kwTrade[1] : '') || catTrade || (kwTrade ? kwTrade[1] : '') || 'handyman';\nconst areas = v => String(v.Areas || '').split(/[,;]/).map(a => a.trim().toLowerCase());\nconst yes = v => /^(yes|true|y|1)$/i.test(String(v.Emergency || '').trim());\nconst fits = vendors.filter(v => String(v.Trade).trim().toLowerCase() === trade && areas(v).includes(String(r.area).toLowerCase()));\nconst ok = fits.filter(v => level !== 'emergency' || yes(v)).sort((a, b) => Number(a.Priority || 99) - Number(b.Priority || 99));\nconst vendor = ok[0] || null;\nconst skipped = fits.filter(v => !ok.includes(v)).map(v => v.Vendor + ' (no emergency call-outs)');\nconst hours = cfg.sla_hours[level];\nconst due = new Date(Date.now() + hours * 36e5);\nconst stamp = new Date().toISOString().slice(2, 10).replace(/-/g, '');\nlet h = 0; for (const ch of r.email + r.submitted_at) h = (h * 31 + ch.charCodeAt(0)) >>> 0;\nconst ticket = 'MT-' + stamp + '-' + h.toString(16).slice(-4).toUpperCase().padStart(4, '0');\nreturn [{ json: { ticket, request: r, level, reason: emergencyHit || urgentHit || 'no urgent phrase', trade, vendor, skipped,\n  sla_hours: hours, due_at: due.toISOString(),\n  due_label: due.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: cfg.timezone }),\n  gas: /gas|carbon monoxide/.test(text) } }];\n"
+      },
+      "position": [
+        2112,
+        224
+      ]
+    },
+    {
+      "id": "a1277e1a-3a7e-49fa-ac84-1c84d1b9a127",
+      "name": "Write the emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Up to three emails: vendor work order (or the manager when no vendor fits), the\n// tenant confirmation, and a manager copy on emergencies.\nconst cfg = $('config').first().json;\nconst t = $input.first().json;\nconst r = t.request;\nconst lvl = t.level.toUpperCase();\nconst order = [\n  'Ticket: ' + t.ticket + ' (' + lvl + ', respond by ' + t.due_label + ')', '',\n  'Address: ' + r.unit + ' (' + r.area + ')', 'Tenant: ' + r.name + ', ' + (r.phone || 'no phone') + ', ' + r.email,\n  'Access if tenant is out: ' + r.access, 'Category: ' + r.category + ', trade: ' + t.trade, '', 'Problem as reported:', r.problem, '',\n  'Reply to this email to confirm attendance.',\n].join('\\n');\nconst mails = [];\nif (t.vendor) mails.push({ role: 'vendor', to: t.vendor.Email, subject: '[' + lvl + '] ' + t.ticket + ': ' + t.trade + ' at ' + r.unit, body: 'Hello ' + t.vendor.Vendor + ',\\n\\n' + order });\nelse mails.push({ role: 'manager (no vendor)', to: cfg.manager_email, subject: '[NO VENDOR] ' + t.ticket + ': ' + t.trade + ' in ' + r.area, body: 'No ' + t.trade + ' vendor covers ' + r.area + (t.level === 'emergency' ? ' for emergencies' : '') + '. Please assign one.\\n\\n' + order });\nif (t.level === 'emergency' && t.vendor) mails.push({ role: 'manager copy', to: cfg.manager_email, subject: '[EMERGENCY] ' + t.ticket + ' sent to ' + t.vendor.Vendor, body: order });\nmails.push({ role: 'tenant', to: r.email, subject: 'Repair request received: ' + t.ticket, body: [\n  'Hi ' + (r.name.split(' ')[0] || 'there') + ',', '',\n  'We have logged your request as ' + t.ticket + '. ' + (t.vendor ? t.vendor.Vendor + ' has been asked to respond by ' + t.due_label + '.' : 'We are assigning a contractor and will be in touch by ' + t.due_label + '.'),\n  t.gas ? '\\nIf you can smell gas: do not use switches or flames, open windows, leave the property and call the gas emergency line now.' : '',\n  '', 'Reply to this email if anything changes.',\n].join('\\n') });\nreturn mails.map(m => ({ json: { ...m, ticket: t.ticket, send_to: cfg.mode === 'test' ? cfg.test_email : m.to } }));\n"
+      },
+      "position": [
+        2336,
+        224
+      ]
+    },
+    {
+      "id": "8f16f4e2-e12c-4242-aaf6-9af6c6918f16",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2576,
+        224
+      ]
+    },
+    {
+      "id": "5b7c72e1-9fae-4691-ab3d-4b3dfdec5b7c",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2800,
+        400
+      ]
+    },
+    {
+      "id": "a245955e-30e7-43fe-a3ec-43ec199da245",
+      "name": "Send the email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.to + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2800,
+        224
+      ]
+    },
+    {
+      "id": "050c4a5d-aca0-4f4d-acb3-2cb39ff8050c",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3008,
+        224
+      ]
+    },
+    {
+      "id": "9eeea54f-f51b-429f-a208-72080ed69eee",
+      "name": "STOP: test send - ticket not logged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3232,
+        400
+      ]
+    },
+    {
+      "id": "dee2ba81-f4a0-4c31-ab4d-4b4d314cdee2",
+      "name": "Shape the ticket row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Tickets row per request, whatever number of emails went out.\nconst t = $('Route the request').first().json;\nreturn [{ json: { Ticket: t.ticket, Logged: new Date().toISOString(), Tenant: t.request.name, Email: t.request.email, Unit: t.request.unit,\n  Area: t.request.area, Level: t.level, Trade: t.trade, Vendor: t.vendor ? t.vendor.Vendor : 'UNASSIGNED', 'Respond by': t.due_at, Status: 'sent to vendor', Problem: t.request.problem } }];\n"
+      },
+      "position": [
+        3232,
+        224
+      ]
+    },
+    {
+      "id": "7134b090-fbd2-4390-a437-c43736137134",
+      "name": "Log the ticket",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.maintenance_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Tickets"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        3456,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Maintenance request form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Read the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the request": {
+      "main": [
+        [
+          {
+            "node": "Request from the form?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request from the form?": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample request": {
+      "main": [
+        [
+          {
+            "node": "Combine request sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine request sources": {
+      "main": [
+        [
+          {
+            "node": "Vendors sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendors sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the Vendors tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample vendors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Vendors tab": {
+      "main": [
+        [
+          {
+            "node": "Combine vendor sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample vendors": {
+      "main": [
+        [
+          {
+            "node": "Combine vendor sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine vendor sources": {
+      "main": [
+        [
+          {
+            "node": "Route the request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route the request": {
+      "main": [
+        [
+          {
+            "node": "Write the emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the emails": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Send the email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the email": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Shape the ticket row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - ticket not logged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the ticket row": {
+      "main": [
+        [
+          {
+            "node": "Log the ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

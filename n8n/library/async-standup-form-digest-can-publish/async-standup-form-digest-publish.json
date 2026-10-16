@@ -1,0 +1,800 @@
+{
+  "name": "Collect async standups with an n8n form and post a digest to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Collect async standups with an n8n form and post a digest to Slack\n\n**Who's it for**\nRemote and hybrid teams of 4 to 25 across time zones who dropped the daily call but still want one place to see progress and blockers. Each person fills a 1-minute form; the team reads one message.\n\n**How it works**\n1. Anyone on `TEAM` fills the standup form: yesterday, today and blockers. The answers are saved as a row on the Standups tab, dated in `TIMEZONE`.\n2. Every weekday at 10:30 the second trigger reads the tab (or sample rows), keeps each person's latest standup for today and lists everyone on `TEAM` who has not filled it in.\n3. Blockers go first. Answers like none or n/a are ignored, and a person who also reported a blocker on their previous standup is marked as blocked 2 days running.\n4. One digest is posted to Slack, with people tagged by their Slack id.\n\n**How to set up**\n1. Run it once as imported. It builds a digest from sample standups and stops at `STOP: dry run - digest not posted`.\n2. Create a Standups tab with date, email, name, yesterday, today, blockers and submitted_at columns. Connect Google Sheets and set `STANDUP_SHEET_ID`.\n3. Fill `TEAM` with emails, names and Slack ids. Connect Slack, set `SLACK_CHANNEL_ID` and share the form URL with the team.\n4. Set `DRY_RUN = false` and activate the workflow so the form saves rows and the digest posts.\n\n**Requirements**\n- A Google Sheet for standup rows\n- A Slack workspace\n- An n8n instance that can serve a form\n\n**How to customize**\n- `TIMEZONE` decides which calendar day a standup belongs to.\n- `NO_BLOCKER_WORDS` lists answers that mean there is no blocker.\n- Change the cron on `Every weekday at 10:30` to move the digest.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "b28d7c24-5717-4c4e-9a00-b28d7c2413e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Two triggers and the form path\n\nThe form and the 10:30 schedule share one `config`, which records which fired. A form answer is checked against `TEAM` and appended only on a live run with a sheet; everything else goes on to the digest.",
+        "height": 688,
+        "width": 1744,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e822a069-5717-4c4e-9a00-e822a0691000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read today's standups\n\n`Standup sheet set?` reads the Standups tab once `STANDUP_SHEET_ID` is filled. `Load sample standups` covers a double submission, a repeated blocker, a none answer and someone not on the team.",
+        "height": 688,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "e7229ed6-5717-4c4e-9a00-e7229ed61001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Build and post the digest\n\nOnly the latest row per person counts, so resubmitting fixes a typo instead of duplicating it. The previous standup is what marks a blocker as repeated. `Post the digest?` needs a live run and a channel.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        0
+      ],
+      "id": "e6229d43-5717-4c4e-9a00-e6229d431002",
+      "name": "Section 3 note"
+    },
+    {
+      "id": "ef2135ad-567f-419d-a7a9-87a9e008ef21",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// COLLECT ASYNC STANDUPS WITH AN N8N FORM AND POST A DIGEST TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// STANDUP_SHEET_ID blank -> the digest uses SAMPLE rows and the form saves nothing.\n// ENTRY below says which trigger started this run: the form or the digest.\n\n// Google Sheets id with a Standups tab; blank uses sample rows\nconst STANDUP_SHEET_ID = '';\n// who is expected to post a standup\nconst TEAM = [\n  {\n    email: \"ana@northwind.example\",\n    name: \"Ana\",\n    slack_id: \"U01ANA\"\n  },\n  {\n    email: \"ben@northwind.example\",\n    name: \"Ben\",\n    slack_id: \"U01BEN\"\n  },\n  {\n    email: \"chloe@northwind.example\",\n    name: \"Chloe\",\n    slack_id: \"U01CHLOE\"\n  },\n  {\n    email: \"dev@northwind.example\",\n    name: \"Dev\",\n    slack_id: \"U01DEV\"\n  },\n  {\n    email: \"esme@northwind.example\",\n    name: \"Esme\",\n    slack_id: \"U01ESME\"\n  }\n];\n// the team calendar day\nconst TIMEZONE = 'Europe/Berlin';\n// answers that mean no blocker\nconst NO_BLOCKER_WORDS = [\n  \"none\",\n  \"no\",\n  \"n/a\",\n  \"na\",\n  \"-\",\n  \"nothing\",\n  \"no blockers\"\n];\n// channel for the digest; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\n// Which trigger started this run: the form item carries formMode; anything else builds the digest.\nconst TRIGGER_ITEM = $input.first() ? $input.first().json : {};\nconst ENTRY = TRIGGER_ITEM.formMode || TRIGGER_ITEM.submittedAt ? 'submit' : 'digest';\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    standup_sheet_id: STANDUP_SHEET_ID,\n    team: TEAM,\n    timezone: TIMEZONE,\n    no_blocker_words: NO_BLOCKER_WORDS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    sheets_enabled: STANDUP_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    entry: ENTRY,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "80ba07d5-1316-4745-a13b-c13bafc080ba",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "ab707102-3196-4462-aee4-6ee4fa71ab70",
+      "name": "Standup form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "webhookId": "d6f69dd9-08bd-4409-ad40-ad40e454d6f6",
+      "parameters": {
+        "formTitle": "Daily standup",
+        "formDescription": "Takes a minute. The digest goes to Slack at 10:30.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Work email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What did you finish yesterday?",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What are you doing today?",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Anything blocking you?",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "ab41060f-b30b-475f-a304-23048616ab41",
+      "name": "Every weekday at 10:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 10 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        512
+      ]
+    },
+    {
+      "id": "056036b7-e4b3-4387-afed-1fedec4e0560",
+      "name": "Which entry point?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4e973ac1-8ecb-4871-a8a5-48a53f0c4e97",
+                    "leftValue": "={{ $json.entry }}",
+                    "rightValue": "digest",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "digest"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0a5c43e1-3937-4791-a4a3-f4a336ec0a5c",
+                    "leftValue": "={{ $json.entry }}",
+                    "rightValue": "submit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "submit"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
+      "id": "df6f29e5-5cdc-4455-afc0-3fc07810df6f",
+      "name": "STOP: unknown entry",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        720,
+        512
+      ]
+    },
+    {
+      "id": "ad86778e-dbfc-472e-a067-0067a1cdad86",
+      "name": "Read the standup answers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Form answers -> one Standups row, dated in TIMEZONE, matched to TEAM by email.\nconst cfg = $('config').first().json;\nconst f = $('Standup form').first().json;\nconst email = String(f['Work email'] || '').trim().toLowerCase();\nconst member = cfg.team.find(t => t.email.toLowerCase() === email);\nconst date = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nreturn [{ json: { known: !!member, row: { date, email, name: member?.name || email, yesterday: f['What did you finish yesterday?'] || '',\n  today: f['What are you doing today?'] || '', blockers: f['Anything blocking you?'] || '', submitted_at: f.submittedAt || new Date().toISOString() } } }];\n"
+      },
+      "position": [
+        720,
+        352
+      ]
+    },
+    {
+      "id": "1021ff83-f86b-4493-ae36-7e3652ba1021",
+      "name": "On the team?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9adc877-f878-4947-a594-b594c38ea9ad",
+              "leftValue": "={{ $json.known }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        928,
+        352
+      ]
+    },
+    {
+      "id": "987ceb21-5b98-4ad1-a1d6-d1d6acac987c",
+      "name": "STOP: not on TEAM - not saved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1152,
+        512
+      ]
+    },
+    {
+      "id": "4a290269-fb0d-4b99-ae20-7e203b244a29",
+      "name": "Save the standup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d9c3ca55-0944-41c5-a3f6-23f62e40d9c3",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d8c3c8c2-46ef-4022-a978-5978dbb1d8c3",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1152,
+        352
+      ]
+    },
+    {
+      "id": "cf5df647-849f-4617-a5be-65be721ecf5d",
+      "name": "STOP: dry run - standup not saved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1376,
+        512
+      ]
+    },
+    {
+      "id": "83b4cbc5-e1a4-4035-a8e7-e8e7bf3083b4",
+      "name": "Pick row columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only the Standups tab columns go to Sheets.\nreturn [{ json: $input.first().json.row }];\n"
+      },
+      "position": [
+        1376,
+        352
+      ]
+    },
+    {
+      "id": "cd0b9021-9135-4fd1-a00d-400d3daccd0b",
+      "name": "Append to Standups tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.standup_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Standups"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        1600,
+        352
+      ]
+    },
+    {
+      "id": "ad266304-9a33-49c4-a6b4-d6b44327ad26",
+      "name": "Standup sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "563a41a2-3d1a-4302-af73-6f7315d1563a",
+              "leftValue": "={{ $('config').first().json.sheets_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1840,
+        176
+      ]
+    },
+    {
+      "id": "2b566350-81db-4a50-a4c4-d4c466532b56",
+      "name": "Read Standups tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.standup_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Standups"
+        },
+        "options": {}
+      },
+      "position": [
+        2064,
+        176
+      ]
+    },
+    {
+      "id": "737d070f-b800-485f-a86a-786a4f16737d",
+      "name": "Load sample standups",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until STANDUP_SHEET_ID is set. Today and the previous working day, in TIMEZONE.\nconst cfg = $('config').first().json;\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timezone, year: 'numeric', month: '2-digit', day: '2-digit' });\nconst today = fmt.format(new Date()), prev = fmt.format(new Date(Date.now() - 864e5));\nconst row = (date, email, name, yesterday, todayText, blockers, h) => ({ date, email, name, yesterday, today: todayText, blockers, submitted_at: new Date(Date.now() - h * 36e5).toISOString() });\nreturn [\n  row(prev, 'ben@northwind.example', 'Ben', 'Payment retries', 'Payment retries tests', 'Waiting on staging DB access', 25),\n  row(prev, 'ana@northwind.example', 'Ana', 'Landing page copy', 'Pricing table', 'none', 25),\n  row(today, 'ana@northwind.example', 'Ana', 'Pricing table', 'Signup flow QA', 'n/a', 2),\n  row(today, 'ben@northwind.example', 'Ben', 'Payment retries tests', 'Webhook alerts', 'Still no staging DB access', 1.5),\n  row(today, 'chloe@northwind.example', 'Chloe', 'Customer interviews x3', 'Write up findings', 'Need sign-off on the survey from legal', 1),\n  row(today, 'chloe@northwind.example', 'Chloe', 'Customer interviews x3', 'Write up findings and share', 'Need sign-off on the survey from legal', 0.5),\n  row(today, 'guest@agency.example', 'Guest', 'Logo drafts', 'More drafts', '', 1),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        2064,
+        352
+      ]
+    },
+    {
+      "id": "cf978fbb-75e6-434b-ae30-4e3057e2cf97",
+      "name": "Combine standup sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2288,
+        176
+      ]
+    },
+    {
+      "id": "f1fa1dfe-bbad-4a9e-a04b-b04b8cfdf1fa",
+      "name": "Build the digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Latest standup per TEAM member for today; blockers first, repeat blockers marked;\n// everyone on TEAM without a row today is listed as missing.\nconst cfg = $('config').first().json;\nconst fmt = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.timezone, year: 'numeric', month: '2-digit', day: '2-digit' });\nconst today = fmt.format(new Date());\nconst none = new Set(cfg.no_blocker_words.map(w => w.toLowerCase()));\nconst isBlocker = b => { const t = String(b || '').trim().toLowerCase(); return t !== '' && !none.has(t); };\nconst rows = $input.all().map(i => i.json).filter(r => r.email && r.date)\n  .map(r => ({ ...r, email: String(r.email).toLowerCase(), date: String(r.date).slice(0, 10) }))\n  .sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at)));\nconst latest = {}, previous = {};\nfor (const r of rows) {\n  if (r.date === today) latest[r.email] = r;\n  else if (r.date < today) previous[r.email] = r;\n}\nconst team = cfg.team.map(t => ({ ...t, email: t.email.toLowerCase() }));\nconst posted = team.filter(t => latest[t.email]).map(t => {\n  const r = latest[t.email];\n  const blocked = isBlocker(r.blockers);\n  return { name: t.name, slack_id: t.slack_id, yesterday: r.yesterday, today: r.today, blockers: blocked ? r.blockers : '',\n    repeat: blocked && previous[t.email] && isBlocker(previous[t.email].blockers) };\n});\nconst missing = team.filter(t => !latest[t.email]).map(t => ({ name: t.name, slack_id: t.slack_id }));\nconst outsiders = Object.keys(latest).filter(e => !team.some(t => t.email === e));\nreturn [{ json: { date: today, posted, missing, outsiders, blocked: posted.filter(p => p.blockers).length } }];\n"
+      },
+      "position": [
+        2528,
+        176
+      ]
+    },
+    {
+      "id": "a761ebe4-692e-4ca4-ab52-eb524447a761",
+      "name": "Write the digest message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Blockers block first so they get read; the rest is one line per person.\nconst d = $input.first().json;\nconst tag = p => p.slack_id ? '<@' + p.slack_id + '>' : p.name;\nconst lines = ['*Standup ' + d.date + '*: ' + d.posted.length + ' in, ' + d.missing.length + ' missing, ' + d.blocked + ' blocked'];\nconst blocked = d.posted.filter(p => p.blockers);\nif (blocked.length) lines.push('', '*Blockers*', ...blocked.map(p => '- ' + tag(p) + ': ' + p.blockers + (p.repeat ? ' _(blocked 2 days running)_' : '')));\nlines.push('', '*Updates*', ...d.posted.map(p => '- *' + p.name + '*: done ' + p.yesterday + '. Today: ' + p.today));\nif (d.missing.length) lines.push('', 'Not in yet: ' + d.missing.map(tag).join(', '));\nreturn [{ json: { text: lines.join('\\n') } }];\n"
+      },
+      "position": [
+        2752,
+        176
+      ]
+    },
+    {
+      "id": "637d11e7-5190-4fb7-ae7f-ee7fbc7e637d",
+      "name": "Post the digest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e64c019b-299c-4f2b-a225-32257f02e64c",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "e54c0008-6747-4d88-aa1c-6a1c16bbe54c",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2976,
+        176
+      ]
+    },
+    {
+      "id": "c0af1fc0-5156-43c0-a44f-c44f6243c0af",
+      "name": "STOP: dry run - digest not posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3200,
+        352
+      ]
+    },
+    {
+      "id": "503258c3-aaa8-49d3-a55e-155e2d7a5032",
+      "name": "Post the digest to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3200,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Standup form": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 10:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Which entry point?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which entry point?": {
+      "main": [
+        [
+          {
+            "node": "Standup sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read the standup answers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: unknown entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the standup answers": {
+      "main": [
+        [
+          {
+            "node": "On the team?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On the team?": {
+      "main": [
+        [
+          {
+            "node": "Save the standup?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: not on TEAM - not saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save the standup?": {
+      "main": [
+        [
+          {
+            "node": "Pick row columns",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - standup not saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick row columns": {
+      "main": [
+        [
+          {
+            "node": "Append to Standups tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Standup sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read Standups tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample standups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Standups tab": {
+      "main": [
+        [
+          {
+            "node": "Combine standup sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample standups": {
+      "main": [
+        [
+          {
+            "node": "Combine standup sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine standup sources": {
+      "main": [
+        [
+          {
+            "node": "Build the digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the digest": {
+      "main": [
+        [
+          {
+            "node": "Write the digest message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the digest message": {
+      "main": [
+        [
+          {
+            "node": "Post the digest?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the digest?": {
+      "main": [
+        [
+          {
+            "node": "Post the digest to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - digest not posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

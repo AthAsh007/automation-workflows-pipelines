@@ -1,0 +1,690 @@
+{
+  "name": "Alert Slack on Hacker News mentions of your brand",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Alert Slack on Hacker News mentions of your brand\n\n**Who's it for**\nFounders, developer relations and support leads at products that get discussed on Hacker News. You hear about a thread while it is still on the front page instead of the next day.\n\n**How it works**\n1. Every 30 minutes it searches Hacker News stories and comments for each keyword in `KEYWORDS`, from the last check onward, through the free Algolia search API.\n2. Algolia matches prefixes, so each hit is checked again for the keyword as a whole word. Hits containing an exclusion term, posted by your own accounts, or stories under 3 points are dropped.\n3. A hit found by two keywords is posted once, and ids already alerted are skipped.\n4. One Slack message lists stories with points and comment counts, and comments with a 160-character snippet around the match.\n\n**How to set up**\n1. Run it once as imported. It filters sample search results and stops at `STOP: preview - nothing posted`.\n2. Set `KEYWORDS` to your brand and product names, `OWN_HN_USERS` to your team accounts, then set `USE_LIVE_SEARCH = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post with a [TEST] prefix, then set `TEST_RUN = false` so the checkpoint moves forward.\n\n**Requirements**\n- A Slack workspace\n- Nothing for Hacker News: the Algolia API is public\n\n**How to customize**\n- `EXCLUDE_TERMS` drops hits about something else with the same name.\n- `MIN_STORY_POINTS` hides brand-new stories nobody has voted on; comments are always kept.\n- `MAX_LOOKBACK_HOURS` limits how far back a run looks after a long pause.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "d3dab5c8-5717-4c4e-9a00-d3dab5c813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every 30 minutes or by hand. Keywords, exclusions, your own accounts and the points floor are constants in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5638f5ed-5717-4c4e-9a00-5638f5ed1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Search Hacker News\n\nOne Algolia query per keyword, filtered on created_at_i so only hits since the last checkpoint come back. `Load sample search results` returns the same shape, including the query field used to match hits to keywords.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "5538f45a-5717-4c4e-9a00-5538f45a1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Keep real mentions\n\nAlgolia prefix matching would alert on \"Fieldnotes\", so `Pick mentions to alert` re-checks each hit for the whole word before exclusions, own accounts and the story points floor.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "5438f2c7-5717-4c4e-9a00-5438f2c71002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and move the checkpoint\n\nThe checkpoint only moves after a live post. A preview or test run leaves it alone, so switching to live never skips the mentions you were testing with.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "5338f134-5717-4c4e-9a00-5338f1341003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "46d16a46-fb0f-4066-ac78-8c788c5546d1",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ALERT SLACK ON HACKER NEWS MENTIONS OF YOUR BRAND - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_SEARCH false -> SAMPLE search results.\n// SLACK_CHANNEL_ID blank -> the alert is built but not posted.\n\n// set true to query hn.algolia.com (public, no key)\nconst USE_LIVE_SEARCH = false;\n// brand, product and domain names to watch\nconst KEYWORDS = [\n  \"Fieldnote\",\n  \"fieldnote.example\"\n];\n// a hit containing any of these is dropped (case-insensitive)\nconst EXCLUDE_TERMS = [\n  \"notebook\",\n  \"moleskine\"\n];\n// your own HN usernames; their posts are not alerts\nconst OWN_HN_USERS = [\n  \"fieldnote_team\"\n];\n// stories below this score are skipped; comments are always kept\nconst MIN_STORY_POINTS = 3;\n// first run and long pauses look back at most this far\nconst MAX_LOOKBACK_HOURS = 24;\n// channel for alerts; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_search: USE_LIVE_SEARCH,\n    keywords: KEYWORDS,\n    exclude_terms: EXCLUDE_TERMS,\n    own_hn_users: OWN_HN_USERS,\n    min_story_points: MIN_STORY_POINTS,\n    max_lookback_hours: MAX_LOOKBACK_HOURS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "d03dd352-363e-4db2-ac07-dc0772c1d03d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "717212d3-a019-4ee3-ae50-5e50300a7172",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "c7408f82-5865-4ae2-a03f-603f20f1c740",
+      "name": "Use sample results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1a1d35f-6934-4baf-a265-72654d66c1a1",
+              "leftValue": "={{ $('config').first().json.use_live_search }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "e07a618c-69cc-4dcc-afd9-2fd9ab5fe07a",
+      "name": "Load sample search results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_SEARCH is true. The shape of Algolia search_by_date, one\n// response per keyword, with a hit for every filter to act on.\nconst t = m => Math.floor(Date.now() / 1000) - m * 60;\nconst hit = (id, type, m, extra) => ({ objectID: String(id), created_at_i: t(m), created_at: new Date(t(m) * 1000).toISOString(), _tags: [type, 'author_' + extra.author], points: null, num_comments: null, ...extra });\nreturn [\n  { json: { query: 'Fieldnote', hits: [\n    hit(41000101, 'story', 40, { title: 'Show HN: Fieldnote, a research log that writes itself', url: 'https://fieldnote.example', author: 'mira_k', points: 18, num_comments: 9 }),\n    hit(41000102, 'comment', 25, { comment_text: 'We switched from a wiki to <i>Fieldnote</i> last quarter. Search is much better, but the export to Markdown still drops tables.', author: 'jdoe', story_id: 41000050, story_title: 'Ask HN: How do you keep research notes?' }),\n    hit(41000103, 'comment', 20, { comment_text: 'I still prefer a paper Fieldnote notebook for this.', author: 'paperfan', story_id: 41000050, story_title: 'Ask HN: How do you keep research notes?' }),\n    hit(41000104, 'comment', 15, { comment_text: 'Thanks for the feedback, the Fieldnote export fix ships next week.', author: 'fieldnote_team', story_id: 41000101, story_title: 'Show HN: Fieldnote, a research log that writes itself' }),\n    hit(41000105, 'story', 10, { title: 'Fieldnote raises seed round', url: 'https://news.example/fieldnote-seed', author: 'newsbot', points: 1, num_comments: 0 }),\n    hit(41000106, 'comment', 5, { comment_text: 'Fieldnotes are underrated for debugging.', author: 'ops_amy', story_id: 41000060, story_title: 'Debugging habits' }),\n  ] } },\n  { json: { query: 'fieldnote.example', hits: [\n    hit(41000101, 'story', 40, { title: 'Show HN: Fieldnote, a research log that writes itself', url: 'https://fieldnote.example', author: 'mira_k', points: 18, num_comments: 9 }),\n  ] } },\n];\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "784f0004-fe7c-46c4-ab4b-bb4bac27784f",
+      "name": "List search keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per keyword with the window start: the last checkpoint, but never\n// further back than MAX_LOOKBACK_HOURS.\nconst cfg = $('config').first().json;\nconst last = Number($getWorkflowStaticData('global').last_ts || 0);\nconst floor = Math.floor(Date.now() / 1000) - cfg.max_lookback_hours * 3600;\nconst since = Math.max(last, floor);\nreturn cfg.keywords.map(k => ({ json: { keyword: k, since } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "9d2a046d-bf8f-445d-acff-3cff30489d2a",
+      "name": "Search Hacker News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://hn.algolia.com/api/v1/search_by_date",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.keyword }}"
+            },
+            {
+              "name": "tags",
+              "value": "(story,comment)"
+            },
+            {
+              "name": "numericFilters",
+              "value": "={{ \"created_at_i>\" + $json.since }}"
+            },
+            {
+              "name": "hitsPerPage",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "4daa157d-da9b-406d-aaba-5aba85d84daa",
+      "name": "Combine search sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "7f74fdef-7c42-493f-a21a-c21ab2367f74",
+      "name": "Pick mentions to alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Algolia matches prefixes and typos, so every hit is re-checked for the keyword\n// as a whole word. Then exclusions, own accounts, story points and dedupe.\nconst cfg = $('config').first().json;\nconst alerted = new Set($getWorkflowStaticData('global').alerted || []);\nconst esc = s => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst strip = h => String(h || '').replace(/<p>/g, ' ').replace(/<[^>]+>/g, '').replace(/&#x27;/g, \"'\").replace(/&quot;/g, '\"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/\\s+/g, ' ').trim();\nconst own = new Set(cfg.own_hn_users.map(u => u.toLowerCase()));\nconst mentions = [], dropped = [], ids = new Set();\nlet newest = 0;\nfor (const { json: res } of $input.all()) {\n  const kw = res.query || '';\n  const re = new RegExp('(^|[^a-z0-9])' + esc(kw.toLowerCase()) + '(?![a-z0-9])', 'i');\n  for (const h of res.hits || []) {\n    newest = Math.max(newest, h.created_at_i || 0);\n    const isStory = (h._tags || []).includes('story');\n    const text = isStory ? strip(h.title) + ' ' + (h.url || '') : strip(h.comment_text);\n    const low = text.toLowerCase();\n    const reason =\n      ids.has(h.objectID) ? 'found by another keyword' :\n      alerted.has(h.objectID) ? 'already alerted' :\n      !re.test(text) ? 'no whole-word match' :\n      cfg.exclude_terms.some(x => low.includes(x.toLowerCase())) ? 'exclusion term' :\n      own.has(String(h.author).toLowerCase()) ? 'own account' :\n      isStory && (h.points || 0) < cfg.min_story_points ? 'story under MIN_STORY_POINTS' : '';\n    if (reason) { if (reason !== 'found by another keyword') dropped.push({ id: h.objectID, reason }); continue; }\n    ids.add(h.objectID);\n    let snippet = '';\n    if (!isStory) {\n      const at = low.search(re);\n      const from = Math.max(0, at - 60);\n      snippet = (from > 0 ? '...' : '') + text.slice(from, from + 160).trim() + (from + 160 < text.length ? '...' : '');\n    }\n    mentions.push({ id: h.objectID, type: isStory ? 'story' : 'comment', keyword: kw, author: h.author, created_at: h.created_at,\n      title: isStory ? strip(h.title) : strip(h.story_title), url: h.url || '', points: h.points || 0, comments: h.num_comments || 0, snippet,\n      hn_link: 'https://news.ycombinator.com/item?id=' + h.objectID, thread_link: 'https://news.ycombinator.com/item?id=' + (h.story_id || h.objectID) });\n  }\n}\nmentions.sort((a, b) => (a.type === b.type ? 0 : a.type === 'story' ? -1 : 1) || b.points - a.points);\nreturn [{ json: { mentions, dropped, newest } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "b3e5985e-a6f4-46fe-a17f-417fbc9db3e5",
+      "name": "Format the Slack alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stories first with score and comment count, then comments with their snippet.\nconst cfg = $('config').first().json;\nconst { mentions } = $input.first().json;\nconst lines = mentions.map(m => m.type === 'story'\n  ? ':newspaper: *<' + m.hn_link + '|' + m.title + '>* (' + m.points + ' points, ' + m.comments + ' comments, by ' + m.author + ')'\n  : ':speech_balloon: *' + m.author + '* on <' + m.thread_link + '|' + m.title + '>: \"' + m.snippet + '\" <' + m.hn_link + '|reply>');\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*Hacker News: ' + mentions.length + ' new mention' + (mentions.length === 1 ? '' : 's') + '*', ...lines].join('\\n');\nreturn [{ json: { text, count: mentions.length } }];\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "0794c4d4-b070-4a94-a4ca-84cad6f70794",
+      "name": "Any new mentions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bcb54515-f47e-4085-a918-d9180f80bcb5",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        176
+      ]
+    },
+    {
+      "id": "dece78ae-f52d-4e4e-a56a-156a9daddece",
+      "name": "STOP: no new mentions",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        352
+      ]
+    },
+    {
+      "id": "997f12d1-39a7-4b81-a2ab-d2abf39c997f",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "9b7dadc3-97eb-4ed3-a72f-b72fc27a9b7d",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "e5f5b8a0-8d88-46a0-a3ec-43ec2863e5f5",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "ff93dcce-2cdb-486e-a727-2727a08dff93",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "166335c9-fb33-40f9-a56e-156e1fc41663",
+      "name": "Post the mentions to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "1c8f11d8-83c2-4e58-a2a6-f2a6de8b1c8f",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    },
+    {
+      "id": "de68d6c1-9574-4471-afe2-0fe2730cde68",
+      "name": "STOP: test post - checkpoint kept",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3216,
+        352
+      ]
+    },
+    {
+      "id": "7fecc58d-d35f-4b7d-aa5b-8a5b49287fec",
+      "name": "Move the checkpoint forward",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: the next search starts at the newest hit seen, and alerted ids are\n// kept (newest 1,000) so a hit edited later is not posted twice.\nconst store = $getWorkflowStaticData('global');\nconst picked = $('Pick mentions to alert').first().json;\nstore.last_ts = Math.max(Number(store.last_ts || 0), picked.newest);\nstore.alerted = [...picked.mentions.map(m => m.id), ...(store.alerted || [])].slice(0, 1000);\nreturn [{ json: { last_ts: store.last_ts, alerted: picked.mentions.length } }];\n"
+      },
+      "position": [
+        3216,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample results?": {
+      "main": [
+        [
+          {
+            "node": "Load sample search results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List search keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List search keywords": {
+      "main": [
+        [
+          {
+            "node": "Search Hacker News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample search results": {
+      "main": [
+        [
+          {
+            "node": "Combine search sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Hacker News": {
+      "main": [
+        [
+          {
+            "node": "Combine search sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine search sources": {
+      "main": [
+        [
+          {
+            "node": "Pick mentions to alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick mentions to alert": {
+      "main": [
+        [
+          {
+            "node": "Format the Slack alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format the Slack alert": {
+      "main": [
+        [
+          {
+            "node": "Any new mentions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any new mentions?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no new mentions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the mentions to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the mentions to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Move the checkpoint forward",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - checkpoint kept",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

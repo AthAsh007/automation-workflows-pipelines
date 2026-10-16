@@ -1,0 +1,653 @@
+{
+  "name": "Validate campaign links in Google Sheets before launch",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Validate campaign links in Google Sheets before launch\n\n**Who's it for**\nMarketing teams who build UTM links in a spreadsheet before a launch and find the broken ones in analytics a week later. Every row gets a status and a plain reason before anything goes out.\n\n**How it works**\n1. Every weekday at 08:00 it reads the Links tab, or 8 sample links until the sheet is connected. Rows already marked ok are skipped.\n2. Each link is checked for a valid https URL, utm_source, utm_medium and utm_campaign present, lowercase values without spaces, and a medium from your allowed list.\n3. utm_content used twice in the same campaign is flagged, because the two ads become one row in your reports.\n4. Each landing page is requested once (without the query string) and anything other than a 2xx or 3xx fails the row. The status and reasons are written back by link_id.\n\n**How to set up**\n1. Run it once as imported. It checks the sample links and stops at `STOP: dry run - sheet untouched`.\n2. Create a Links tab with link_id, url, campaign, status, issues and checked_at columns, connect Google Sheets and set `LINKS_SHEET_ID`.\n3. Set `USE_LIVE_CHECKS = true` to request real landing pages.\n4. Read the results in `Write a status for each row`, then set `DRY_RUN = false` to fill the status column.\n\n**Requirements**\n- A Google Sheet with your campaign links\n\n**How to customize**\n- `REQUIRED_PARAMS` and `ALLOWED_MEDIUMS` hold your naming rules.\n- `WARN_ONLY` lists checks that should warn instead of fail, such as http links.\n- `SLOW_MS` flags landing pages slower than this.",
+        "height": 912,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "c4b50d0d-5717-4c4e-9a00-c4b50d0d13e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 08:00 or by hand. Required parameters, allowed mediums and which checks only warn are constants in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2cba1350-5717-4c4e-9a00-2cba13501000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the links\n\nReads the Links tab once the sheet id is set. `Load sample links` holds one row per rule, plus a row already marked ok that is skipped unless `RECHECK_OK` is true.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "2dba14e3-5717-4c4e-9a00-2dba14e31001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Check the landing pages\n\nRule checks run first and cost nothing. Landing pages are then requested once each, without the query string, and a 404 or timeout is read as a result instead of stopping the run.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "2eba1676-5717-4c4e-9a00-2eba16761002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write the status back\n\n`Write a status for each row` decides ok, warn or fail and lists every reason. The sheet is updated by link_id only when `DRY_RUN` is false, so the first runs change nothing.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "2fba1809-5717-4c4e-9a00-2fba18091003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "682d50eb-df11-457b-a5c7-25c79e12682d",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// VALIDATE CAMPAIGN LINKS IN GOOGLE SHEETS BEFORE LAUNCH - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// LINKS_SHEET_ID blank -> SAMPLE links. USE_LIVE_CHECKS false -> SAMPLE landing page results.\n// DRY_RUN true -> results are shown, the sheet is not written.\n\n// Google Sheets id with a Links tab; blank uses sample links\nconst LINKS_SHEET_ID = '';\n// set true to request each landing page (public GET, no credential)\nconst USE_LIVE_CHECKS = false;\n// parameters every link must carry\nconst REQUIRED_PARAMS = [\n  \"utm_source\",\n  \"utm_medium\",\n  \"utm_campaign\"\n];\n// utm_medium values your reports expect\nconst ALLOWED_MEDIUMS = [\n  \"email\",\n  \"cpc\",\n  \"paid_social\",\n  \"social\",\n  \"display\",\n  \"referral\",\n  \"affiliate\",\n  \"sms\"\n];\n// checks that warn instead of fail\nconst WARN_ONLY = [\n  \"not https\",\n  \"medium not in ALLOWED_MEDIUMS\",\n  \"duplicate utm_content in campaign\",\n  \"slow landing page\"\n];\n// landing pages slower than this are flagged\nconst SLOW_MS = 3000;\n// true -> rows already marked ok are checked again\nconst RECHECK_OK = false;\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    links_sheet_id: LINKS_SHEET_ID,\n    use_live_checks: USE_LIVE_CHECKS,\n    required_params: REQUIRED_PARAMS,\n    allowed_mediums: ALLOWED_MEDIUMS,\n    warn_only: WARN_ONLY,\n    slow_ms: SLOW_MS,\n    recheck_ok: RECHECK_OK,\n    dry_run: DRY_RUN,\n    sheet_enabled: LINKS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "d3ce4ce3-92bf-43f3-a6eb-c6eb605ad3ce",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "b1f0a6ad-5b56-429d-ac0c-dc0c9508b1f0",
+      "name": "Every weekday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "65dec3a2-bd4a-4502-a150-b15003d165de",
+      "name": "Links sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4313123a-1a43-441a-a93a-a93a14994313",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "a64e5441-39f1-49f1-a47a-147aa08ca64e",
+      "name": "Read the campaign links",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.links_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Links"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "0126db58-9972-4fd8-ac76-1c76700b0126",
+      "name": "Load sample links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until LINKS_SHEET_ID is set. Same columns as the Links tab, one row per rule.\nconst u = 'https://www.yourcompany.example';\nreturn [\n  { link_id: 'L-001', campaign: 'q4-launch', url: u + '/launch?utm_source=newsletter&utm_medium=email&utm_campaign=q4-launch&utm_content=hero-button', status: '' },\n  { link_id: 'L-002', campaign: 'q4-launch', url: u + '/launch?utm_source=Facebook&utm_medium=paid_social&utm_campaign=q4 launch', status: '' },\n  { link_id: 'L-003', campaign: 'q4-launch', url: u + '/launch?utm_source=linkedin&utm_campaign=q4-launch', status: '' },\n  { link_id: 'L-004', campaign: 'q4-launch', url: u + '/old-launch-page?utm_source=google&utm_medium=cpc&utm_campaign=q4-launch', status: '' },\n  { link_id: 'L-005', campaign: 'q4-launch', url: u + '/launch?utm_source=partner-blog&utm_medium=banner&utm_campaign=q4-launch', status: '' },\n  { link_id: 'L-006', campaign: 'q4-launch', url: u + '/pricing?utm_source=newsletter&utm_medium=email&utm_campaign=q4-launch&utm_content=hero-button', status: '' },\n  { link_id: 'L-007', campaign: 'q4-launch', url: 'www.yourcompany.example/launch?utm_source=x', status: '' },\n  { link_id: 'L-008', campaign: 'q4-launch', url: 'http://www.yourcompany.example/launch?utm_source=podcast&utm_medium=referral&utm_campaign=q4-launch', status: '' },\n  { link_id: 'L-009', campaign: 'q3-sale', url: u + '/sale?utm_source=newsletter&utm_medium=email&utm_campaign=q3-sale', status: 'ok' },\n].map((json, i) => ({ json: { row_number: i + 2, ...json } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "a8f6b020-02ae-4620-a6d1-86d1fbe3a8f6",
+      "name": "Combine link sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "6d9cff77-52dc-4047-aeaf-3eaf668e6d9c",
+      "name": "Check the link rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Every rule that can be checked without a request. Each failed rule adds a\n// plain-language issue; WARN_ONLY decides later whether it fails the row.\nconst cfg = $('config').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r.link_id && r.url && (cfg.recheck_ok || String(r.status).toLowerCase() !== 'ok'));\nconst contentSeen = {};\nconst out = rows.map(r => {\n  const issues = [];\n  const raw = String(r.url).trim();\n  let u = null;\n  try { u = new URL(raw); if (!/^https?:$/.test(u.protocol)) u = null; } catch (e) { u = null; }\n  if (!u) return { ...r, issues: ['not a valid URL (needs https://)'], landing: '' };\n  if (u.protocol !== 'https:') issues.push('not https');\n  const qs = raw.split('?')[1] || '';\n  const pairs = qs.split('&').filter(Boolean).map(p => p.split('='));\n  const names = pairs.map(p => decodeURIComponent(p[0]));\n  for (const p of cfg.required_params) if (!names.includes(p)) issues.push('missing ' + p);\n  for (const n of [...new Set(names.filter((n, i) => names.indexOf(n) !== i))]) issues.push(n + ' appears twice');\n  for (const [k, v = ''] of pairs) {\n    if (!k.startsWith('utm_')) continue;\n    const val = decodeURIComponent(v.replace(/\\+/g, ' '));\n    if (!val) issues.push(k + ' is empty');\n    else if (/\\s/.test(val)) issues.push(k + ' has spaces');\n    if (val && val !== val.toLowerCase()) issues.push(k + ' is not lowercase');\n  }\n  const medium = u.searchParams.get('utm_medium');\n  if (medium && !cfg.allowed_mediums.includes(medium)) issues.push('medium not in ALLOWED_MEDIUMS');\n  const content = u.searchParams.get('utm_content');\n  const camp = u.searchParams.get('utm_campaign') || r.campaign;\n  if (content) {\n    const k = camp + '|' + content;\n    if (contentSeen[k]) { issues.push('duplicate utm_content in campaign'); contentSeen[k].issues.push('duplicate utm_content in campaign'); }\n    else contentSeen[k] = { issues };\n  }\n  return { ...r, issues, landing: u.origin + u.pathname };\n});\nreturn out.map(json => ({ json }));\n"
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "bc345a78-5ebd-44f8-a765-9765edebbc34",
+      "name": "Use sample page results?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f2d8521c-1264-415c-a2d5-52d5d86ff2d8",
+              "leftValue": "={{ $('config').first().json.use_live_checks }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "830b6817-8e06-46e7-a2e0-72e00eee830b",
+      "name": "List unique landing pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One request per distinct landing page, not per link, to keep the load polite.\nconst pages = [...new Set($input.all().map(i => i.json.landing).filter(Boolean))];\nreturn pages.map(landing => ({ json: { landing, started: Date.now() } }));\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "ca52e075-7e87-4de5-a33f-233f5f20ca52",
+      "name": "Request the landing page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.landing }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; link-checker/1.0)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        1856,
+        352
+      ]
+    },
+    {
+      "id": "6086ff3f-4484-418f-afb2-7fb2ca866086",
+      "name": "Read status codes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Full responses carry statusCode. A failed request arrives as an error item;\n// the status is read from its message (\"status code 404\") or counted as 0.\nconst pages = $('List unique landing pages').all();\nreturn $input.all().map((it, i) => {\n  const j = it.json;\n  const err = j.error ? String(j.error.message || j.error) : '';\n  const code = j.statusCode || Number((err.match(/status code (\\d{3})/) || [])[1] || 0);\n  return { json: { landing: pages[i].json.landing, status_code: code, ms: Date.now() - pages[i].json.started, error: code ? '' : err.slice(0, 120) } };\n});\n"
+      },
+      "position": [
+        2080,
+        352
+      ]
+    },
+    {
+      "id": "9f419e6b-333c-4afb-a518-65188b929f41",
+      "name": "Load sample status codes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_CHECKS is true: one retired page and one slow page.\nconst pages = [...new Set($input.all().map(i => i.json.landing).filter(Boolean))];\nreturn pages.map(landing => ({ json: { landing, status_code: landing.endsWith('/old-launch-page') ? 404 : 200, ms: landing.endsWith('/pricing') ? 4200 : 640, error: '' } }));\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "fc0e721a-a981-4dfa-a30c-130cadb9fc0e",
+      "name": "Combine status results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2304,
+        176
+      ]
+    },
+    {
+      "id": "56b9b305-4815-4375-a950-495054f056b9",
+      "name": "Write a status for each row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Joins rule issues with the landing page result. Any issue outside WARN_ONLY\n// fails the row; WARN_ONLY issues alone make it warn.\nconst cfg = $('config').first().json;\nconst byPage = Object.fromEntries($input.all().map(i => [i.json.landing, i.json]));\nconst warnOnly = new Set(cfg.warn_only);\nconst stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');\nreturn $('Check the link rules').all().map(({ json: r }) => {\n  const issues = [...r.issues];\n  const page = byPage[r.landing];\n  if (page) {\n    if (!page.status_code) issues.push('landing page unreachable' + (page.error ? ': ' + page.error : ''));\n    else if (page.status_code >= 400) issues.push('landing page returns ' + page.status_code);\n    else if (page.ms > cfg.slow_ms) issues.push('slow landing page');\n  }\n  const status = !issues.length ? 'ok' : issues.every(x => warnOnly.has(x)) ? 'warn' : 'fail';\n  return { json: { row_number: r.row_number, link_id: r.link_id, status, issues: issues.join('; '), checked_at: stamp } };\n});\n"
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "3124b862-6e97-4dc2-a34b-634b0e113124",
+      "name": "Live and sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79aa084a-f060-452a-ae05-de0528e979aa",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "7aaa09dd-b2b5-46cd-a609-a6099f787aaa",
+              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "163e3472-684a-44d2-a97d-c97d3ea1163e",
+      "name": "STOP: dry run - sheet untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "472d7aa3-a86d-45b3-ad1e-1d1ef49a472d",
+      "name": "Write status to the sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.links_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Links"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "link_id"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Links sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Links sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the campaign links",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the campaign links": {
+      "main": [
+        [
+          {
+            "node": "Combine link sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample links": {
+      "main": [
+        [
+          {
+            "node": "Combine link sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine link sources": {
+      "main": [
+        [
+          {
+            "node": "Check the link rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the link rules": {
+      "main": [
+        [
+          {
+            "node": "Use sample page results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample page results?": {
+      "main": [
+        [
+          {
+            "node": "Load sample status codes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List unique landing pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List unique landing pages": {
+      "main": [
+        [
+          {
+            "node": "Request the landing page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request the landing page": {
+      "main": [
+        [
+          {
+            "node": "Read status codes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample status codes": {
+      "main": [
+        [
+          {
+            "node": "Combine status results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read status codes": {
+      "main": [
+        [
+          {
+            "node": "Combine status results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine status results": {
+      "main": [
+        [
+          {
+            "node": "Write a status for each row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write a status for each row": {
+      "main": [
+        [
+          {
+            "node": "Live and sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live and sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Write status to the sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

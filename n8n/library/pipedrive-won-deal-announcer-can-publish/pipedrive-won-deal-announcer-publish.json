@@ -1,0 +1,626 @@
+{
+  "name": "Announce won Pipedrive deals in Slack with cycle time and source",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Announce won Pipedrive deals in Slack with cycle time and source\n\n**Who's it for**\nSales teams on Pipedrive that celebrate wins in a Slack channel and want the post to say more than \"deal won\". Each message shows how long the deal took and where it came from, so patterns show up over a month.\n\n**How it works**\n1. Every 10 minutes it reads the 100 most recently won deals from Pipedrive, or sample deals until Pipedrive is connected.\n2. Only deals won in the last 48 hours that have not been announced are kept, so connecting an old account does not flood the channel.\n3. Each win gets a band from `VALUE_BANDS` (Big win from 50,000), its days to close compared with the month's median, and its source from the deal origin or a custom field.\n4. The month's running total is summed per currency from all wins this calendar month. One Slack message goes out per deal, oldest first.\n\n**How to set up**\n1. Run it once as imported. It formats sample wins and stops at `STOP: preview - nothing posted`.\n2. Add a Pipedrive credential to `Fetch recently won deals` and set `USE_PIPEDRIVE = true`.\n3. Connect Slack and set `SLACK_CHANNEL_ID`. If you track source in a custom field, put its key in `SOURCE_FIELD_KEY`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_SLACK_CHANNEL` to a private channel, where test messages land. Set `TEST_RUN = false` to post to `SLACK_CHANNEL_ID` and remember announced deals.\n\n**Requirements**\n- A Pipedrive account with an API token\n- A Slack workspace\n\n**How to customize**\n- `VALUE_BANDS` sets the thresholds, labels and emoji for each band.\n- `ANNOUNCE_WITHIN_HOURS` decides how old a win can be and still be posted.\n- `MAIN_CURRENCY` is listed first in the running total.",
+        "height": 1024,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "21363e98-5717-4c4e-9a00-21363e9813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nPolls every 10 minutes, close enough to feel live without a Pipedrive webhook to maintain. Bands, the announce window and the source field live in `config`.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "703391bd-5717-4c4e-9a00-703391bd1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read won deals\n\nThe 100 latest wins are read every time because the monthly total and median need the whole month, not only new deals. `Load sample deals` stands in until `USE_PIPEDRIVE` is true.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "6f33902a-5717-4c4e-9a00-6f33902a1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Pick and write\n\n`Pick wins to announce` drops anything announced before or older than `ANNOUNCE_WITHIN_HOURS`, which is what keeps a first run from posting last year's wins.",
+        "height": 528,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "6e338e97-5717-4c4e-9a00-6e338e971002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post and remember\n\nOne message per win, oldest first, so the channel reads in order. A test post goes only to `TEST_SLACK_CHANNEL`, and stops at a STOP if that is blank. Only a live run stores the deal ids, so a test post never hides the real one.",
+        "height": 528,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        0
+      ],
+      "id": "6d338d04-5717-4c4e-9a00-6d338d041003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "9418548f-5183-4ddf-a70d-270dac969418",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ANNOUNCE WON PIPEDRIVE DEALS IN SLACK WITH CYCLE TIME AND SOURCE - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_PIPEDRIVE false -> SAMPLE won deals so the run works before any credential exists.\n// Announced deal ids are remembered in workflow static data, only on a live run.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_SLACK_CHANNEL, never to SLACK_CHANNEL_ID.\n\n// set true after adding the Pipedrive credential\nconst USE_PIPEDRIVE = false;\n// checked top to bottom; first band whose min the value reaches\nconst VALUE_BANDS = [\n  {\n    min: 50000,\n    label: \"Big win\",\n    emoji: \":trophy:\"\n  },\n  {\n    min: 10000,\n    label: \"Solid win\",\n    emoji: \":tada:\"\n  },\n  {\n    min: 0,\n    label: \"Win\",\n    emoji: \":white_check_mark:\"\n  }\n];\n// wins older than this are never posted\nconst ANNOUNCE_WITHIN_HOURS = 48;\n// Pipedrive custom field key holding lead source; blank uses the deal origin\nconst SOURCE_FIELD_KEY = '';\n// listed first in the monthly running total\nconst MAIN_CURRENCY = 'USD';\n// channel for win posts; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// test mode posts here instead of the real channel; blank means test mode posts nothing\nconst TEST_SLACK_CHANNEL = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_pipedrive: USE_PIPEDRIVE,\n    value_bands: VALUE_BANDS,\n    announce_within_hours: ANNOUNCE_WITHIN_HOURS,\n    source_field_key: SOURCE_FIELD_KEY,\n    main_currency: MAIN_CURRENCY,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_slack_channel: TEST_SLACK_CHANNEL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    test_slack_enabled: TEST_SLACK_CHANNEL.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "2e3d9d6f-6cdc-40bf-a5ff-45ff6db62e3d",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "4dd0ebbc-3a42-48fc-a98c-598cc4cf4dd0",
+      "name": "Every 10 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "36b2c00a-bc81-40ea-a3fe-b3fe132936b2",
+      "name": "Use sample deals?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0783a16-054e-4f36-a207-d2074b25d078",
+              "leftValue": "={{ !$('config').first().json.use_pipedrive }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "5a70f2e2-9572-4042-a890-c89058915a70",
+      "name": "Load sample deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_PIPEDRIVE is true. Four recent wins, one old one that must not be posted.\nconst ago = h => new Date(Date.now() - h * 3600e3).toISOString().replace('T', ' ').slice(0, 19);\nconst d = (id, title, value, currency, wonH, cycleDays, owner, org, source) => ({ id, title, value, currency, won_time: ago(wonH), add_time: ago(wonH + cycleDays * 24), owner, org, source });\nreturn [\n  d(301, 'Harbour Dental annual plan', 62000, 'USD', 1, 45, 'Maya Ortiz', 'Harbour Dental', 'Referral'),\n  d(302, 'Northfield retainer', 12500, 'USD', 3, 12, 'Theo Grant', 'Northfield Studio', 'Inbound'),\n  d(303, 'Lumen add-on seats', 1800, 'USD', 5, 3, 'Ines Park', 'Lumen Physio', 'Existing customer'),\n  d(304, 'Quarry Labs pilot', 9000, 'EUR', 2, 21, 'Owen Blake', 'Quarry Labs', 'Outbound'),\n  d(305, 'Pine and Co logo', 3000, 'USD', 60 * 24, 9, 'Maya Ortiz', 'Pine and Co', 'Inbound'),\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "9abecc46-4382-4266-a839-28395a559abe",
+      "name": "Fetch recently won deals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.pipedrive.com/v1/deals",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "pipedriveApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "won"
+            },
+            {
+              "name": "sort",
+              "value": "won_time DESC"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "a57e448a-0058-4d6a-a497-249753a9a57e",
+      "name": "Read Pipedrive deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pipedrive v1 deals -> the sample shape. Source: custom field if set, else origin or channel.\nconst cfg = $('config').first().json;\nconst out = [];\nfor (const page of $input.all()) for (const d of page.json.data || []) out.push({ json: {\n  id: d.id, title: d.title, value: Number(d.value || 0), currency: d.currency || cfg.main_currency, won_time: d.won_time, add_time: d.add_time,\n  owner: d.owner_name || d.user_id?.name || '', org: d.org_name || d.org_id?.name || '',\n  source: (cfg.source_field_key && d[cfg.source_field_key]) || d.origin || d.channel || 'not recorded',\n} });\nreturn out;\n"
+      },
+      "position": [
+        960,
+        384
+      ]
+    },
+    {
+      "id": "e4664cc6-f78e-4ae6-a87d-887dbed5e466",
+      "name": "Combine deal sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        208
+      ]
+    },
+    {
+      "id": "ca57b39f-13b2-47ef-af6f-2f6f8426ca57",
+      "name": "Pick wins to announce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pipedrive times are UTC \"YYYY-MM-DD HH:MM:SS\". Month total and median use every win\n// this month; only recent, unannounced wins are posted.\nconst cfg = $('config').first().json;\nconst announced = new Set($getWorkflowStaticData('global').announced || []);\nconst utc = s => new Date(String(s).replace(' ', 'T') + (String(s).endsWith('Z') ? '' : 'Z'));\nconst now = new Date();\nconst monthKey = now.toISOString().slice(0, 7);\nconst deals = $input.all().map(i => i.json).map(d => ({ ...d, won: utc(d.won_time), days_to_close: Math.max(0, Math.round((utc(d.won_time) - utc(d.add_time)) / 864e5)) }));\nconst month = deals.filter(d => d.won.toISOString().slice(0, 7) === monthKey);\nconst totals = {};\nfor (const d of month) totals[d.currency] = (totals[d.currency] || 0) + d.value;\nconst cycles = month.map(d => d.days_to_close).sort((a, b) => a - b);\nconst median = cycles.length ? cycles[Math.floor((cycles.length - 1) / 2)] : null;\nconst post = [], skipped = [];\nfor (const d of deals) {\n  if (announced.has(String(d.id))) { skipped.push({ id: d.id, reason: 'already announced' }); continue; }\n  if (now - d.won > cfg.announce_within_hours * 3600e3) { skipped.push({ id: d.id, reason: 'won more than ANNOUNCE_WITHIN_HOURS ago' }); continue; }\n  const band = cfg.value_bands.find(b => d.value >= b.min) || cfg.value_bands[cfg.value_bands.length - 1];\n  post.push({ ...d, won: d.won.toISOString(), band: band.label, emoji: band.emoji });\n}\npost.sort((a, b) => a.won.localeCompare(b.won));\nreturn [{ json: { post, skipped, totals, median_days: median, month_wins: month.length } }];\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "01afc3f2-b321-4c52-af46-4f46ae2101af",
+      "name": "Write one message per win",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Cycle time is framed against this month's median so \"fast\" and \"slow\" mean something.\nconst cfg = $('config').first().json;\nconst { post, totals, median_days, month_wins } = $input.first().json;\nconst fmt = (n, c) => new Intl.NumberFormat('en-US', { style: 'currency', currency: c, maximumFractionDigits: 0 }).format(n);\nconst cur = Object.keys(totals).sort((a, b) => (a === cfg.main_currency ? -1 : b === cfg.main_currency ? 1 : a.localeCompare(b)));\nconst running = cur.map(c => fmt(totals[c], c)).join(' + ');\nreturn post.map(d => {\n  const pace = median_days === null ? '' : d.days_to_close < median_days ? ', faster than this month\\'s median of ' + median_days : d.days_to_close > median_days ? ', slower than this month\\'s median of ' + median_days : ', right on the median';\n  const text = [\n    (cfg.mode === 'test' ? '[TEST] ' : '') + d.emoji + ' *' + d.band + '*: ' + d.title + ' - ' + fmt(d.value, d.currency),\n    'Won by ' + (d.owner || 'unknown') + (d['org'] ? ' with ' + d['org'] : '') + '. Closed in ' + d.days_to_close + ' day' + (d.days_to_close === 1 ? '' : 's') + pace + '.',\n    'Source: ' + d.source + ' | Month so far: ' + running + ' from ' + month_wins + ' wins',\n  ].join('\\n');\n  return { json: { id: d.id, text, send_to: cfg.mode === 'test' ? cfg.test_slack_channel.trim() : cfg.slack_channel_id } };\n});\n"
+      },
+      "position": [
+        1648,
+        208
+      ]
+    },
+    {
+      "id": "6e5f4d28-9ef4-40a8-ab52-8b520a9b6e5f",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled && ($('config').first().json.mode === 'test' || $('config').first().json.slack_enabled) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1888,
+        208
+      ]
+    },
+    {
+      "id": "e44e463e-34a3-4ede-a9ba-b9ba47bde44e",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2112,
+        384
+      ]
+    },
+    {
+      "id": "3a07e857-78f9-4327-aa10-1a101cae3a07",
+      "name": "Test channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd637f1d-6e1a-480d-a946-09464738fd63",
+              "leftValue": "={{ $('config').first().json.mode !== 'test' || $('config').first().json.test_slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "6cb9d6ad-e820-429d-ae6a-3e6a25086cb9",
+      "name": "STOP: test - TEST_SLACK_CHANNEL blank",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2320,
+        384
+      ]
+    },
+    {
+      "id": "979e6093-29bb-40a3-aba8-fba8244a979e",
+      "name": "Post the win to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.send_to }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2320,
+        208
+      ]
+    },
+    {
+      "id": "a461b0af-cba6-4fff-a5f4-c5f4f776a461",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        208
+      ]
+    },
+    {
+      "id": "bc7051dc-be9d-451c-a37b-937ba5afbc70",
+      "name": "STOP: test post - deals not remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        384
+      ]
+    },
+    {
+      "id": "e66c3af0-4240-4ff0-ac40-ec40c0b3e66c",
+      "name": "Remember announced deals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Live only: the last 1000 announced deal ids are kept.\nconst store = $getWorkflowStaticData('global');\nconst ids = $('Write one message per win').all().map(i => String(i.json.id));\nstore.announced = [...new Set([...(store.announced || []), ...ids])].slice(-1000);\nreturn [{ json: { remembered: store.announced.length } }];\n"
+      },
+      "position": [
+        2768,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 10 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample deals?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample deals?": {
+      "main": [
+        [
+          {
+            "node": "Load sample deals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch recently won deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch recently won deals": {
+      "main": [
+        [
+          {
+            "node": "Read Pipedrive deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample deals": {
+      "main": [
+        [
+          {
+            "node": "Combine deal sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pipedrive deals": {
+      "main": [
+        [
+          {
+            "node": "Combine deal sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine deal sources": {
+      "main": [
+        [
+          {
+            "node": "Pick wins to announce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick wins to announce": {
+      "main": [
+        [
+          {
+            "node": "Write one message per win",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write one message per win": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Test channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the win to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - TEST_SLACK_CHANNEL blank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the win to Slack": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember announced deals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test post - deals not remembered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

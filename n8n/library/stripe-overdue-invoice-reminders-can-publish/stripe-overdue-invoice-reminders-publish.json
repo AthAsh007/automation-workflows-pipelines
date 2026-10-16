@@ -1,0 +1,695 @@
+{
+  "name": "Send overdue invoice reminders from Stripe with Gmail and a Slack summary",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Send overdue invoice reminders from Stripe with Gmail and a Slack summary\n\n**Who's it for**\nSmall finance teams and agencies who bill through Stripe and chase late invoices by hand. It replaces the weekly \"who owes us\" spreadsheet with a ladder that runs every weekday morning.\n\n**How it works**\n1. Every weekday at 09:00 it reads open invoices from Stripe, or a built-in sample set until Stripe is connected.\n2. Each invoice gets the next step on the reminder ladder (3, 10 and 21 days overdue by default). The step already sent is read from the invoice metadata, so nobody gets the same email twice.\n3. Disputed invoices, invoices under the minimum amount and customers on the skip list are held back with a reason.\n4. Reminders go out through Gmail, the step is written back to the Stripe invoice, and one summary lands in Slack.\n\n**How to set up**\n1. Run it once as imported. It previews against sample invoices and stops at `STOP: preview - nothing sent`.\n2. Add a Stripe credential to `Fetch open invoices from Stripe` and `Record reminder step on Stripe`, then set `USE_STRIPE = true` in `config`.\n3. Connect Gmail and, optionally, Slack, and fill in `SLACK_CHANNEL_ID`.\n4. Put your own address in `TEST_EMAIL` to receive every reminder yourself. Set `TEST_RUN = false` when the wording is right.\n\n**Requirements**\n- A Stripe account with invoices\n- A Gmail account\n- Optional: a Slack workspace\n\n**How to customize**\n- Change the ladder in `LADDER`: days overdue, subject and tone for each step.\n- Raise `MIN_AMOUNT` to stop chasing small balances, or add customer ids to `SKIP_CUSTOMERS`.\n- `DAILY_CAP` limits how many reminders one run can send.",
+        "height": 960,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "737677d9-5717-4c4e-9a00-737677d913e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 09:00 or by hand. Every setting lives in `config`, including the reminder ladder, so nothing else needs editing.",
+        "height": 688,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b0638c1c-5717-4c4e-9a00-b0638c1c1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read open invoices\n\n`Stripe connected?` reads live invoices once `USE_STRIPE` is true. Until then `Load sample invoices` feeds the same shape, so the whole run can be watched before any credential exists.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "b1638daf-5717-4c4e-9a00-b1638daf1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Choose who gets which step and report it\n\nThe step already sent is stored on the invoice, so a reminder is never repeated. Disputed, tiny and skipped invoices are held with a reason, `DAILY_CAP` is enforced in code, and one Slack message lists every decision.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        0
+      ],
+      "id": "b2638f42-5717-4c4e-9a00-b2638f421002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send and record\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test send goes to you and leaves Stripe alone; only a live run writes the step back to the invoice.",
+        "height": 688,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        0
+      ],
+      "id": "b36390d5-5717-4c4e-9a00-b36390d51003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "c718dfc3-d6da-40d3-aec3-dec3c07ac718",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// SEND OVERDUE INVOICE REMINDERS FROM STRIPE WITH GMAIL AND A SLACK SUMMARY - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_STRIPE false -> the run uses SAMPLE invoices so it works before any credential exists.\n// SLACK_CHANNEL_ID blank -> no summary is posted.\n\n// set true after adding the Stripe credential to the two Stripe nodes\nconst USE_STRIPE = false;\n// reminder ladder: days overdue that unlocks each step\nconst LADDER = [\n  {\n    step: 1,\n    days: 3,\n    subject: \"A gentle reminder about invoice {number}\",\n    tone: \"friendly\"\n  },\n  {\n    step: 2,\n    days: 10,\n    subject: \"Invoice {number} is now {days} days overdue\",\n    tone: \"firm\"\n  },\n  {\n    step: 3,\n    days: 21,\n    subject: \"Final reminder: invoice {number}\",\n    tone: \"final\"\n  }\n];\n// invoices with less than this left to pay are not chased (major units)\nconst MIN_AMOUNT = 50;\n// Stripe customer ids that are never chased automatically\nconst SKIP_CUSTOMERS = [];\n// hard ceiling on reminders per run\nconst DAILY_CAP = 25;\n// sign-off on every reminder\nconst SENDER_NAME = 'Accounts team';\n// channel for the run summary; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_stripe: USE_STRIPE,\n    ladder: LADDER,\n    min_amount: MIN_AMOUNT,\n    skip_customers: SKIP_CUSTOMERS,\n    daily_cap: DAILY_CAP,\n    sender_name: SENDER_NAME,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "efcebacb-efd6-495b-a82e-082eed32efce",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "8ddb0548-2c65-4ec8-aa89-ba89497b8ddb",
+      "name": "Every weekday at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "f3bd70a0-0296-4ea0-a5e3-35e3a063f3bd",
+      "name": "Stripe connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c52a34d4-76b2-4a94-aaaa-9aaaa6f7c52a",
+              "leftValue": "={{ $('config').first().json.use_stripe }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "984cd662-2982-4bc2-a443-14433011984c",
+      "name": "Fetch open invoices from Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "https://api.stripe.com/v1/invoices",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "open"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "expand[]",
+              "value": "data.customer"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "a003f952-b035-43b2-a07c-c07c6cc1a003",
+      "name": "Read Stripe invoices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stripe list response -> one item per invoice, in the shape the ladder reads.\nconst out = [];\nfor (const page of $input.all()) {\n  for (const inv of page.json.data || []) {\n    out.push({ json: {\n      id: inv.id, number: inv.number || inv.id, customer_id: typeof inv.customer === 'object' ? inv.customer?.id : inv.customer,\n      customer_name: inv.customer_name || inv.customer?.name || '', email: inv.customer_email || inv.customer?.email || '',\n      amount_due: (inv.amount_remaining ?? inv.amount_due ?? 0) / 100, currency: (inv.currency || 'usd').toUpperCase(),\n      due_date: inv.due_date ? new Date(inv.due_date * 1000).toISOString().slice(0, 10) : null,\n      hosted_url: inv.hosted_invoice_url || '', disputed: Boolean(inv.metadata?.disputed === 'true'),\n      last_step: Number(inv.metadata?.reminder_step || 0),\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "83fb45e7-9b66-43b7-a799-c799687e83fb",
+      "name": "Load sample invoices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_STRIPE is true. Dates are relative to today so the ladder always has work.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nreturn [\n  { id: 'in_sample_1', number: 'INV-1041', customer_id: 'cus_a', customer_name: 'Harbour Dental', email: 'ap@harbour-dental.example', amount_due: 1200, currency: 'USD', due_date: day(4),  hosted_url: 'https://invoice.example/1041', disputed: false, last_step: 0 },\n  { id: 'in_sample_2', number: 'INV-1038', customer_id: 'cus_b', customer_name: 'Northfield Studio', email: 'billing@northfield.example', amount_due: 640, currency: 'USD', due_date: day(12), hosted_url: 'https://invoice.example/1038', disputed: false, last_step: 1 },\n  { id: 'in_sample_3', number: 'INV-1033', customer_id: 'cus_c', customer_name: 'Orchard Lane Cafe', email: 'owner@orchardlane.example', amount_due: 310, currency: 'USD', due_date: day(25), hosted_url: 'https://invoice.example/1033', disputed: true, last_step: 2 },\n  { id: 'in_sample_4', number: 'INV-1044', customer_id: 'cus_d', customer_name: 'Pine & Co', email: 'accounts@pineco.example', amount_due: 20, currency: 'USD', due_date: day(9), hosted_url: 'https://invoice.example/1044', disputed: false, last_step: 0 },\n  { id: 'in_sample_5', number: 'INV-1046', customer_id: 'cus_e', customer_name: 'Lumen Physio', email: 'admin@lumenphysio.example', amount_due: 980, currency: 'USD', due_date: day(1), hosted_url: 'https://invoice.example/1046', disputed: false, last_step: 0 },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "6f803297-bffd-4967-a2c1-c2c1496e6f80",
+      "name": "Combine invoice sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "a1983170-68a8-4e70-a9ba-59baef33a198",
+      "name": "Pick the next reminder step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One step per invoice per run. A step is due when the invoice is at least that\n// many days overdue AND the step has not been sent. Everything held back says why.\nconst cfg = $('config').first().json;\nconst ladder = [...cfg.ladder].sort((a, b) => a.days - b.days);\nconst today = new Date(new Date().toISOString().slice(0, 10));\nconst due = [], held = [];\nfor (const { json: inv } of $input.all()) {\n  const daysOver = inv.due_date ? Math.floor((today - new Date(inv.due_date)) / 864e5) : -1;\n  const next = ladder.find(s => s.step > inv.last_step && daysOver >= s.days);\n  const reason =\n    !inv.email ? 'no billing email' :\n    inv.disputed ? 'disputed' :\n    inv.amount_due < cfg.min_amount ? 'below MIN_AMOUNT' :\n    cfg.skip_customers.includes(inv.customer_id) ? 'on SKIP_CUSTOMERS' :\n    daysOver < 0 ? 'not overdue yet' :\n    !next ? (inv.last_step >= ladder.length ? 'ladder finished' : 'next step not due yet') : '';\n  if (reason) held.push({ number: inv.number, customer: inv.customer_name, reason });\n  else due.push({ ...inv, days_overdue: daysOver, step: next.step, tone: next.tone, subject_tpl: next.subject });\n}\ndue.sort((a, b) => b.days_overdue - a.days_overdue);\nconst capped = due.slice(0, cfg.daily_cap);\nfor (const x of due.slice(cfg.daily_cap)) held.push({ number: x.number, customer: x.customer_name, reason: 'over DAILY_CAP, next run' });\nreturn [{ json: { reminders: capped, held, checked: $input.all().length } }];\n"
+      },
+      "position": [
+        1424,
+        176
+      ]
+    },
+    {
+      "id": "55d8f311-9c8a-47c1-a252-a2522a5c55d8",
+      "name": "Write each reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Facts come from the invoice; tone comes from the ladder step. No model involved.\nconst cfg = $('config').first().json;\nconst { reminders } = $input.first().json;\nconst money = (n, cur) => new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(n);\nconst opening = {\n  friendly: 'Just a quick note in case this slipped through.',\n  firm: 'We have not yet received payment for the invoice below.',\n  final: 'This is our last automated reminder before we follow up by phone.',\n};\nreturn reminders.map(r => {\n  const subject = r.subject_tpl.replace('{number}', r.number).replace('{days}', r.days_overdue);\n  const body = [\n    'Hi ' + (r.customer_name || 'there') + ',', '',\n    opening[r.tone] || opening.friendly, '',\n    'Invoice: ' + r.number,\n    'Amount due: ' + money(r.amount_due, r.currency),\n    'Due date: ' + r.due_date + ' (' + r.days_overdue + ' days ago)',\n    r.hosted_url ? 'Pay online: ' + r.hosted_url : '', '',\n    'If you have already paid, please ignore this email.', '',\n    cfg.sender_name,\n  ].filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\\n');\n  return { json: { ...r, subject, body, send_to: cfg.mode === 'test' ? cfg.test_email : r.email } };\n});\n"
+      },
+      "position": [
+        1648,
+        176
+      ]
+    },
+    {
+      "id": "0306d204-e7d7-48c4-ad01-ed014a270306",
+      "name": "Sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6e4c6a88-3467-4008-abc3-bbc3113b6e4c",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2336,
+        176
+      ]
+    },
+    {
+      "id": "6e6dc273-fb80-4c83-ae85-ae85626a6e6d",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2560,
+        352
+      ]
+    },
+    {
+      "id": "cd0b28be-0fca-495e-ac38-6c380a3dcd0b",
+      "name": "Email the reminder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $json.send_to }}",
+        "subject": "={{ ($('config').first().json.mode === 'test' ? '[TEST to ' + $json.email + '] ' : '') + $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        2560,
+        176
+      ]
+    },
+    {
+      "id": "1b8a5d0b-3801-479b-ad2d-6d2d51f21b8a",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2784,
+        176
+      ]
+    },
+    {
+      "id": "45feb122-d11f-4a82-a4ed-b4ed015145fe",
+      "name": "STOP: test send - Stripe untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3008,
+        352
+      ]
+    },
+    {
+      "id": "09b2ec52-a806-46b2-a0d7-d0d70fc109b2",
+      "name": "Record reminder step on Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.stripe.com/v1/invoices/' + $('Write each reminder').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "stripeApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "metadata[reminder_step]",
+              "value": "={{ $('Write each reminder').item.json.step }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        3008,
+        176
+      ]
+    },
+    {
+      "id": "62043dbd-afb8-44ad-a5e1-65e144986204",
+      "name": "Summarise the run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message whatever happened, including what was held back and why.\nconst cfg = $('config').first().json;\nconst picked = $('Pick the next reminder step').first().json;\nconst lines = picked.reminders.map(r => '- ' + r.number + ' ' + r.customer_name + ': step ' + r.step + ', ' + r.days_overdue + ' days');\nconst held = picked.held.map(h => '- ' + h.number + ' ' + h.customer + ': ' + h.reason);\nconst text = [\n  '*Invoice reminders* (' + cfg.mode + ')',\n  picked.checked + ' open invoices checked, ' + picked.reminders.length + ' reminders' + (cfg.mode === 'preview' ? ' prepared' : ' sent') + '.',\n  ...(lines.length ? ['', ...lines] : []),\n  ...(held.length ? ['', 'Held back:', ...held] : []),\n].join('\\n');\nreturn [{ json: { text, sent: picked.reminders.length, held: picked.held.length } }];\n"
+      },
+      "position": [
+        1648,
+        352
+      ]
+    },
+    {
+      "id": "eeeaefed-0dc1-47dd-adac-5dac73c8eeea",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1872,
+        352
+      ]
+    },
+    {
+      "id": "4df7dc53-9f57-4063-a765-5765c18a4df7",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2096,
+        512
+      ]
+    },
+    {
+      "id": "cd566e45-19b3-4ab5-acf0-fcf08db0cd56",
+      "name": "Post the summary to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2096,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Stripe connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe connected?": {
+      "main": [
+        [
+          {
+            "node": "Fetch open invoices from Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch open invoices from Stripe": {
+      "main": [
+        [
+          {
+            "node": "Read Stripe invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Stripe invoices": {
+      "main": [
+        [
+          {
+            "node": "Combine invoice sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample invoices": {
+      "main": [
+        [
+          {
+            "node": "Combine invoice sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine invoice sources": {
+      "main": [
+        [
+          {
+            "node": "Pick the next reminder step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick the next reminder step": {
+      "main": [
+        [
+          {
+            "node": "Write each reminder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise the run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write each reminder": {
+      "main": [
+        [
+          {
+            "node": "Sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "Email the reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the reminder": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Record reminder step on Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - Stripe untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise the run": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

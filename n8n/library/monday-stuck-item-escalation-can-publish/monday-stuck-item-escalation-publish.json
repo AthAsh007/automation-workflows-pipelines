@@ -1,0 +1,617 @@
+{
+  "name": "Escalate monday.com items stuck in a status for too long",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Escalate monday.com items stuck in a status for too long\n\n**Who's it for**\nOperations and delivery leads who run client work on a monday.com board and find out a week late that an item sat in \"Waiting for review\". It flags only the items over their limit, once.\n\n**How it works**\n1. Every weekday at 09:30 it reads the items on one board through the monday.com GraphQL API, or 6 sample items until monday.com is connected.\n2. For each item it reads the status label and the time that status last changed, then counts business days since.\n3. Each status has its own limit in `STATUS_MAX_DAYS` (2 days for review, 5 for work in progress). Statuses not listed, like Done, are ignored.\n4. An item over its limit gets one escalation per status change. The key is remembered in workflow static data, so it is not posted again tomorrow.\n5. A live run posts an update on the item itself and the run posts one Slack message listing every stuck item with its owner.\n\n**How to set up**\n1. Run it once as imported. It checks sample items and stops at `STOP: preview - nothing sent` and `STOP: test - monday.com untouched`.\n2. Add a monday.com credential to `Query board items on monday.com` and `Post update on the monday.com item`, fill in `BOARD_ID` and set `USE_MONDAY = true`.\n3. Match `STATUS_COLUMN_ID` and `OWNER_COLUMN_ID` to your board columns, and set `SLACK_CHANNEL_ID`.\n4. Put your address in `TEST_EMAIL` to post the Slack list only, then set `TEST_RUN = false` to also comment on the items.\n\n**Requirements**\n- A monday.com account with API access\n- Optional: a Slack workspace\n\n**How to customize**\n- `STATUS_MAX_DAYS` sets the limit for each status label on your board.\n- Set `COUNT_WEEKENDS = true` for boards that move seven days a week.\n- `MAX_ESCALATIONS` caps updates per run so a board-wide stall does not spam everyone.",
+        "height": 1072,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "8dc9e258-5717-4c4e-9a00-8dc9e25813e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 09:30 or by hand. The per-status limits, column ids and the weekend rule all live in `config`, so a board with different labels only needs that node edited.",
+        "height": 704,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f1a01f7d-5717-4c4e-9a00-f1a01f7d1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the board\n\nOne GraphQL query returns every item with its status label and the time that label last changed. `Load sample board items` returns the same shape, with change times set in business days so the result holds any day.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "f0a01dea-5717-4c4e-9a00-f0a01dea1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Find stuck items and tell Slack\n\nThe escalation key includes the status change time, so a moved item resets and a stalled one is flagged once. `Post to Slack?` also needs at least one stuck item, so a quiet board stays quiet.",
+        "height": 704,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "efa01c57-5717-4c4e-9a00-efa01c571002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Comment on the items\n\nOnly a live run writes to monday.com. `Remember escalated items` stores a key only after the update call returns an id, so a failed post is retried next run instead of silently skipped.",
+        "height": 704,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        0
+      ],
+      "id": "eea01ac4-5717-4c4e-9a00-eea01ac41003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "1d90f546-db31-4b66-a7c7-47c76b551d90",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// ESCALATE MONDAY.COM ITEMS STUCK IN A STATUS FOR TOO LONG - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_MONDAY false -> SAMPLE items so the run works before any credential exists.\n// SLACK_CHANNEL_ID blank -> no Slack list. Only a live run posts updates on items.\n\n// set true after adding the monday.com credential to both monday.com nodes\nconst USE_MONDAY = false;\n// board id, the number in the board URL\nconst BOARD_ID = '';\n// column id of the status column to watch\nconst STATUS_COLUMN_ID = 'status';\n// column id of the people column shown as owner\nconst OWNER_COLUMN_ID = 'person';\n// status label -> business days allowed before escalating\nconst STATUS_MAX_DAYS = {\n  \"Working on it\": 5,\n  \"Waiting for review\": 2,\n  \"Waiting on client\": 4,\n  Stuck: 1\n};\n// false counts business days only\nconst COUNT_WEEKENDS = false;\n// hard ceiling on item updates per run, oldest first\nconst MAX_ESCALATIONS = 10;\n// channel for the stuck-items list; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_monday: USE_MONDAY,\n    board_id: BOARD_ID,\n    status_column_id: STATUS_COLUMN_ID,\n    owner_column_id: OWNER_COLUMN_ID,\n    status_max_days: STATUS_MAX_DAYS,\n    count_weekends: COUNT_WEEKENDS,\n    max_escalations: MAX_ESCALATIONS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "id": "a6a90652-1678-40b2-a8f8-18f855c1a6a9",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        208
+      ]
+    },
+    {
+      "id": "ae12812e-3ebc-4ece-a79e-679eea2dae12",
+      "name": "Every weekday at 09:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        384
+      ]
+    },
+    {
+      "id": "cd602ca9-5ae9-41d9-a7ec-17ec67e4cd60",
+      "name": "monday.com connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f629ff76-c322-4696-ae6d-7e6d04c5f629",
+              "leftValue": "={{ $('config').first().json.use_monday }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        208
+      ]
+    },
+    {
+      "id": "5ff7f880-f267-4080-a2b8-62b8a1835ff7",
+      "name": "Query board items on monday.com",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.monday.com/v2",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mondayComApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "API-Version",
+              "value": "2024-10"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'query ($board: [ID!]) { boards (ids: $board) { name items_page (limit: 200) { items { id name url updated_at group { title } column_values { id text ... on StatusValue { label updated_at } } } } } }', variables: { board: [String($('config').first().json.board_id)] } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        736,
+        208
+      ]
+    },
+    {
+      "id": "d9f1faa2-e492-4c02-a0c0-c0c012d1d9f1",
+      "name": "Load sample board items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_MONDAY is true. Same GraphQL shape. Status change times are counted\n// back in business days so the expected escalations hold on any weekday.\nconst day = 864e5;\nconst isWeekday = t => { const d = new Date(t).getUTCDay(); return d !== 0 && d !== 6; };\nconst bizAgo = n => { let t = Date.now(), k = 0; while (k < n) { t -= day; if (isWeekday(t)) k++; } return new Date(t).toISOString(); };\nconst item = (id, name, label, changedDaysAgo, owner, group) => ({\n  id, name, url: 'https://acme-example.monday.com/boards/1234/pulses/' + id, updated_at: new Date().toISOString(),\n  group: { title: group },\n  column_values: [\n    { id: 'status', text: label, label, updated_at: bizAgo(changedDaysAgo) },\n    { id: 'person', text: owner },\n  ],\n});\nreturn [{ json: { data: { boards: [{ name: 'Client onboarding', items_page: { items: [\n  item('5001', 'Harbour Dental onboarding', 'Waiting for review', 4, 'Dana Okafor', 'October'),\n  item('5002', 'Northfield site migration', 'Working on it', 3, 'Marco Lindqvist', 'October'),\n  item('5003', 'Orchard Lane contract', 'Stuck', 2, 'Priya Natarajan', 'October'),\n  item('5004', 'Pine & Co kickoff', 'Done', 20, 'Dana Okafor', 'September'),\n  item('5005', 'Lumen Physio data import', 'Working on it', 9, '', 'October'),\n  item('5006', 'Brightside Vets welcome pack', 'Waiting on client', 4, 'Lee Chen', 'October'),\n] } }] } } }];\n"
+      },
+      "position": [
+        736,
+        384
+      ]
+    },
+    {
+      "id": "c8d8887e-4d4b-4d1e-a173-6173137dc8d8",
+      "name": "Combine item sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        960,
+        208
+      ]
+    },
+    {
+      "id": "f86dd26d-27cf-425d-aa73-5a73f248f86d",
+      "name": "Find items stuck too long",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Days in status = business days (or calendar days) since the status column last changed.\n// One escalation per item per status change: the key includes the change time, so a\n// new status resets it. Static data holds keys already escalated by a live run.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst sent = memory.escalated || {};\nconst day = 864e5, now = Date.now();\nconst counts = t => { const d = new Date(t).getUTCDay(); return cfg.count_weekends || (d !== 0 && d !== 6); };\nconst daysSince = from => { let d = from, n = 0; while (d + day <= now) { if (counts(d)) n++; d += day; } return n; };\nconst stuck = [], held = [];\nlet checked = 0, board = '';\nfor (const { json } of $input.all()) for (const b of json.data?.boards || []) {\n  board = b.name;\n  for (const it of b.items_page?.items || []) {\n    checked++;\n    const col = (it.column_values || []).find(c => c.id === cfg.status_column_id) || {};\n    const label = col.label || col.text || '';\n    const limit = cfg.status_max_days[label];\n    if (limit === undefined) continue;\n    const changed = col.updated_at || it.updated_at;\n    const days = daysSince(new Date(changed).getTime());\n    if (days <= limit) continue;\n    const key = it.id + '|' + label + '|' + changed;\n    const owner = ((it.column_values || []).find(c => c.id === cfg.owner_column_id) || {}).text || '';\n    if (sent[key]) { held.push({ name: it.name, reason: 'already escalated for this status' }); continue; }\n    stuck.push({ item_id: it.id, name: it.name, url: it.url, group: it.group?.title || '', status: label, days, limit, over: days - limit, owner: owner || 'nobody assigned', key,\n      update_body: 'Escalation: this item has been in \"' + label + '\" for ' + days + ' business days (limit ' + limit + '). ' + (owner ? owner + ', can you move it on or post what is blocking it?' : 'It has no owner. Please assign someone today.') });\n  }\n}\nstuck.sort((a, b) => b.over - a.over);\nfor (const s of stuck.slice(cfg.max_escalations)) held.push({ name: s.name, reason: 'over MAX_ESCALATIONS, next run' });\nreturn [{ json: { board, checked, stuck: stuck.slice(0, cfg.max_escalations), held } }];\n"
+      },
+      "position": [
+        1200,
+        208
+      ]
+    },
+    {
+      "id": "83a95d77-9bd7-4e47-a192-0192588e83a9",
+      "name": "Split into item updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per escalation so each monday.com update is its own call.\nreturn $input.first().json.stuck.map(json => ({ json }));\n"
+      },
+      "position": [
+        1424,
+        208
+      ]
+    },
+    {
+      "id": "1725e9a4-56e1-4e64-a08a-208a48871725",
+      "name": "Write the Slack list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One message for the team lead, worst first, with what was held back.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst text = [\n  '*Stuck items on ' + r.board + '* (' + cfg.mode + '): ' + r.stuck.length + ' over their limit, ' + r.checked + ' checked.',\n  ...r.stuck.map(s => '- <' + s.url + '|' + s.name + '>: ' + s.status + ' for ' + s.days + 'd (limit ' + s.limit + '), ' + s.owner),\n  ...(r.held.length ? ['Held back:', ...r.held.map(h => '- ' + h.name + ': ' + h.reason)] : []),\n].join('\\n');\nreturn [{ json: { text, stuck: r.stuck.length } }];\n"
+      },
+      "position": [
+        1424,
+        384
+      ]
+    },
+    {
+      "id": "475c18b4-4506-4874-ad51-bd512c17475c",
+      "name": "Post to Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20d7b9bb-fd1d-4d4b-a3d7-53d79de220d7",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1fd7b828-3ac9-4ba8-a3ce-83ce359b1fd7",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "22d7bce1-81c6-4091-a919-e919f3ec22d7",
+              "leftValue": "={{ $json.stuck }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "id": "836fd4c6-a66d-42e6-aab8-fab866d5836f",
+      "name": "STOP: preview - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1872,
+        544
+      ]
+    },
+    {
+      "id": "73b09433-c417-4243-a87e-d87e72aa73b0",
+      "name": "Post stuck items to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        1872,
+        384
+      ]
+    },
+    {
+      "id": "d6ddcad8-48a1-4758-ab65-cb651b8bd6dd",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2112,
+        208
+      ]
+    },
+    {
+      "id": "c0744203-0c3a-4f13-a07e-b07e713ac074",
+      "name": "STOP: test - monday.com untouched",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2336,
+        384
+      ]
+    },
+    {
+      "id": "cec0fb4d-adc0-453d-a04c-904c5c68cec0",
+      "name": "Post update on the monday.com item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.monday.com/v2",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mondayComApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "API-Version",
+              "value": "2024-10"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'mutation ($item: ID!, $body: String!) { create_update (item_id: $item, body: $body) { id } }', variables: { item: String($json.item_id), body: $json.update_body } }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2336,
+        208
+      ]
+    },
+    {
+      "id": "18888b87-cc5c-4757-a2bb-a2bb2dde1888",
+      "name": "Remember escalated items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Only after monday.com accepted the update: store the key so tomorrow skips it.\n// Keys older than 60 days are pruned so static data stays small.\nconst memory = $getWorkflowStaticData('global');\nconst sent = memory.escalated || {};\nconst cutoff = Date.now() - 60 * 864e5;\nfor (const k of Object.keys(sent)) if (sent[k] < cutoff) delete sent[k];\nconst items = $('Split into item updates').all();\n$input.all().forEach((res, i) => { if (res.json.data?.create_update?.id) sent[items[i].json.key] = Date.now(); });\nmemory.escalated = sent;\nreturn [{ json: { remembered: Object.keys(sent).length } }];\n"
+      },
+      "position": [
+        2560,
+        208
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 09:30": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "monday.com connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "monday.com connected?": {
+      "main": [
+        [
+          {
+            "node": "Query board items on monday.com",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample board items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query board items on monday.com": {
+      "main": [
+        [
+          {
+            "node": "Combine item sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample board items": {
+      "main": [
+        [
+          {
+            "node": "Combine item sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine item sources": {
+      "main": [
+        [
+          {
+            "node": "Find items stuck too long",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find items stuck too long": {
+      "main": [
+        [
+          {
+            "node": "Split into item updates",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write the Slack list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the Slack list": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack?": {
+      "main": [
+        [
+          {
+            "node": "Post stuck items to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split into item updates": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Post update on the monday.com item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test - monday.com untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post update on the monday.com item": {
+      "main": [
+        [
+          {
+            "node": "Remember escalated items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

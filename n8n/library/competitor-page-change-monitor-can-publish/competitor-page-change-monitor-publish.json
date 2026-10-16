@@ -1,0 +1,620 @@
+{
+  "name": "Monitor competitor pricing pages for changes and alert Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Monitor competitor pricing pages for changes and alert Slack\n\n**Who's it for**\nProduct marketers and founders who check rival pricing pages by hand every few weeks and find out about a price rise from a prospect. This checks every weekday and only speaks up when a price or a meaningful share of the wording changes.\n\n**How it works**\n1. Every weekday at 08:00 it fetches each page in `PAGES`, or uses 3 sample pages until live fetching is on.\n2. Scripts, styles and tags are stripped, then every price such as \"$49/mo\" or \"120 EUR per year\" is extracted.\n3. Prices are compared with the snapshot from the last run, and the wording is compared word by word. More than 15% changed wording counts as a change.\n4. One Slack message lists added and removed prices per page. Pages that failed to load are reported and keep their old snapshot.\n\n**How to set up**\n1. Run it once as imported. It compares the sample pages and stops at `STOP: preview - nothing posted`.\n2. List the pages you want to watch in `PAGES` and set `USE_LIVE_FETCH = true`. The first live run saves a baseline and posts the prices it found.\n3. Connect Slack and set `SLACK_CHANNEL_ID`.\n4. Set `TEST_EMAIL` to any address to post with a [TEST] prefix, then set `TEST_RUN = false` for normal alerts.\n\n**Requirements**\n- Public pricing pages that render their prices in HTML\n- A Slack workspace\n\n**How to customize**\n- `TEXT_CHANGE_PCT` sets how much wording must change before a page without price changes is reported.\n- `POST_BASELINE` controls whether the first run for a new page posts the prices it found.\n- `IGNORE_PRICES` drops recurring noise such as \"$0\" from free tiers.",
+        "height": 976,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "id": "f25e9699-5717-4c4e-9a00-f25e969913e7",
+      "name": "Template overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Start and settings\n\nRuns every weekday at 08:00 or by hand. The watched pages, the wording threshold and the ignore list live in `config`.",
+        "height": 512,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "04635cdc-5717-4c4e-9a00-04635cdc1000",
+      "name": "Section 1 note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Fetch the pages\n\nPricing pages are public, so `Fetch each pricing page` needs no credential, but it still waits for `USE_LIVE_FETCH`. Until then `Load sample page HTML` also carries the HTML from the last run so the diff can be watched offline.",
+        "height": 512,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "05635e6f-5717-4c4e-9a00-05635e6f1001",
+      "name": "Section 2 note"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Diff against the last snapshot\n\nPrices are compared as a set, so reordered plans are not a change. A page that failed to load keeps its old snapshot, which stops the next run from reporting every price as new.",
+        "height": 512,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        0
+      ],
+      "id": "06636002-5717-4c4e-9a00-066360021002",
+      "name": "Section 3 note"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Post to Slack\n\nNothing is posted while `TEST_RUN` is true and `TEST_EMAIL` is blank. A test post carries a [TEST] prefix. A blank channel ends at `STOP: no Slack channel`.",
+        "height": 512,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "07636195-5717-4c4e-9a00-076361951003",
+      "name": "Section 4 note"
+    },
+    {
+      "id": "ef479bf9-79ba-4829-a6f1-a6f13d34ef47",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// MONITOR COMPETITOR PRICING PAGES FOR CHANGES AND ALERT SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FETCH false -> SAMPLE page HTML with a built-in previous snapshot.\n// SLACK_CHANNEL_ID blank -> the report is built but not posted.\n\n// set true to fetch the pages in PAGES (public pages, no credential needed)\nconst USE_LIVE_FETCH = false;\n// pages to watch: a short name and the full URL\nconst PAGES = [\n  {\n    name: \"Rival A pricing\",\n    url: \"https://www.rival-a.example/pricing\"\n  },\n  {\n    name: \"Rival B pricing\",\n    url: \"https://www.rival-b.example/plans\"\n  },\n  {\n    name: \"Rival C pricing\",\n    url: \"https://rival-c.example/pricing\"\n  }\n];\n// percent of words that must change before a page with the same prices is reported\nconst TEXT_CHANGE_PCT = 15;\n// true -> the first run for a new page posts the prices found, so you can check extraction\nconst POST_BASELINE = true;\n// prices never reported (normalised form)\nconst IGNORE_PRICES = [\n  \"$0\",\n  \"$0/mo\"\n];\n// channel for the change report; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_live_fetch: USE_LIVE_FETCH,\n    pages: PAGES,\n    text_change_pct: TEXT_CHANGE_PCT,\n    post_baseline: POST_BASELINE,\n    ignore_prices: IGNORE_PRICES,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "position": [
+        272,
+        176
+      ]
+    },
+    {
+      "id": "c5223a89-9bc4-49b9-a2ad-a2ada304c522",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        48,
+        176
+      ]
+    },
+    {
+      "id": "a23284fb-81b5-448b-ad66-0d6666a2a232",
+      "name": "Every weekday at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "position": [
+        48,
+        352
+      ]
+    },
+    {
+      "id": "18572b01-e2cf-44b1-ae0b-ae0b25cc1857",
+      "name": "Use sample pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a0b8d019-9d82-4249-a51f-f51fc514a0b8",
+              "leftValue": "={{ $('config').first().json.use_live_fetch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        512,
+        176
+      ]
+    },
+    {
+      "id": "48e70238-a1cd-40b8-a641-0641682b48e7",
+      "name": "List pages to check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per watched page so the HTTP node fetches each in turn.\nreturn $('config').first().json.pages.map(p => ({ json: { name: p.name, url: p.url } }));\n"
+      },
+      "position": [
+        736,
+        352
+      ]
+    },
+    {
+      "id": "8dcfe177-30dd-4247-a9ef-89ef648e8dcf",
+      "name": "Fetch each pricing page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; pricing-monitor/1.0)"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        944,
+        352
+      ]
+    },
+    {
+      "id": "eaaa6906-0fc0-4326-aae3-5ae35995eaaa",
+      "name": "Pair pages with their HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The HTTP node returns the body as a string in \"data\". Pair it back with the\n// page it came from by position; anything that is not a string counts as a failed load.\nconst pages = $('List pages to check').all();\nreturn $input.all().map((it, i) => ({ json: {\n  name: pages[i]?.json.name, url: pages[i]?.json.url,\n  html: typeof it.json.data === 'string' ? it.json.data : '',\n  previous_html: '',\n} }));\n"
+      },
+      "position": [
+        1168,
+        352
+      ]
+    },
+    {
+      "id": "240569fb-25c2-498b-adeb-9deb7ba22405",
+      "name": "Load sample page HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until USE_LIVE_FETCH is true. Each page also carries the HTML \"from the\n// last run\" so the comparison has something to diff against.\nconst page = (plans) => '<html><head><style>.x{color:red}</style><script>var price=\"$999\";</script></head><body><h1>Pricing</h1>' +\n  plans.map(p => '<div class=\"plan\"><h2>' + p[0] + '</h2><p class=\"price\">' + p[1] + '</p><p>' + p[2] + '</p></div>').join('') + '</body></html>';\nreturn [\n  { name: 'Rival A pricing', url: 'https://www.rival-a.example/pricing',\n    html: page([['Starter', '$29/mo', 'Up to 3 users and 1,000 contacts'], ['Growth', '$89&nbsp;/mo', 'Up to 10 users and 10,000 contacts'], ['Scale', '$199/mo', 'Unlimited users, SSO and audit log']]),\n    previous_html: page([['Starter', '$29/mo', 'Up to 3 users and 1,000 contacts'], ['Growth', '$79/mo', 'Up to 10 users and 10,000 contacts'], ['Scale', '$199/mo', 'Unlimited users, SSO and audit log']]) },\n  { name: 'Rival B pricing', url: 'https://www.rival-b.example/plans',\n    html: page([['Free', '$0', 'One project'], ['Team', '120 EUR per year', 'Per seat, billed yearly']]),\n    previous_html: page([['Team', '120 EUR per year', 'Per seat, billed yearly'], ['Free', '$0', 'One project']]) },\n  { name: 'Rival C pricing', url: 'https://rival-c.example/pricing', html: '',\n    previous_html: page([['Solo', '$15/mo', 'One user'], ['Studio', '$45/mo', 'Five users']]) },\n].map(json => ({ json }));\n"
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "756f4a59-b335-4889-a40d-b40d18d4756f",
+      "name": "Combine page sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "acf7e123-b951-4433-a28c-928c331aacf7",
+      "name": "Compare prices with the last snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Strips scripts, styles and tags, decodes the common entities, then pulls every\n// price into a normalised form (\"$89/mo\", \"120 eur/yr\"). Prices and the word set\n// are compared with the stored snapshot. Snapshots are saved only for live\n// fetches, and never for a page that failed to load.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nstore.pages = store.pages || {};\nconst ignore = new Set(cfg.ignore_prices.map(p => p.toLowerCase()));\nconst visible = html => html\n  .replace(/<(script|style|noscript|svg)[\\s\\S]*?<\\/\\1>/gi, ' ').replace(/<!--[\\s\\S]*?-->/g, ' ').replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&#36;/g, '$').replace(/&euro;/g, '€').replace(/&pound;/g, '£')\n  .replace(/\\s+/g, ' ').trim();\nconst PRICE = /(?:[$€£]\\s?\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?|\\b\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?\\s?(?:usd|eur|gbp)\\b)(?:\\s?(?:\\/|per)\\s?(?:mo|month|yr|year|user|seat))?/gi;\nconst norm = p => p.toLowerCase().replace(/\\s+/g, ' ').replace(/\\s?(?:\\/|per)\\s?(month|mo)$/, '/mo').replace(/\\s?(?:\\/|per)\\s?(year|yr)$/, '/yr')\n  .replace(/\\s?(?:\\/|per)\\s?(user|seat)$/, '/seat').replace(/^([$€£])\\s/, '$1');\nconst extract = html => {\n  const text = visible(html);\n  return { prices: [...new Set((text.match(PRICE) || []).map(norm))].filter(x => !ignore.has(x)).sort(),\n    words: [...new Set(text.toLowerCase().replace(/[^a-z0-9,.$€£ ]/g, ' ').split(' ').filter(w => w.length > 1))] };\n};\nconst reports = [];\nfor (const { json: p } of $input.all()) {\n  if (!p.html) { reports.push({ name: p.name, url: p.url, status: 'failed to load', added: [], removed: [], text_change_pct: 0 }); continue; }\n  const { prices, words } = extract(p.html);\n  const prev = store.pages[p.url] || (p.previous_html ? extract(p.previous_html) : null);\n  let status, added = [], removed = [], pct = 0;\n  if (!prev) status = 'baseline';\n  else {\n    added = prices.filter(x => !prev.prices.includes(x));\n    removed = prev.prices.filter(x => !prices.includes(x));\n    const a = new Set(words), b = new Set(prev.words);\n    const union = new Set([...a, ...b]).size || 1;\n    const same = [...a].filter(w => b.has(w)).length;\n    pct = Math.round((1 - same / union) * 100);\n    status = added.length || removed.length ? 'prices changed' : pct >= cfg.text_change_pct ? 'wording changed' : 'no change';\n  }\n  if (cfg.use_live_fetch) store.pages[p.url] = { prices, words: words.slice(0, 3000), checked_at: new Date().toISOString() };\n  reports.push({ name: p.name, url: p.url, status, prices, added, removed, text_change_pct: pct });\n}\nreturn [{ json: { reports } }];\n"
+      },
+      "position": [
+        1632,
+        176
+      ]
+    },
+    {
+      "id": "4e706498-c7e9-4518-aac3-5ac353cb4e70",
+      "name": "Build the change report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One Slack message. Unchanged pages are counted, not listed.\nconst cfg = $('config').first().json;\nconst { reports } = $input.first().json;\nconst show = reports.filter(r => r.status === 'prices changed' || r.status === 'wording changed' || r.status === 'failed to load' || (r.status === 'baseline' && cfg.post_baseline));\nconst lines = show.map(r => {\n  if (r.status === 'prices changed') return '*<' + r.url + '|' + r.name + '>*: ' + [r.added.length ? 'new ' + r.added.join(', ') : '', r.removed.length ? 'gone ' + r.removed.join(', ') : ''].filter(Boolean).join('; ');\n  if (r.status === 'wording changed') return '*<' + r.url + '|' + r.name + '>*: same prices, ' + r.text_change_pct + '% of the wording changed';\n  if (r.status === 'baseline') return '*<' + r.url + '|' + r.name + '>*: now tracking ' + (r.prices.length ? r.prices.join(', ') : 'no prices found, check the page renders server side');\n  return '*' + r.name + '*: failed to load, old snapshot kept';\n});\nconst unchanged = reports.filter(r => r.status === 'no change').length;\nconst alert = reports.some(r => r.status === 'prices changed' || r.status === 'wording changed' || (r.status === 'baseline' && cfg.post_baseline));\nconst text = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*Competitor pricing check*', ...lines, unchanged ? unchanged + ' page(s) unchanged.' : ''].filter(Boolean).join('\\n');\nreturn [{ json: { alert, text, changed: reports.filter(r => r.status === 'prices changed').length, unchanged } }];\n"
+      },
+      "position": [
+        1856,
+        176
+      ]
+    },
+    {
+      "id": "c410ec38-df61-4ab8-a3f8-73f8fe2bc410",
+      "name": "Anything worth reporting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6b3ebcfa-b368-42da-aa25-3a25dcd96b3e",
+              "leftValue": "={{ $json.alert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        176
+      ]
+    },
+    {
+      "id": "e4ec4edf-8c92-4f2f-a37e-237e9ce6e4ec",
+      "name": "STOP: no changes",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2304,
+        352
+      ]
+    },
+    {
+      "id": "a4489db6-1eda-40d6-afa5-9fa58d85a448",
+      "name": "Posting switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2d5b05e0-e4d5-4fe0-a5c9-35c903232d5b",
+              "leftValue": "={{ $('config').first().json.sends_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        176
+      ]
+    },
+    {
+      "id": "6adb9094-10f0-4a54-afee-ffee9d376adb",
+      "name": "STOP: preview - nothing posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2768,
+        352
+      ]
+    },
+    {
+      "id": "5b6bff2f-1661-467f-a201-0201adf65b6b",
+      "name": "Slack channel set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "110bc2a3-c325-4db3-ab8a-bb8a9c9a110b",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        176
+      ]
+    },
+    {
+      "id": "b14ad959-959a-4789-af75-2f7563d4b14a",
+      "name": "STOP: no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2992,
+        352
+      ]
+    },
+    {
+      "id": "048e0eb9-a2ec-4ee9-ae47-ae47d274048e",
+      "name": "Post the report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2992,
+        176
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every weekday at 08:00": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Use sample pages?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use sample pages?": {
+      "main": [
+        [
+          {
+            "node": "Load sample page HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List pages to check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List pages to check": {
+      "main": [
+        [
+          {
+            "node": "Fetch each pricing page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch each pricing page": {
+      "main": [
+        [
+          {
+            "node": "Pair pages with their HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample page HTML": {
+      "main": [
+        [
+          {
+            "node": "Combine page sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pair pages with their HTML": {
+      "main": [
+        [
+          {
+            "node": "Combine page sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine page sources": {
+      "main": [
+        [
+          {
+            "node": "Compare prices with the last snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare prices with the last snapshot": {
+      "main": [
+        [
+          {
+            "node": "Build the change report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build the change report": {
+      "main": [
+        [
+          {
+            "node": "Anything worth reporting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything worth reporting?": {
+      "main": [
+        [
+          {
+            "node": "Posting switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posting switched on?": {
+      "main": [
+        [
+          {
+            "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview - nothing posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack channel set?": {
+      "main": [
+        [
+          {
+            "node": "Post the report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no Slack channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -115,7 +115,7 @@ left out of the payload rather than written as an empty field, and a blank key s
 
 1. In `config` (either file — then re-run `python build/build.py`): set `GHL_LOCATION_ID`,
    `GHL_PIPELINE_ID`, the `STAGES` ids, the `OWNERS` user ids and the `CUSTOM_FIELDS` ids. Set
-   `GHL_API_KEY` to a Private Integration token with `contacts.write`, `opportunities.write` and
+   a Header Auth credential (Name `Authorization`, Value `Bearer <Private Integration token>`) on every GoHighLevel node and `GHL_CREDENTIAL_ADDED = true`. The token needs `contacts.write`, `opportunities.write` and
    `conversations.write`.
 2. Set `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID` and `SEQ_LAST_REPLY_FIELD_ID` to the
    custom fields that hold the sequence's counter and its two dates — without them the live read
@@ -149,7 +149,7 @@ stopped, the stop reasons, and the message and request each touch would send.
   (`support` / `quote` / `demo` / `general`), not a model reading the enquiry. That is the honest
   gap and the first thing to replace: the model should fill typed fields, with the *routing and the
   score left as rules in code* so a lead it cannot classify goes to a human, not a silent guess.
-- **The sequence reads the real pipeline when it can.** With `GHL_LOCATION_ID` and `GHL_API_KEY`
+- **The sequence reads the real pipeline when it can.** With `GHL_LOCATION_ID` set and `GHL_CREDENTIAL_ADDED = true`
   set, 02 calls `/opportunities/search` and maps it to the same rows the demo pipeline produces —
   one code path either way. It reads **one page** (`PIPELINE_PAGE_LIMIT`, 100); if there are more
   opportunities than that, the plan reports `more_pages` and the total, so a partial read is never
@@ -176,3 +176,19 @@ stopped, the stop reasons, and the message and request each touch would send.
   pipeline's timings are the demo's, not a client's.
 - **The opportunity call is built but not wired.** GoHighLevel creates a contact and its opportunity
   in two calls; the second is shown in the payload node, not sent.
+
+## Resubmission changes (2026-10-16)
+
+The first submission was rejected in human review. The `-publish.json` files were regenerated with
+`library/_kit/republish.ts` and checked with `library/_kit/diff.ts` (identical logic apart from the
+renames below). What changed:
+
+- **No API key in the HTTP nodes.** The GoHighLevel nodes now use an n8n Header Auth credential.
+  `GHL_API_KEY` is gone from `config`; `GHL_CREDENTIAL_ADDED = false` replaces it.
+- **Node names follow n8n's naming guidance**: verb first, sentence case, no `[cred]` prefix
+  (`read the lead` is now `Read the lead from any source`). The working files keep the old names.
+- **No generic `End` sink.** Every branch already ends on a named `STOP:` node; the shared `End`
+  dragged long edges across the canvas.
+- **Sticky notes** are laid out the way n8n's template 13868 does it: one section sticky around its
+  nodes with room for the heading, the yellow description to the left. Nothing overlaps, no
+  connection is drawn through a node, and the copy has no em dashes.
