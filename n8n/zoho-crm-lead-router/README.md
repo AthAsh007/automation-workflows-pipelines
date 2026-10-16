@@ -1,6 +1,6 @@
 # Zoho CRM lead router
 
-**Status: can publish.** Not yet submitted. Submit each `-publish.json` with its `SUBMISSION-*.md` as is.
+**Status: ready to submit.** Not yet submitted. Submit each `-publish.json` with its `SUBMISSION-*.md` as is.
 
 | File | Template title |
 | --- | --- |

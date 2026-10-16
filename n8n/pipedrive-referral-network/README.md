@@ -201,7 +201,7 @@ going live is always the separate deliberate act of setting `TEST_RUN = false`.
 ## Files
 
 ```
-pipedrive-referral-network-can-publish/
+pipedrive-referral-network/
 ├── 01-activity-guard.json          generated — do not hand-edit
 ├── 02-recruitment-reporting.json   generated — do not hand-edit
 ├── build/

@@ -11,8 +11,8 @@ which is the faster way in if you are looking for a technique rather than an ind
 ## Publishing status
 
 A folder name ending in `-published` is live on the
-[n8n template library](https://n8n.io/creators/athash007/). A name ending in `-can-publish`
-holds `-publish.json` files that pass `submission_lint` with no errors and a matching
+[n8n template library](https://n8n.io/creators/athash007/). Every other folder
+holds `-publish.json` files that pass the submission linter with no errors and a matching
 `SUBMISSION-*.md` description, so they can be submitted as they are.
 
 **Published (17 templates)**
@@ -37,27 +37,27 @@ holds `-publish.json` files that pass `submission_lint` with no errors and a mat
 | [starters/applicant-tracking-sync-published](starters/applicant-tracking-sync-published/) | Sync job applicants between Google Sheets and Notion and email stage updates with Gmail | 20943 |
 | [starters/cold-email-and-reply-triage-published](starters/cold-email-and-reply-triage-published/) | Send cold outreach from lead files and classify Gmail replies with OpenRouter | 20944 |
 
-**Can publish (17 templates, plus the 100 in [`library/`](library/))**
+**Ready to submit (17 templates, plus the 100 in [`library/`](library/))**
 
 | Folder | Template title in the `-publish.json` |
 | --- | --- |
-| [brand-deal-outreach-engine-can-publish](brand-deal-outreach-engine-can-publish/) | Send personalised brand deal pitches from Airtable with Instantly |
+| [brand-deal-outreach-engine](brand-deal-outreach-engine/) | Send personalised brand deal pitches from Airtable with Instantly |
 | | Classify outreach replies and report weekly from Airtable to Slack |
-| [ghl-lead-intake-router-can-publish](ghl-lead-intake-router-can-publish/) | Route inbound leads from forms, email and calls into GoHighLevel |
+| [ghl-lead-intake-router](ghl-lead-intake-router/) | Route inbound leads from forms, email and calls into GoHighLevel |
 | | Send follow-up touches to quiet leads in GoHighLevel |
-| [pipedrive-referral-network-can-publish](pipedrive-referral-network-can-publish/) | Create next activities for uncovered open deals in Pipedrive |
+| [pipedrive-referral-network](pipedrive-referral-network/) | Create next activities for uncovered open deals in Pipedrive |
 | | Report a referral pipeline funnel from Pipedrive to Google Sheets |
-| [voice-avatar-reply-engine-can-publish](voice-avatar-reply-engine-can-publish/) | Triage inbound enquiries with AI and queue voice or video replies |
+| [voice-avatar-reply-engine](voice-avatar-reply-engine/) | Triage inbound enquiries with AI and queue voice or video replies |
 | | Generate avatar video replies with ElevenLabs and HeyGen |
-| [social-post-with-approval-can-publish](social-post-with-approval-can-publish/) | Draft LinkedIn posts with AI and send them to Discord for approval |
+| [social-post-with-approval](social-post-with-approval/) | Draft LinkedIn posts with AI and send them to Discord for approval |
 | | Publish approved LinkedIn posts from a Google Sheets queue |
-| [zoho-crm-lead-router-can-publish](zoho-crm-lead-router-can-publish/) | Route inbound leads from forms, email and calls into Zoho CRM |
+| [zoho-crm-lead-router](zoho-crm-lead-router/) | Route inbound leads from forms, email and calls into Zoho CRM |
 | | Create next-action tasks for stalled deals in Zoho CRM |
-| [trello-sms-notifier-can-publish](trello-sms-notifier-can-publish/) | Send SMS alerts from new Trello cards with Twilio |
-| [starters/ai-news-digest-can-publish](starters/ai-news-digest-can-publish/) | Filter and summarise RSS news with AI into Google Sheets |
-| [starters/b2b-lead-sourcing-can-publish](starters/b2b-lead-sourcing-can-publish/) | Source and verify B2B leads with Apify into Google Sheets |
-| [starters/newsletter-signup-to-mailchimp-can-publish](starters/newsletter-signup-to-mailchimp-can-publish/) | Subscribe newsletter signups to Mailchimp from a webhook and welcome them by email |
-| [starters/whatsapp-lead-and-reminders-can-publish](starters/whatsapp-lead-and-reminders-can-publish/) | Score WhatsApp leads with AI and send reminders over Twilio |
+| [trello-sms-notifier](trello-sms-notifier/) | Send SMS alerts from new Trello cards with Twilio |
+| [starters/ai-news-digest](starters/ai-news-digest/) | Filter and summarise RSS news with AI into Google Sheets |
+| [starters/b2b-lead-sourcing](starters/b2b-lead-sourcing/) | Source and verify B2B leads with Apify into Google Sheets |
+| [starters/newsletter-signup-to-mailchimp](starters/newsletter-signup-to-mailchimp/) | Subscribe newsletter signups to Mailchimp from a webhook and welcome them by email |
+| [starters/whatsapp-lead-and-reminders](starters/whatsapp-lead-and-reminders/) | Score WhatsApp leads with AI and send reminders over Twilio |
 
 ## Workflows
 
@@ -67,14 +67,14 @@ holds `-publish.json` files that pass `submission_lint` with no errors and a mat
 | [inbound-enquiry-router-published](inbound-enquiry-router-published/) | Website form, tracking sheet, instant reply with the standard questions, routed by postcode, nudged at 48 hours, morning digest. Two workflows. | Form webhook and weekdays 08:30 |
 | [crm-data-hygiene-published](crm-data-hygiene-published/) | Weekly CRM audit. Formatting is fixed automatically; duplicates, malformed addresses and likely job changes are reported and never auto-resolved. Stale verifications are rechecked and failures suppressed. One health score logged a week. | Sunday 20:00 |
 | [personalised-outbound-email](personalised-outbound-email/) | One personalised email per sheet row with real deliverables attached, then the outcome written back to the row. | Weekdays 09:00 and manual |
-| [social-post-with-approval-can-publish](social-post-with-approval-can-publish/) | Caption drafted, graphic rendered from a deterministic HTML template, draft posted to a chat channel, published only after a human replies. Two workflows. | Daily and on approval |
+| [social-post-with-approval](social-post-with-approval/) | Caption drafted, graphic rendered from a deterministic HTML template, draft posted to a chat channel, published only after a human replies. Two workflows. | Daily and on approval |
 | [recruiting-candidate-engine-published](recruiting-candidate-engine-published/) | ATS job order, scored candidates, an SMS and voice contact ladder, qualification, recruiter booking, ATS write-back. State in Postgres. Three workflows. | ATS webhook, every 15 minutes, inbound webhook |
-| [ghl-lead-intake-router-can-publish](ghl-lead-intake-router-can-publish/) | A lead from any source, read in whatever shape it arrived, routed to an owner, stage and tags by a first-match rule table, then written to the CRM as one payload built in one place. A second workflow walks unanswered leads down an ordered ladder and stops on a reply, a stage move or the cap, saying which. Two workflows. | Webhook, manual and weekdays 08:00 |
+| [ghl-lead-intake-router](ghl-lead-intake-router/) | A lead from any source, read in whatever shape it arrived, routed to an owner, stage and tags by a first-match rule table, then written to the CRM as one payload built in one place. A second workflow walks unanswered leads down an ordered ladder and stops on a reply, a stage move or the cap, saying which. Two workflows. | Webhook, manual and weekdays 08:00 |
 | [order-to-ship-engine-published](order-to-ship-engine-published/) | Store order parsed and deduplicated, written to the production board first, confirmed with a shipping window the rules can support, then tracking and a personalised shipping and installation email from per-product rules. Two workflows. | Store webhook, weekdays 08:30 and 16:30 |
-| [brand-deal-outreach-engine-can-publish](brand-deal-outreach-engine-can-publish/) | Creator-partnership outreach at volume where the quality claims are gates rather than promises. A personalisation audit holds any pitch with an invented number or a template tell; deliverability fails closed per mailbox and per domain. Two workflows. | Weekdays 08:00 and hourly |
-| [pipedrive-referral-network-can-publish](pipedrive-referral-network-can-publish/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. A question about absence, which is why nothing event-driven answers it. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
-| [voice-avatar-reply-engine-can-publish](voice-avatar-reply-engine-can-publish/) | An enquiry triaged into a written reply, a synthesised voice note or an avatar video. Rendering has to be earned; complaints, legal and press get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
-| [trello-sms-notifier-can-publish](trello-sms-notifier-can-publish/) | A card on a watched list, its fields read from the card name, the description text or a custom field, composed into an SMS and sent. The smallest complete example of the conventions here. | Trello webhook |
+| [brand-deal-outreach-engine](brand-deal-outreach-engine/) | Creator-partnership outreach at volume where the quality claims are gates rather than promises. A personalisation audit holds any pitch with an invented number or a template tell; deliverability fails closed per mailbox and per domain. Two workflows. | Weekdays 08:00 and hourly |
+| [pipedrive-referral-network](pipedrive-referral-network/) | The rule an event-driven CRM cannot express, asked of every open deal each morning: no open opportunity without a next activity. A question about absence, which is why nothing event-driven answers it. Two workflows. | Weekdays 07:00 and Mondays 08:00 |
+| [voice-avatar-reply-engine](voice-avatar-reply-engine/) | An enquiry triaged into a written reply, a synthesised voice note or an avatar video. Rendering has to be earned; complaints, legal and press get no automated answer. The render half polls with a bound and gives up rather than hanging. Two workflows. | Webhook and manual |
+| [trello-sms-notifier](trello-sms-notifier/) | A card on a watched list, its fields read from the card name, the description text or a custom field, composed into an SMS and sent. The smallest complete example of the conventions here. | Trello webhook |
 | [whatsapp-device-booking-agent](whatsapp-device-booking-agent/) | Teachers book shared school iPads over WhatsApp. An AI agent with four tool workflows (book, cancel, check availability, list my bookings) confirms before it changes anything, validates every date and time in the tools as well, and replies exactly once per message. Five workflows on Kapso. | Kapso webhook |
 
 ## Importing one

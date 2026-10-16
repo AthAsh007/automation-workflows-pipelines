@@ -1,6 +1,6 @@
 # Support email RAG responder
 
-**Status: can publish.** Not yet submitted. Submit each `-publish.json` with its `SUBMISSION-*.md` as is.
+**Status: published.** Live on n8n.io as templates 20940 and 20941.
 
 | File | Template title |
 | --- | --- |

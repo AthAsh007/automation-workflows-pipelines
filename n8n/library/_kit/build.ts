@@ -6,9 +6,9 @@
 //
 // For each spec: assemble -> annotate (layout + stickies) -> lint -> simulate
 // every scenario. Files are written only when all of that passes:
-//   <slug>-can-publish/<slug>-publish.json
-//   <slug>-can-publish/SUBMISSION-<slug>.md
-//   <slug>-can-publish/README.md
+//   <slug>/<slug>-publish.json
+//   <slug>/SUBMISSION-<slug>.md
+//   <slug>/README.md
 
 import { Glob } from 'bun';
 import { mkdirSync, rmSync, existsSync, readdirSync } from 'fs';
@@ -92,7 +92,7 @@ export async function buildOne(s: Spec, write = true) {
   }
   if (!results.some(r => r.outward.length)) problems.push('no scenario exercises an outward node (the live path is untested)');
 
-  const dir = join(LIB, `${s.slug}-can-publish`);
+  const dir = join(LIB, s.slug);
   if (write && !problems.length) {
     mkdirSync(dir, { recursive: true });
     await Bun.write(join(dir, `${s.slug}-publish.json`), raw + '\n');
@@ -134,7 +134,7 @@ async function writeIndex() {
   const cats: Record<string, string[]> = {};
   for await (const f of new Glob('*.ts').scan(SPECS)) {
     const s: Spec = (await import(join(SPECS, f))).default;
-    const folder = `${s.slug}-can-publish`;
+    const folder = s.slug;
     if (!existsSync(join(LIB, folder))) continue;
     (cats[s.category] ||= []).push(`| [${folder}](${folder}/) | ${s.title} | ${s.summary} |`);
   }

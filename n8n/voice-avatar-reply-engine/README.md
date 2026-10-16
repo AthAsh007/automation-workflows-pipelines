@@ -1,4 +1,4 @@
-# voice-avatar-reply-engine-can-publish
+# voice-avatar-reply-engine
 
 A digital-clone reply pipeline: inbound enquiry in, a written / spoken / avatar-video answer out.
 

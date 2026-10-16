@@ -14,7 +14,7 @@ body:
     id: template
     attributes:
       label: Template
-      description: Folder and file, for example `n8n/library/stripe-overdue-invoice-reminders-can-publish/stripe-overdue-invoice-reminders-publish.json`
+      description: Folder and file, for example `n8n/library/stripe-overdue-invoice-reminders/stripe-overdue-invoice-reminders-publish.json`
     validations:
       required: true
   - type: dropdown

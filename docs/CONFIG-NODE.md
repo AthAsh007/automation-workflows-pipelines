@@ -187,7 +187,7 @@ nothing irreversible.**
   the one trigger that proves it runs with no credential, and the setup steps in
   order, ending in the switch that goes live. Someone opening a workflow cold
   reads this first; without it the demo depends on the README being open next to
-  the canvas. [`../n8n/ghl-lead-intake-router-can-publish/`](../n8n/ghl-lead-intake-router-can-publish/)
+  the canvas. [`../n8n/ghl-lead-intake-router/`](../n8n/ghl-lead-intake-router/)
   is the pattern to copy.
 
 ## 8. Before a workflow ships
