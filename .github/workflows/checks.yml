@@ -32,6 +32,27 @@ jobs:
       - name: Every workflow parses and follows the config-node rule
         run: python tools/validate-workflows.py .
 
+  agents:
+    name: agent profiles install cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Every profile has its files, its prompts exist, its scripts compile
+        run: python tools/check-agents.py .
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Every agent script in JavaScript parses
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            node --check "$f" || status=1
+          done < <(find agents -path '*/scripts/*' \( -name '*.js' -o -name '*.mjs' \) -not -path '*/node_modules/*' -print0)
+          exit $status
+
   secrets:
     name: no committed credentials
     runs-on: ubuntu-latest

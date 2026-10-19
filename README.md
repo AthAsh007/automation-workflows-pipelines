@@ -161,6 +161,7 @@ a `SOUL.md` that states what the agent will not do, one folder per skill, and a
 | [autonomous-research-agent](agents/autonomous-research-agent/) | Run a research brief on a schedule and produce a citation-backed report |
 | [personal-assistant-setup](agents/personal-assistant-setup/) | A morning brief and a day-close review a person will actually read |
 | [social-post-agent](agents/social-post-agent/) | Scheduled posting to a company page behind an approval gate and 29 layout guardrails |
+| [n8n-workflow-ops](agents/n8n-workflow-ops/) | Change, publish and load-test live n8n workflows through n8n's MCP server, then watch them for failures |
 
 ## Running a template safely
 

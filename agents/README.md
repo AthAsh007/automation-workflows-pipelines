@@ -1,6 +1,6 @@
 # Agent profiles
 
-Six profiles for a filesystem-configured agent runtime: an agent whose behaviour
+Seven profiles for a filesystem-configured agent runtime: an agent whose behaviour
 is a directory of files rather than a prompt in a text box.
 
 | Profile | The problem it solves |
@@ -11,6 +11,12 @@ is a directory of files rather than a prompt in a text box.
 | [autonomous-research-agent](autonomous-research-agent/) | Run a research brief on a schedule and produce a report whose claims carry citations |
 | [personal-assistant-setup](personal-assistant-setup/) | A morning brief and a day-close review that a person will actually read twice |
 | [social-post-agent](social-post-agent/) | Scheduled posting to a company page, behind a human approval gate and a layout validator |
+| [n8n-workflow-ops](n8n-workflow-ops/) | Change, publish and load-test live n8n workflows through n8n's MCP server without silencing the bot people use, then watch them |
+
+CI runs [`tools/check-agents.py`](../tools/check-agents.py) on every profile: required
+files, SKILL.md front matter, prompts that exist and guard against injected instructions,
+JSON that parses, scripts that compile. A profile that fails it would fail on the
+operator's machine after a restart, which is a worse place to find out.
 
 ## The diagnosis that comes first
 

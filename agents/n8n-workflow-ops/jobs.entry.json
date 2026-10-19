@@ -1,0 +1,18 @@
+{
+  "_comment": "Merge this entry into ~/.hermes/cron/jobs.json. Replace every REPLACE_WITH_ value. Nothing reads this file directly; it is the reference shape.",
+
+  "jobs": [
+    {
+      "_template": "07 n8n-workflow-ops",
+      "name": "n8n_workflow_health",
+      "schedule_display": "0 7,13,19 * * *",
+      "repeat": "forever",
+      "script": "n8n_health_context.py --hours 24 --watch REPLACE_WITH_COMMA_SEPARATED_WORKFLOW_IDS",
+      "no_agent": false,
+      "skill": "n8n-workflow-ops",
+      "enabled_toolsets": "mcp:n8n",
+      "deliver": "discord:REPLACE_WITH_OPS_CHANNEL_ID",
+      "prompt_file": "cron/workflow-health.prompt.md"
+    }
+  ]
+}
