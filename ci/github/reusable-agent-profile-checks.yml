@@ -1,0 +1,76 @@
+# A reusable gate for repositories that keep agent profiles as folders of files
+# (README.md, SKILL.md, *.prompt.md, jobs.entry.json, scripts/).
+#
+# Call it from another repository:
+#
+#   jobs:
+#     agents:
+#       uses: OWNER/REPO/.github/workflows/reusable-agent-profile-checks.yml@main
+#       with:
+#         agents-root: '.'        # the folder that contains agents/
+#
+# It checks out this repository's tools/check-agents.py next to the caller's code,
+# so every repository runs the same rules: required files, SKILL.md front matter,
+# prompts that exist and carry the data-not-instructions guard, JSON that parses,
+# Python that compiles and JavaScript that parses.
+
+name: reusable agent profile checks
+
+on:
+  workflow_call:
+    inputs:
+      agents-root:
+        description: 'Path to the folder that contains agents/.'
+        type: string
+        default: '.'
+      tools-ref:
+        description: 'Ref of this repository to take check-agents.py from.'
+        type: string
+        default: 'main'
+
+# Read-only. Nothing here writes.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  profiles:
+    name: agent profiles install cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the checker
+        uses: actions/checkout@v5
+        with:
+          repository: AthAsh007/automation-workflows-pipelines
+          ref: ${{ inputs.tools-ref }}
+          path: .agent-checks
+          sparse-checkout: tools/check-agents.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Files, front matter, prompts, JSON, Python
+        env:
+          AGENTS_ROOT: ${{ inputs.agents-root }}
+        run: python .agent-checks/tools/check-agents.py "$AGENTS_ROOT"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: JavaScript in agent scripts parses
+        env:
+          AGENTS_ROOT: ${{ inputs.agents-root }}
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            node --check "$f" || status=1
+          done < <(find "$AGENTS_ROOT/agents" -path '*/scripts/*' \( -name '*.js' -o -name '*.mjs' \) -not -path '*/node_modules/*' -print0)
+          exit $status

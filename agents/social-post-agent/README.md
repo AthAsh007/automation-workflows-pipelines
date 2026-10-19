@@ -87,11 +87,11 @@ of them. The ones worth saying on a client call:
 ## What's in the folder
 
 ```
-06-linkedin-post-job/
+social-post-agent/
 ├── README.md                      this file
 ├── SETUP.md                       bring-up, per-day state machine, troubleshooting, acceptance
 ├── SKILL.md                       → ~/.hermes/skills/brand-content-pipeline/acme-linkedin-content/
-├── man_lin_pos.prompt.md          → ~/.hermes/cron/
+├── social-post.prompt.md          → ~/.hermes/cron/man_lin_pos.prompt.md
 ├── jobs.entry.json                the cron entry, plus the sibling MCH job for reference
 ├── assets/                        the three official logo SVGs — never fetch another
 │   ├── acme_logo_12.svg        default: white wordmark + pink mark

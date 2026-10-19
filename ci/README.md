@@ -11,7 +11,8 @@ ci/
 │   ├── reusable-node-checks.yml
 │   ├── release-on-tag.yml           changelog, artefacts, a GitHub release
 │   ├── scheduled-dependency-audit.yml
-│   └── pr-hygiene.yml               title, size, and a description that exists
+│   ├── pr-hygiene.yml               title, size, and a description that exists
+│   └── reusable-agent-profile-checks.yml   agent folders: files, prompts, scripts
 └── gitlab/
     └── .gitlab-ci.yml               the same gates, for GitLab CI
 ```
@@ -29,6 +30,16 @@ jobs:
     with:
       python-versions: '["3.11", "3.12", "3.13"]'
       min-coverage: 80
+```
+
+A repository that keeps agent profiles (see [`agents/`](../agents/)) calls the agent gate
+the same way. It runs [`tools/check-agents.py`](../tools/check-agents.py) from this
+repository against the caller's `agents/` folder:
+
+```yaml
+jobs:
+  agents:
+    uses: AthAsh007/automation-workflows-pipelines/.github/workflows/reusable-agent-profile-checks.yml@main
 ```
 
 The point of the reusable form is that the gate lives in one place. Twenty repos

@@ -12,7 +12,8 @@
       "skill": "acme-linkedin-content",
       "enabled_toolsets": "web,terminal",
       "deliver": "discord:REPLACE_WITH_ACME_APPROVAL_CHANNEL_ID",
-      "prompt_file": "cron/man_lin_pos.prompt.md"
+      "prompt_file": "cron/man_lin_pos.prompt.md",
+      "prompt_source": "social-post.prompt.md"
     },
     {
       "_comment": "The sibling MCH job, for reference only. It must never share this job's channel, approval directory, log account or token file. Set it up from the mch-linkedin-content skill, not this template.",
