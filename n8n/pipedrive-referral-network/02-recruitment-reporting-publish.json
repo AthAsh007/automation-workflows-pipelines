@@ -2,6 +2,86 @@
   "name": "Report a referral pipeline funnel from Pipedrive to Google Sheets",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Report a referral pipeline funnel from Pipedrive to Google Sheets\n\nFor managers of a referral or business-development pipeline in Pipedrive who need a weekly funnel that spans deals, activities and custom fields.\n\n### How it works\n1. Every Monday it reads the open pipeline, its activities and the deal fields.\n2. Sensitive CRM fields are blocked, and the same coverage rule as the companion activity workflow is applied.\n3. The funnel is computed: outreach, conversation, meeting, partner, referrals, pre-screen, screened.\n4. Four tabs are written to Google Sheets: dashboard, coverage gaps, by rep and by practice.\n5. A custom field that is not mapped shows as **not captured**, never 0, so a gap in setup is not mistaken for zero results.\n6. The same digest is posted to Slack or Discord.\n\n### Setup\n1. Open `config` and set `RESULT_FIELDS` to your Pipedrive custom-field keys and `REPORT_WINDOW_DAYS` to your period.\n2. Add your Pipedrive API token and a Google Sheet id with four tabs.\n3. Run it once on the built-in demo pipeline first: it writes nothing.\n4. Optional: add a Slack or Discord webhook for the digest.\n\n### Customization tips\nFunnel stages and field mapping are in `config`. To add a tab, copy one `rows for ...` and `Sheets - write ...` pair.",
+        "height": 738,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -112
+      ],
+      "id": "31255c72-75ad-418b-9956-1f4c81002200",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Read the pipeline\nOpen deals, activities and deal fields, joined into one shape. Uses a demo pipeline until you add an API token.",
+        "height": 442,
+        "width": 2140,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -112
+      ],
+      "id": "b8d2a7ac-bff0-4805-a115-86ef93b3c97b",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Check and compute the funnel\nSensitive fields blocked, coverage rule applied, funnel KPIs computed.",
+        "height": 252,
+        "width": 740,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        -112
+      ],
+      "id": "45c96b35-6bdf-4295-a94b-7f3aa46d5f5b",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Write the four tabs\nDashboard, gaps, by rep and by practice. Unmapped fields read \"not captured\", never 0.",
+        "height": 442,
+        "width": 2700,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        -112
+      ],
+      "id": "290636d1-b45d-49f2-99af-f3af313757ef",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send the management digest\nOne summary to Slack or Discord. A blank webhook skips it.",
+        "height": 442,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5840,
+        -112
+      ],
+      "id": "ad67cfc8-9c50-48c3-bb4d-4fbe3a042bdd",
+      "name": "Section 4"
+    },
+    {
       "parameters": {},
       "id": "manual",
       "name": "Run it now",
@@ -627,102 +707,6 @@
         6720,
         0
       ]
-    },
-    {
-      "parameters": {
-        "content": "## Report a referral pipeline funnel from Pipedrive to Google Sheets\n\n**Who's it for**\nManagers running a referral or business-development pipeline in Pipedrive who need a weekly\ndashboard that Pipedrive Insights cannot produce, because the numbers that matter span deals,\nactivities and custom fields at once.\n\n**How it works**\nEvery Monday it reads the open pipeline, its activities and its field definitions, passes them\nthrough the same coverage rule its companion workflow enforces, and computes the funnel:\n\n    outreach -> conversation -> meeting -> partner -> referrals -> pre-screen -> screened\n\nFour tabs are written to a Google Sheet a manager can open: the dashboard row, the coverage gaps,\na breakdown by rep and a breakdown by practice. Every recruitment number comes from a named custom\nfield; when that field is not wired up the cell reads **not captured**, never `0` — a zero means\nnobody referred, a blank means nobody configured it, and those lead to different meetings. The same\ndigest is posted to Slack or Discord.\n\n**How to set up**\n1. Open **`config`** and set `RESULT_FIELDS` to your Pipedrive custom-field keys and\n   `REPORT_WINDOW_DAYS` to your reporting period.\n2. Add your Pipedrive API token and a Google Sheet id.\n3. Run it once with the demo pipeline before connecting anything — it writes nothing.\n\n**Requirements**\nA Pipedrive account with API access and a Google Sheet with four tabs. The report webhook is\noptional; blank means that branch is skipped.\n\n**How to customize**\nThe funnel stages and the field map are in `config`. To add a tab, follow the\n`rows for ...` -> `[cred] Sheets - write ...` pair — each one is independent.",
-        "height": 1082,
-        "width": 660,
-        "color": 4
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1362
-      ],
-      "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Read the pipeline\n\nThree reads — open deals, their activities, and the deal-field definitions — joined into one shape by **`read the pipeline`**.\n\nWith no API token configured the run uses a deterministic demo pipeline instead, so the whole report can be seen before you connect an account.",
-        "height": 180,
-        "width": 2160,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -220
-      ],
-      "id": "sticky-01",
-      "name": "1. Read the pipeline"
-    },
-    {
-      "parameters": {
-        "content": "### 2. The compliance boundary, enforced\n\n**`check the PHI boundary`** reads every deal field's *name*. A CRM field that looks like sensitive personal or medical data is blocked and reported; this workflow being **configured** to read one is a hard stop, with the field named.\n\nAggregate counts pass through untouched. A number of people is not a person.",
-        "height": 290,
-        "width": 480,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2240,
-        140
-      ],
-      "id": "sticky-02",
-      "name": "2. The compliance boundary"
-    },
-    {
-      "parameters": {
-        "content": "### 3. The rule and the report are one build\n\nThe companion workflow enforces *no open opportunity without a next activity*. This one measures whether that is actually true — from the same read, on the same definitions.\n\nA rule without its measurement is a hope. A measurement computed from a second, slightly different definition of \"next activity\" is worse: it disagrees with the guard and nobody can tell which one is wrong.",
-        "height": 334,
-        "width": 480,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2800,
-        -374
-      ],
-      "id": "sticky-03",
-      "name": "3. The rule and the report are one build"
-    },
-    {
-      "parameters": {
-        "content": "### 4. \"Not captured\" is not zero\n\nEvery recruitment number here comes from a Pipedrive custom field listed in\n`RESULT_FIELDS`. When that key is blank, the number is written as the literal string\n**not captured** — never as `0`, never as an empty cell.\n\nA zero means the practice referred nobody. A blank means nobody wired the field up.\nThey are different facts and they lead to different meetings, and printing the second\nas the first is how a dashboard loses a manager in week two.\n\nThe digest repeats the list at the bottom, labelled as setup tasks.",
-        "height": 312,
-        "width": 2160,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3360,
-        330
-      ],
-      "id": "sticky-04",
-      "name": "4. Not captured is not zero"
-    },
-    {
-      "parameters": {
-        "content": "### 5. Four tabs and a digest\n\nThe dashboard row is appended (the trend), while the gaps, by-rep and by-practice tabs are rewritten each run (the current picture).\n\n**`build the management report`** posts the same numbers to Slack or Discord. No webhook in `config` means that branch is skipped, not that the run fails.",
-        "height": 224,
-        "width": 760,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        5880,
-        -264
-      ],
-      "id": "sticky-05",
-      "name": "5. Four tabs and a digest"
     }
   ],
   "connections": {

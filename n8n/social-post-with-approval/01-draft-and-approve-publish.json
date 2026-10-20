@@ -2,6 +2,102 @@
   "name": "Draft LinkedIn posts with AI and send them to Discord for approval",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Draft LinkedIn posts with AI and send them to Discord for approval\n\nFor teams posting daily on a LinkedIn company page who want drafting and images automated, but nothing published without a person's yes.\n\n### How it works\n1. Every weekday it reads the post log and skips days that are already drafted or meant to be silent.\n2. It picks the next idea from a bank in Google Sheets.\n3. The caption comes from the bank, or an LLM writes it. Empty or over-long captions are held.\n4. The image is built as HTML, checked for layout and rendered to PNG by Browserless or HCTI. The PNG is verified before use.\n5. The draft and image go to a Discord channel for approval.\n6. Every outcome is logged. This workflow never publishes: the companion workflow does, after someone approves.\n\n### Setup\n1. Open `config` and set the sheet ids for the bank and the log, and your brand colours.\n2. Connect Google Sheets, an OpenAI-compatible LLM endpoint, a renderer and Discord.\n3. Use a private Discord channel made only for approvals, and test with `TEST_CHANNEL_ID` first.\n4. Optional: a Slack webhook for the run summary.\n\n### Customization tips\nThe image design is the HTML in `build the HTML template`. The caption voice is the prompt in `LLM - write the caption`.",
+        "height": 716,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -112
+      ],
+      "id": "dac0e3a9-a404-42ec-bca0-3cb6e2ac6231",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Decide whether today needs a post\nReads the log, skips silent or drafted days, picks the next idea from the bank.",
+        "height": 442,
+        "width": 1860,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -112
+      ],
+      "id": "05f97f9c-f6c2-45a0-81a1-f08210ee3d72",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Write and check the caption\nBank caption first; a blank one costs one LLM call. Bad captions are held.",
+        "height": 442,
+        "width": 1580,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        -112
+      ],
+      "id": "db03187b-c355-4c1a-bfa3-f8107b8ccf94",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Render and check the image\nHTML template, layout check, Browserless or HCTI, then a real-PNG check.",
+        "height": 632,
+        "width": 2980,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        78
+      ],
+      "id": "ca386b34-92f9-40bf-9d0c-dba81bc1fdd5",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Send for approval\nUse a private Discord channel. Nothing is published here.",
+        "height": 442,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6680,
+        78
+      ],
+      "id": "74949b20-83d0-4a29-8f35-379097af189c",
+      "name": "Section 4"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Log every outcome\nEach run appends a log row; tomorrow's run reads it. Slack summary is optional.",
+        "height": 442,
+        "width": 1580,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7800,
+        78
+      ],
+      "id": "387d0aea-48d6-474d-b08e-32c0cd420143",
+      "name": "Section 5"
+    },
+    {
       "parameters": {},
       "id": "manual1",
       "name": "Run it now",
@@ -1038,102 +1134,6 @@
         9240,
         380
       ]
-    },
-    {
-      "parameters": {
-        "content": "## Draft LinkedIn posts with AI and send them to Discord for approval\n\n**Who's it for**\nTeams running a daily company LinkedIn presence who want the drafting, image rendering and\napproval loop automated - but who are not willing to let anything reach the company page without a\nperson saying yes.\n\n**How it works**\nEvery weekday morning it reads the post log, works out whether today needs a post, and picks the\nnext item from a bank of ideas held in Google Sheets. The caption is written by an LLM, or read\nfrom the bank if one is already there. The image is built as HTML, validated for layout, and sent\nto a renderer - there is no browser inside n8n, so this is one call out to Browserless or HCTI. The\nrendered PNG is checked before it is used. The finished draft, image attached, is delivered to a\nDiscord channel for a human to approve.\n\n**It never publishes.** Publishing is the companion workflow, and it only happens after somebody\nreplies to the draft. Those are two separate acts on purpose.\n\n**How to set up**\n1. Open **`config`** and set your sheet ids for the bank and the log, and your brand colours.\n2. Attach Google Sheets, your LLM endpoint, a renderer and Discord credentials.\n3. Set `TEST_CHANNEL_ID` to a private channel of your own first - nothing leaves the building\n   until you do.\n\n**Requirements**\nA Google Sheet holding the post bank and log, an OpenAI-compatible endpoint, a Browserless or HCTI\nrenderer, and a Discord server. The Slack summary is optional.\n\n**How to customize**\nThe image design is the HTML in **`build the HTML template`**. The caption voice is the prompt in\n**`[cred] LLM - write the caption`**.",
-        "height": 1038,
-        "width": 660,
-        "color": 4
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1378
-      ],
-      "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Decide whether today needs a post\n\n**`resolve todays state`** reads the log and answers one question: has today already been handled?\n\nA day that is already drafted, or a deliberately silent day, ends at **`STOP: silent`**. **`pick todays post`** then takes the next unused item from the bank, and an empty bank stops at its own named node rather than posting nothing.",
-        "height": 202,
-        "width": 2160,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -242
-      ],
-      "id": "sticky-01",
-      "name": "1. Decide whether today needs a post"
-    },
-    {
-      "parameters": {
-        "content": "### 2. Write the caption\n\nA caption already written in the bank is used as-is; only a blank one costs an LLM call.\n\n**`caption ok?`** checks the result before it goes any further - a caption that came back empty, truncated or over length is held at **`STOP: caption held`** rather than rendered into an image nobody can use.",
-        "height": 202,
-        "width": 1320,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2240,
-        330
-      ],
-      "id": "sticky-02",
-      "name": "2. Write the caption"
-    },
-    {
-      "parameters": {
-        "content": "### 3. The image\n\nThere is no browser in n8n, so this is one call out to a renderer. Browserless self-hosted next to n8n is the shipped answer; HCTI is the hosted alternative.\n\n**No fallback to an image model.** This canvas is a logo, a headline and small body copy, which is exactly what an image model cannot be trusted with. A failed render is a failure, and **`check the PNG`** proves the bytes are really an image before the draft is sent.",
-        "height": 180,
-        "width": 3000,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3640,
-        -30
-      ],
-      "id": "sticky-03",
-      "name": "3. The image"
-    },
-    {
-      "parameters": {
-        "content": "### 4. The approval gate\n\nAnyone who can send a message in this channel can cause a post to the company page. **Use a private channel made for this and nothing else.**\n\nSet the Discord node's **Files** option to the binary property `data` so the PNG is attached. A draft with no image is one the reviewer cannot actually review.",
-        "height": 224,
-        "width": 1040,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        6720,
-        520
-      ],
-      "id": "sticky-04",
-      "name": "4. The approval gate"
-    },
-    {
-      "parameters": {
-        "content": "### 5. Log every outcome\n\nEvery run appends a row - delivered, held or stopped - which is what tomorrow's **`resolve todays state`** reads.\n\nThe log is the memory of this pair of workflows. The Slack summary is optional and the run ends cleanly without it.",
-        "height": 180,
-        "width": 1600,
-        "color": 5
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        7840,
-        -30
-      ],
-      "id": "sticky-05",
-      "name": "5. Log every outcome"
     }
   ],
   "connections": {

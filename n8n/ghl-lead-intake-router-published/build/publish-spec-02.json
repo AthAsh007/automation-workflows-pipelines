@@ -1,0 +1,170 @@
+{
+  "title": "Send AI follow-up email and SMS touches to quiet leads in GoHighLevel",
+  "rename": {
+    "Every hour": "Run every hour",
+    "GoHighLevel connected?": "Read the live pipeline?",
+    "[cred] GoHighLevel - read the pipeline": "Search opportunities in GoHighLevel",
+    "use the demo pipeline": "Load the demo pipeline",
+    "read the pipeline": "Map leads into one shape",
+    "plan the sequence": "Plan who is due a touch",
+    "anything due?": "Anyone due today?",
+    "split the due leads": "Split the due leads into items",
+    "loop over the due leads": "Loop over the due leads",
+    "check the sending window and channel": "Check quiet hours and pick the channel",
+    "ready to contact now?": "Ready to contact now?",
+    "read the conversation live?": "Read the live conversation?",
+    "[cred] GoHighLevel - find the conversation": "Find the conversation in GoHighLevel",
+    "found a conversation?": "Conversation found?",
+    "[cred] GoHighLevel - read the messages": "Get the conversation messages",
+    "check replies and opt-outs": "Check for replies and opt-outs",
+    "what did the conversation say?": "Route by reply status",
+    "write the stop to GoHighLevel?": "Write the stop to GoHighLevel?",
+    "[cred] GoHighLevel - tag the stopped lead": "Tag the stopped contact",
+    "did they reply?": "Did they reply?",
+    "[cred] GoHighLevel - task the owner about the reply": "Create a reply task for the owner",
+    "compose the next touch": "Write the template touch and AI prompt",
+    "AI writer configured?": "AI writer configured?",
+    "[cred] AI - draft the touch": "Draft the touch with AI",
+    "apply the guardrails": "Check the draft against the guardrails",
+    "sending switched on?": "Sending switched on?",
+    "[cred] GoHighLevel - send the touch": "Send the touch through GoHighLevel",
+    "keep the touch as a preview": "Keep the touch as a preview",
+    "[cred] GoHighLevel - update the sequence fields": "Update the sequence fields",
+    "[cred] GoHighLevel - add the touch tags": "Add the touch tags",
+    "[cred] GoHighLevel - add a note": "Add a note to the contact",
+    "final touch?": "Was this the final touch?",
+    "[cred] GoHighLevel - create the call task": "Create a call task for the owner",
+    "nurture stage set?": "Nurture stage set?",
+    "[cred] GoHighLevel - move to nurture": "Move the opportunity to nurture",
+    "confirm the write-back": "Confirm the write-back",
+    "record the lead outcome": "Record the lead outcome",
+    "record a lead failure": "Record a lead failure",
+    "pause between leads": "Pause between leads",
+    "build the run report": "Build the run report",
+    "report webhook set?": "Post the report to chat?",
+    "post the run report": "Post the run report to Slack or Discord",
+    "log sheet set?": "Log the run to a sheet?",
+    "[cred] Google Sheets - append the run log": "Append the run to Google Sheets",
+    "STOP: run finished": "STOP: run finished - report built"
+  },
+  "remove": [],
+  "groups": [
+    {
+      "title": "Start and settings",
+      "why": "Runs every hour or by hand. `config` holds every setting, and a blank one skips its step.",
+      "nodes": [
+        "Run the sequence now",
+        "Run every hour",
+        "config"
+      ]
+    },
+    {
+      "title": "Read the pipeline",
+      "why": "Live opportunities once connected, demo leads before. A failed read stops and never falls back to demo leads.",
+      "nodes": [
+        "Read the live pipeline?",
+        "Search opportunities in GoHighLevel",
+        "Load the demo pipeline",
+        "Map leads into one shape",
+        "STOP: could not read the pipeline"
+      ]
+    },
+    {
+      "title": "Decide who is due",
+      "why": "Each lead is due, waiting or stopped, with the reason. Due leads become one item each.",
+      "nodes": [
+        "Plan who is due a touch",
+        "Anyone due today?",
+        "Split the due leads into items",
+        "STOP: nothing due today"
+      ]
+    },
+    {
+      "title": "One lead at a time",
+      "why": "Quiet hours in the lead's timezone, then the channel with fallback. One lead failing never stops the loop.",
+      "nodes": [
+        "Loop over the due leads",
+        "Check quiet hours and pick the channel",
+        "Ready to contact now?"
+      ]
+    },
+    {
+      "title": "Check for replies and opt-outs",
+      "why": "The conversation is read before every touch. Demo leads bring their own messages.",
+      "nodes": [
+        "Read the live conversation?",
+        "Find the conversation in GoHighLevel",
+        "Conversation found?",
+        "Get the conversation messages",
+        "Check for replies and opt-outs",
+        "Route by reply status"
+      ]
+    },
+    {
+      "title": "Hand off replies, honour opt-outs",
+      "why": "A reply tags the contact and creates a task for the owner. STOP adds the do-not-contact tag.",
+      "nodes": [
+        "Write the stop to GoHighLevel?",
+        "Tag the stopped contact",
+        "Did they reply?",
+        "Create a reply task for the owner"
+      ]
+    },
+    {
+      "title": "Write the touch",
+      "why": "The AI drafts it and code checks the guardrails. If anything fails, the template text goes instead.",
+      "nodes": [
+        "Write the template touch and AI prompt",
+        "AI writer configured?",
+        "Draft the touch with AI",
+        "Check the draft against the guardrails"
+      ]
+    },
+    {
+      "title": "Send or preview",
+      "why": "Sent only with the credential added and `DRY_RUN` off. Otherwise the touch is kept as a preview.",
+      "nodes": [
+        "Sending switched on?",
+        "Send the touch through GoHighLevel",
+        "Keep the touch as a preview"
+      ]
+    },
+    {
+      "title": "Write back to GoHighLevel",
+      "why": "Counter, tags and a note. After the final touch: a call task for the owner and a move to Nurture.",
+      "nodes": [
+        "Update the sequence fields",
+        "Add the touch tags",
+        "Add a note to the contact",
+        "Was this the final touch?",
+        "Create a call task for the owner",
+        "Nurture stage set?",
+        "Move the opportunity to nurture",
+        "Confirm the write-back"
+      ]
+    },
+    {
+      "title": "Record and pace",
+      "why": "Every outcome is recorded, then a short pause for the API rate limits.",
+      "nodes": [
+        "Record the lead outcome",
+        "Record a lead failure",
+        "Pause between leads"
+      ]
+    },
+    {
+      "title": "Report the run",
+      "why": "Sent, waiting, stopped by reason, failed, AI vs template. Chat and sheet are optional.",
+      "nodes": [
+        "Build the run report",
+        "Post the report to chat?",
+        "Post the run report to Slack or Discord",
+        "Log the run to a sheet?",
+        "Append the run to Google Sheets",
+        "STOP: run finished - report built"
+      ]
+    }
+  ],
+  "overview": "## Send AI follow-up email and SMS touches to quiet leads in GoHighLevel\n\nFor agencies and sales teams on GoHighLevel who lose deals to silence rather than to a no.\n\n### How it works\n1. Every hour it reads the open opportunities, or demo leads until connected.\n2. Each lead is due, waiting or stopped. A stage outside `OPEN_STAGES`, a reply, an opt-out tag or `MAX_TOUCHES` ends the sequence with a named reason.\n3. Due leads are worked one at a time: quiet hours in the lead's timezone, email or SMS with fallback, then a fresh read of the conversation. Replies go to the owner; STOP adds a do-not-contact tag.\n4. An AI model drafts the touch. Code checks length, prices and promises and the SMS opt-out line; a failing draft falls back to the template.\n5. After a send it writes back the counter, tags and a note. After the final touch the owner gets a call task and the deal moves to Nurture.\n6. A run report goes to Slack or Discord and a Google Sheet.\n\n### Setup\n1. Run it once as imported. Nothing is sent, and `STOP: run finished - report built` shows every decision.\n2. In `config`, set the location, pipeline and stage ids (including Nurture) and the three `SEQ_*_FIELD_ID` fields.\n3. Add a Header Auth credential (`Authorization: Bearer <token>`) to the GoHighLevel nodes and set `GHL_CREDENTIAL_ADDED = true`.\n4. Optional: an AI key on `Draft the touch with AI`, `REPORT_WEBHOOK_URL`, `LOG_SHEET_ID`. A blank setting skips its step.\n5. Set `DRY_RUN = false` once the previews read right.\n\n### Customization tips\nChange `SEQUENCE`, the sending window, `BANNED_WORDS` and the opt-out keywords in `config`.",
+  "stickies_tool": "tools/stickies-ghl-2026-10.json (bun tools/restyle_stickies.mjs)"
+}

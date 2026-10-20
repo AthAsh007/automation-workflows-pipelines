@@ -1,0 +1,2232 @@
+{
+  "name": "02-follow-up-sequence",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "19af15d2-6547-422c-b0c2-d4b2d64f05e4",
+      "name": "Run the sequence now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "89319a55-bb9c-404d-a618-1fc84ed407ec",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GOHIGHLEVEL — LEAD INTAKE AND ROUTING — CONFIG\r\n// Everything you might want to change lives in this one node. Nothing else in either\r\n// workflow needs editing.\r\n//\r\n// The same config node ships in BOTH workflows (\"01 intake and routing\" and\r\n// \"02 follow-up sequence\"). build.py regenerates both from this one file, and validate.py\r\n// fails if they drift apart — so you never paste it between them by hand.\r\n//\r\n// A blank id or key means that step is SKIPPED, never that the run fails. That is what lets\r\n// this be demonstrated on a screen-share before a single GoHighLevel credential exists.\r\n\r\n// ---------------------------------------------------------------- The GoHighLevel sub-account\r\n// Location id: the Location ID on Settings -> Business Profile, or the id in the URL when\r\n// you are inside the sub-account.\r\nconst GHL_LOCATION_ID = '';\r\n\r\n// GoHighLevel signs in through an n8n credential, never through a value in this node.\r\n// Create a Header Auth credential: Name \"Authorization\", Value \"Bearer <Private Integration\r\n// token>\" (Settings -> Private Integrations, scopes contacts.write / opportunities.write /\r\n// conversations.write). Select it on every GoHighLevel node, then set this to true. Left\r\n// false, the workflows build the exact request and stop in front of the write.\r\nconst GHL_CREDENTIAL_ADDED = false;\r\nconst GHL_API_BASE     = 'https://services.leadconnectorhq.com';\r\nconst GHL_API_VERSION  = '2021-07-28';\r\n// The conversations endpoints (search, messages, send) expect their own Version header.\r\nconst GHL_CONVERSATIONS_API_VERSION = '2021-04-15';\r\n\r\n// ---------------------------------------------------------------- The pipeline\r\n// The pipeline a lead is filed into, and the stages it can be filed at. The workflow\r\n// decides WHICH stage a lead belongs in; the id is what makes that a real stage rather than\r\n// a label. Pipeline id: Pipelines -> your pipeline -> the id in the URL.\r\nconst GHL_PIPELINE_ID = '';\r\nconst STAGES = [\r\n  { stage: 'New lead',        id: '' },\r\n  { stage: 'Quote requested', id: '' },\r\n  { stage: 'Support',         id: '' },\r\n  { stage: 'Nurture',         id: '' }\r\n];\r\n\r\n// ---------------------------------------------------------------- Custom fields and tags\r\n// Custom field name -> its GoHighLevel field id (Settings -> Custom Fields). The value is\r\n// read off the lead by `from`. A blank id is skipped rather than written as an empty field,\r\n// so a half-mapped account still writes a clean contact.\r\nconst CUSTOM_FIELDS = [\r\n  { name: 'Lead source',  id: '', from: 'source'  },\r\n  { name: 'Enquiry type', id: '', from: 'wants'   },\r\n  { name: 'Summary',      id: '', from: 'summary' }\r\n];\r\n\r\n// On every contact this workflow writes. The routing rule adds its own.\r\nconst BASE_TAGS = ['automation-intake'];\r\n\r\n// ---------------------------------------------------------------- Who gets what\r\n// The rule table. First match wins. A rule may match on the intake source, on what the\r\n// person wants, on both — and the last rule matches nothing on purpose, so a lead that fits\r\n// no rule still lands somewhere rather than nowhere.\r\nconst OWNERS = [\r\n  { owner: 'Ada',  user_id: '' },\r\n  { owner: 'Ben',  user_id: '' },\r\n  { owner: 'Cara', user_id: '' }\r\n];\r\nconst ROUTING_RULES = [\r\n  { match: { wants: 'support' },  owner: 'Cara', stage: 'Support',         tags: ['support'] },\r\n  { match: { wants: 'quote' },    owner: 'Ben',  stage: 'Quote requested', tags: ['quote'] },\r\n  { match: { wants: 'demo' },     owner: 'Ben',  stage: 'New lead',        tags: ['demo'] },\r\n  { match: { source: 'phone' },   owner: 'Ben',  stage: 'New lead',        tags: ['phone'] },\r\n  { match: { source: 'email' },   owner: 'Ada',  stage: 'New lead',        tags: ['email'] },\r\n  { match: { source: 'website' }, owner: 'Ada',  stage: 'New lead',        tags: ['website'] },\r\n  { match: {},                    owner: 'Ada',  stage: 'New lead',        tags: ['unrouted'] }\r\n];\r\n\r\n// ---------------------------------------------------------------- Follow-up sequence\r\n// The ordered touches a lead receives if nobody has answered it. A lead gets touch 1 after\r\n// `after_hours` with no movement, then touch 2, then touch 3 — and stops the moment anyone\r\n// replies or the stage moves. The counter is `touches_sent` on the contact; the sequence is\r\n// only ever advanced by one per run, so a lead cannot be double-touched.\r\nconst SEQUENCE = [\r\n  { touch: 1, after_hours: 24, channel: 'email', label: 'check-in',\r\n    subject: 'Quick check-in on your enquiry',\r\n    line: 'Just making sure your message reached us and got a reply. Happy to pick this up whenever suits you.' },\r\n  { touch: 2, after_hours: 72, channel: 'email', label: 'value nudge',\r\n    subject: 'Something that might help',\r\n    line: 'I have put a short summary together covering what you asked about. Want me to send it over?' },\r\n  { touch: 3, after_hours: 120, channel: 'sms', label: 'last check-in',\r\n    line: 'Last one from me. Shall I close this off, or keep it open for later?' }\r\n];\r\n\r\n// The hard stop, enforced in code rather than implied. A lead at this many touches is never\r\n// sent another, whatever the timings say.\r\nconst MAX_TOUCHES = 3;\r\n\r\n// The stages a lead can still be sequenced in. A lead that has left them is finished, and\r\n// the sequence stops rather than chasing a won or lost deal.\r\nconst OPEN_STAGES = ['New lead', 'Quote requested', 'Support'];\r\nconst STOP_ON_STAGE_MOVE = true;\r\n\r\n// Signed on the end of each email. Blank -> no signature line.\r\nconst FROM_NAME = '';\r\n\r\n// Where the sequence's state lives on the contact. GoHighLevel's opportunities carry the stage,\r\n// but not how many touches have gone out or when the last one was — those live in custom fields,\r\n// and these are their ids (Settings -> Custom Fields). Point them at wherever you keep them and\r\n// the read is complete; leave them blank and the counter reads 0, which is honest rather than\r\n// invented.\r\nconst SEQ_TOUCHES_FIELD_ID    = '';\r\nconst SEQ_LAST_TOUCH_FIELD_ID = '';\r\nconst SEQ_LAST_REPLY_FIELD_ID = '';\r\n\r\n// How many opportunities one read pulls. GoHighLevel caps a page at 100. If there are more than\r\n// this, the run says so (see `more_pages` on the plan) rather than pretending it read them all.\r\nconst PIPELINE_PAGE_LIMIT = 100;\r\n\r\n// ---------------------------------------------------------------- Sending window\r\n// A touch only goes out inside the lead's own working hours. The lead's timezone comes from the\r\n// contact's `timezone` field; a contact without one uses DEFAULT_TIMEZONE. Outside the window the\r\n// lead is \"waiting: quiet hours\" and is picked up by a later run, never sent at 3 a.m.\r\nconst DEFAULT_TIMEZONE       = 'Europe/London';\r\nconst SEND_WINDOW_START_HOUR = 9;     // first hour a touch may go out (local time)\r\nconst SEND_WINDOW_END_HOUR   = 18;    // touches stop at this hour (local time)\r\nconst SEND_ON_WEEKENDS       = false;\r\n\r\n// Pause between leads, so a long pipeline stays inside GoHighLevel's API rate limits.\r\nconst PAUSE_BETWEEN_LEADS_SECONDS = 1;\r\n\r\n// ---------------------------------------------------------------- Replies, opt-outs and tags\r\n// Before every touch the contact's conversation is read. A reply after the last touch stops the\r\n// sequence and hands the lead to its owner; an opt-out tags the contact and stops it for good.\r\n// OPT_OUT_KEYWORDS match a message that is only that word (\"STOP\"); OPT_OUT_PHRASES match\r\n// anywhere in a message (\"please unsubscribe me\").\r\nconst OPT_OUT_KEYWORDS = ['stop', 'stopall', 'unsubscribe', 'cancel', 'end', 'quit', 'optout', 'opt out'];\r\nconst OPT_OUT_PHRASES  = ['unsubscribe', 'opt out', 'opt-out', 'remove me', 'do not contact',\r\n                          'stop messaging', 'stop texting', 'stop emailing'];\r\nconst DNC_TAG        = 'do-not-contact';     // added on an opt-out; a contact with it is never touched\r\nconst REPLIED_TAG    = 'sequence-replied';   // added when a reply stops the sequence\r\nconst SEQUENCE_TAGS  = ['follow-up-sequence']; // added with every touch, beside \"sequence-touch-N\"\r\n\r\n// After the final touch with no reply: a task for the owner, and the opportunity moves to this\r\n// stage (its id comes from STAGES above; a blank id skips the move).\r\nconst NURTURE_STAGE  = 'Nurture';\r\nconst TASK_DUE_HOURS = 24;                  // the owner's \"call this lead\" task is due this soon\r\n\r\n// ---------------------------------------------------------------- AI-written touches (optional)\r\n// Any OpenAI-compatible chat completions endpoint. Create a Header Auth credential (Name\r\n// \"Authorization\", Value \"Bearer <your API key>\"), select it on the AI node and set\r\n// AI_CREDENTIAL_ADDED = true. Left false, every touch uses the SEQUENCE wording above.\r\n// A draft that fails a guardrail is never sent: the SEQUENCE wording goes instead, and the\r\n// reason is recorded on the lead.\r\nconst AI_CREDENTIAL_ADDED = false;\r\nconst AI_API_BASE    = 'https://api.openai.com/v1';\r\nconst AI_MODEL       = 'gpt-4o-mini';\r\nconst AI_TEMPERATURE = 0.4;\r\nconst EMAIL_MAX_CHARS   = 900;   // email body, before the signature\r\nconst SUBJECT_MAX_CHARS = 80;\r\nconst SMS_MAX_CHARS     = 320;   // including the opt-out line\r\nconst SMS_OPT_OUT_LINE  = 'Reply STOP to opt out';\r\n// Words a follow-up must never contain: no prices, discounts or promises.\r\nconst BANNED_WORDS = ['discount', 'coupon', 'promo', 'special offer', 'price', 'pricing',\r\n                      'cost', 'for free', 'free of charge', 'guarantee', 'guaranteed',\r\n                      'promise', 'refund', 'cheapest', '% off'];\r\n\r\n// ---------------------------------------------------------------- Run report (optional)\r\n// One summary per run: sent, waiting, stopped by reason, failed, AI vs template.\r\n// REPORT_WEBHOOK_URL: a Slack or Discord incoming-webhook URL. Blank -> not posted.\r\n// LOG_SHEET_ID: a Google Sheet to append one row per run to (needs a Google Sheets credential on\r\n// the sheet node). Blank -> not logged.\r\nconst REPORT_WEBHOOK_URL = '';\r\nconst LOG_SHEET_ID       = '';\r\nconst LOG_SHEET_TAB      = 'Run log';\r\n\r\n// ---------------------------------------------------------------- What counts as a lead\r\n// A lead with no way to reach the person is not a lead. Whether a message is also required\r\n// is a judgement call, so it is a setting rather than an assumption.\r\nconst REQUIRE_CONTACT = true;    // an email address or a phone number\r\nconst REQUIRE_MESSAGE = false;   // false: a named contact with no message is still filed\r\n\r\n// ---------------------------------------------------------------- Safety switch\r\n//   DRY_RUN true  (how it ships) -> nothing is written and nothing is sent. The payloads are\r\n//                                   built in full and shown, so the first run after import\r\n//                                   is always safe.\r\n//   DRY_RUN false                -> the contact is created or updated and the touches send.\r\n// Both also need GHL_LOCATION_ID and GHL_CREDENTIAL_ADDED above; without them the workflows stay\r\n// in preview whatever this says.\r\nconst DRY_RUN = true;\r\n\r\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\r\n\r\n// ---------------------------------------------------------------- The demo pipeline\r\n// The leads \"02 follow-up sequence\" runs against until GoHighLevel is wired up. Every person\r\n// here is invented. The mix is deliberate: it has to show every decision the sequence makes.\r\n//   * 30 h quiet, 0 touches                      -> due touch 1, email\r\n//   * one touch sent, 80 h quiet                  -> due touch 2, email\r\n//   * two touches, 130 h quiet                    -> due touch 3, the final one: SMS, then a task\r\n//                                                    for the owner and a move to Nurture\r\n//   * touch 1 is email, but no email address      -> sent by SMS instead (channel fallback)\r\n//   * 5 h quiet, 0 touches                        -> waiting: not due yet\r\n//   * due, but 22:00 where the lead lives         -> waiting: quiet hours\r\n//   * replied 10 h ago (the reply field)          -> stopped: they replied\r\n//   * replied in the conversation after a touch   -> stopped: replied, handed to the owner\r\n//   * texted STOP                                 -> stopped: opted out, do-not-contact tag\r\n//   * no email and no phone                       -> stopped: unreachable\r\n//   * stage is 'Won'                              -> stopped: left the sequence\r\n//   * three touches already sent                  -> stopped: sequence finished\r\n// `demo_local` is the lead's simulated local weekday (0 Sunday .. 6 Saturday) and hour, so the\r\n// quiet-hours decision shows the same way whenever the demo is run. `demo_messages` stands in\r\n// for the contact's GoHighLevel conversation.\r\nconst DEMO_PIPELINE = [\r\n  { contact_key: 'rachel@brightpath-dental.example', name: 'Rachel Okonkwo', company: 'Brightpath Dental',\r\n    email: 'rachel@brightpath-dental.example', phone: '', contact_id: 'demo-1001', opportunity_id: 'demo-opp-1001',\r\n    owner: 'Ben', stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 30, last_reply_hours_ago: -1,\r\n    source: 'website', wants: 'quote', notes: 'Asked for a quote for a new patient booking system.',\r\n    timezone: 'Europe/London', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] },\r\n  { contact_key: 'tom@beasleylogistics.example', name: 'Tom Beasley', company: 'Beasley Logistics',\r\n    email: 'tom@beasleylogistics.example', phone: '', contact_id: 'demo-1002', opportunity_id: 'demo-opp-1002',\r\n    owner: 'Cara', stage: 'Support', touches_sent: 1, last_touch_hours_ago: 80, last_reply_hours_ago: -1,\r\n    source: 'email', wants: 'support', notes: 'Tracking page not updating for two depots.',\r\n    timezone: 'Europe/London', demo_local: { weekday: 2, hour: 11 }, demo_messages: [] },\r\n  { contact_key: '07700900456', name: 'Ravi Menon', company: 'Menon & Co',\r\n    email: '', phone: '07700 900456', contact_id: 'demo-1003', opportunity_id: 'demo-opp-1003',\r\n    owner: 'Ben', stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 5, last_reply_hours_ago: -1,\r\n    source: 'phone', wants: 'general', notes: 'Called about opening hours.',\r\n    timezone: 'Europe/London', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] },\r\n  { contact_key: 'elena@example.com', name: 'Elena Rossi', company: '',\r\n    email: 'elena@example.com', phone: '', contact_id: 'demo-1004', opportunity_id: 'demo-opp-1004',\r\n    owner: 'Ada', stage: 'Quote requested', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: 10,\r\n    source: 'website', wants: 'quote', notes: '', timezone: '', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] },\r\n  { contact_key: 'june@example.com', name: 'June Park', company: '',\r\n    email: 'june@example.com', phone: '', contact_id: 'demo-1005', opportunity_id: 'demo-opp-1005',\r\n    owner: 'Ada', stage: 'Won', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: -1,\r\n    source: 'website', wants: 'demo', notes: '', timezone: '', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] },\r\n  { contact_key: 'dana@example.com', name: 'Dana Whitfield', company: '',\r\n    email: 'dana@example.com', phone: '', contact_id: 'demo-1006', opportunity_id: 'demo-opp-1006',\r\n    owner: 'Ada', stage: 'New lead', touches_sent: 3, last_touch_hours_ago: 200, last_reply_hours_ago: -1,\r\n    source: 'email', wants: 'general', notes: '', timezone: '', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] },\r\n  { contact_key: 'marcus@halejoinery.example', name: 'Marcus Hale', company: 'Hale Joinery',\r\n    email: 'marcus@halejoinery.example', phone: '+1 312 555 0147', contact_id: 'demo-1007', opportunity_id: 'demo-opp-1007',\r\n    owner: 'Ben', stage: 'Quote requested', touches_sent: 2, last_touch_hours_ago: 130, last_reply_hours_ago: -1,\r\n    source: 'website', wants: 'quote', notes: 'Fitted wardrobes for a two-bedroom flat.',\r\n    timezone: 'America/Chicago', demo_local: { weekday: 2, hour: 11 }, demo_messages: [] },\r\n  { contact_key: '07700900789', name: 'Lee Carter', company: 'Carter Plumbing',\r\n    email: '', phone: '07700 900789', contact_id: 'demo-1008', opportunity_id: 'demo-opp-1008',\r\n    owner: 'Ben', stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 50, last_reply_hours_ago: -1,\r\n    source: 'phone', wants: 'demo', notes: 'Wants to see the booking calendar before deciding.',\r\n    timezone: 'Europe/London', demo_local: { weekday: 2, hour: 14 }, demo_messages: [] },\r\n  { contact_key: 'priya@lotusstudio.example', name: 'Priya Shah', company: 'Lotus Studio',\r\n    email: 'priya@lotusstudio.example', phone: '', contact_id: 'demo-1009', opportunity_id: 'demo-opp-1009',\r\n    owner: 'Ada', stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 40, last_reply_hours_ago: -1,\r\n    source: 'website', wants: 'demo', notes: 'Yoga studio, asked about class bookings.',\r\n    timezone: 'Asia/Kolkata', demo_local: { weekday: 2, hour: 22 }, demo_messages: [] },\r\n  { contact_key: 'owen@gallagherbuild.example', name: 'Owen Gallagher', company: 'Gallagher Build',\r\n    email: 'owen@gallagherbuild.example', phone: '', contact_id: 'demo-1010', opportunity_id: 'demo-opp-1010',\r\n    owner: 'Cara', stage: 'New lead', touches_sent: 1, last_touch_hours_ago: 90, last_reply_hours_ago: -1,\r\n    source: 'email', wants: 'quote', notes: 'Site office fit-out.', timezone: 'Europe/Dublin',\r\n    demo_local: { weekday: 2, hour: 12 },\r\n    demo_messages: [\r\n      { direction: 'inbound',  body: 'Hi, looking for a fit-out quote for our site office.', hours_ago: 120 },\r\n      { direction: 'outbound', body: 'Quick check-in on your enquiry', hours_ago: 90 },\r\n      { direction: 'inbound',  body: 'Thanks for following up, can we talk on Thursday?', hours_ago: 20 }\r\n    ] },\r\n  { contact_key: 'sofia@marinflorals.example', name: 'Sofia Marin', company: 'Marin Florals',\r\n    email: 'sofia@marinflorals.example', phone: '07700 900321', contact_id: 'demo-1011', opportunity_id: 'demo-opp-1011',\r\n    owner: 'Ada', stage: 'New lead', touches_sent: 1, last_touch_hours_ago: 100, last_reply_hours_ago: -1,\r\n    source: 'website', wants: 'general', notes: '', timezone: 'Europe/London',\r\n    demo_local: { weekday: 2, hour: 10 },\r\n    demo_messages: [\r\n      { direction: 'outbound', body: 'Quick check-in on your enquiry', hours_ago: 100 },\r\n      { direction: 'inbound',  body: 'STOP', hours_ago: 50 }\r\n    ] },\r\n  { contact_key: 'sam-doyle', name: 'Sam Doyle', company: '',\r\n    email: '', phone: '', contact_id: 'demo-1012', opportunity_id: 'demo-opp-1012',\r\n    owner: 'Ada', stage: 'New lead', touches_sent: 0, last_touch_hours_ago: 60, last_reply_hours_ago: -1,\r\n    source: 'phone', wants: 'general', notes: 'Caller hung up before leaving a number.',\r\n    timezone: '', demo_local: { weekday: 2, hour: 10 }, demo_messages: [] }\r\n];\r\n\r\nconst SETTINGS = {\r\n  ghl_location_id: GHL_LOCATION_ID.trim(),\r\n  ghl_credential_added: GHL_CREDENTIAL_ADDED === true,\r\n  ghl_api_base:    GHL_API_BASE.trim().replace(/\\/+$/, ''),\r\n  ghl_api_version: GHL_API_VERSION.trim(),\r\n  ghl_conversations_api_version: GHL_CONVERSATIONS_API_VERSION.trim(),\r\n\r\n  ghl_pipeline_id: GHL_PIPELINE_ID.trim(),\r\n  stages:          STAGES,\r\n\r\n  custom_fields: CUSTOM_FIELDS,\r\n  base_tags:     BASE_TAGS,\r\n\r\n  owners:        OWNERS,\r\n  routing_rules: ROUTING_RULES,\r\n\r\n  sequence:            SEQUENCE,\r\n  max_touches:         Number(MAX_TOUCHES) || SEQUENCE.length,\r\n  open_stages:         OPEN_STAGES,\r\n  stop_on_stage_move:  STOP_ON_STAGE_MOVE === true,\r\n  from_name:           FROM_NAME.trim(),\r\n  demo_pipeline:       DEMO_PIPELINE,\r\n\r\n  seq_touches_field_id:    SEQ_TOUCHES_FIELD_ID.trim(),\r\n  seq_last_touch_field_id: SEQ_LAST_TOUCH_FIELD_ID.trim(),\r\n  seq_last_reply_field_id: SEQ_LAST_REPLY_FIELD_ID.trim(),\r\n  pipeline_page_limit:     Number(PIPELINE_PAGE_LIMIT) || 100,\r\n\r\n  default_timezone:        DEFAULT_TIMEZONE.trim() || 'UTC',\r\n  send_window_start_hour:  Number(SEND_WINDOW_START_HOUR),\r\n  send_window_end_hour:    Number(SEND_WINDOW_END_HOUR),\r\n  send_on_weekends:        SEND_ON_WEEKENDS === true,\r\n  pause_between_leads_seconds: Math.max(0, Number(PAUSE_BETWEEN_LEADS_SECONDS) || 0),\r\n\r\n  opt_out_keywords: OPT_OUT_KEYWORDS.map((k) => String(k).toLowerCase()),\r\n  opt_out_phrases:  OPT_OUT_PHRASES.map((k) => String(k).toLowerCase()),\r\n  dnc_tag:          DNC_TAG.trim(),\r\n  replied_tag:      REPLIED_TAG.trim(),\r\n  sequence_tags:    SEQUENCE_TAGS,\r\n  nurture_stage:    NURTURE_STAGE.trim(),\r\n  nurture_stage_id: ((STAGES.filter((s) => s.stage === NURTURE_STAGE.trim())[0] || {}).id || '').trim(),\r\n  task_due_hours:   Number(TASK_DUE_HOURS) || 24,\r\n\r\n  ai_api_base:       AI_API_BASE.trim().replace(/\\/+$/, ''),\r\n  ai_model:          AI_MODEL.trim(),\r\n  ai_temperature:    Number(AI_TEMPERATURE),\r\n  email_max_chars:   Number(EMAIL_MAX_CHARS) || 900,\r\n  subject_max_chars: Number(SUBJECT_MAX_CHARS) || 80,\r\n  sms_max_chars:     Number(SMS_MAX_CHARS) || 320,\r\n  sms_opt_out_line:  SMS_OPT_OUT_LINE.trim(),\r\n  banned_words:      BANNED_WORDS.map((w) => String(w).toLowerCase()),\r\n\r\n  report_webhook_url: REPORT_WEBHOOK_URL.trim(),\r\n  log_sheet_id:       LOG_SHEET_ID.trim(),\r\n  log_sheet_tab:      LOG_SHEET_TAB.trim() || 'Run log',\r\n\r\n  require_contact: REQUIRE_CONTACT === true,\r\n  require_message: REQUIRE_MESSAGE === true,\r\n\r\n  stage_on_arrival: 'New lead',\r\n\r\n  // derived flags — the gates read these, never the raw constants\r\n  mode:        MODE,\r\n  dry_run:     MODE !== 'live',\r\n  ghl_enabled: MODE === 'live'\r\n    && GHL_LOCATION_ID.trim() !== ''\r\n    && GHL_CREDENTIAL_ADDED === true,\r\n  ai_enabled:     AI_CREDENTIAL_ADDED === true && AI_API_BASE.trim() !== '' && AI_MODEL.trim() !== '',\r\n  report_enabled: REPORT_WEBHOOK_URL.trim() !== '',\r\n  log_enabled:    LOG_SHEET_ID.trim() !== ''\r\n};\r\n\r\n// config passes the incoming payload through untouched under `lead`, so whichever trigger\r\n// fired the next node reads the payload from the same place. It runs once per incoming item.\r\nconst incoming = $input.all().length ? $input.all().map((i) => i.json || {}) : [{}];\r\nreturn incoming.map((lead) => ({ json: Object.assign({}, SETTINGS, { lead: lead }) }));"
+      },
+      "id": "0725cb3b-bdce-42cd-a7e3-12c1c7345ee5",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "55612e09-c",
+              "leftValue": "={{ $('config').first().json.ghl_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "55612e09-2cad-4028-97ec-478eae3a57eb",
+      "name": "GoHighLevel connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('config').first().json.ghl_api_base + '/opportunities/search' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "location_id",
+              "value": "={{ $('config').first().json.ghl_location_id }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $('config').first().json.pipeline_page_limit }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "164f60f4-b1c9-41c2-95c2-421173c09773",
+      "name": "[cred] GoHighLevel - read the pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// The pipeline \"02 follow-up sequence\" runs against until GoHighLevel is wired up: the demo\r\n// leads from the config node, with their last-touch, last-reply and message times turned into\r\n// real timestamps so \"quiet for 30 hours\" means something relative to now. Every person is\r\n// invented, and the mix is chosen so every decision the sequence makes is visible in one run.\r\nconst cfg = $('config').first().json;\r\nconst now = Date.now();\r\nconst at = (h) => (h === null || h === undefined || Number(h) < 0)\r\n  ? '' : new Date(now - Number(h) * 3600000).toISOString();\r\n\r\nreturn (cfg.demo_pipeline || []).map((r) => ({\r\n  json: {\r\n    contact_key:    r.contact_key,\r\n    name:           r.name,\r\n    company:        r.company || '',\r\n    email:          r.email || '',\r\n    phone:          r.phone || '',\r\n    contact_id:     r.contact_id || '',\r\n    opportunity_id: r.opportunity_id || '',\r\n    owner:          r.owner || '',\r\n    stage:          r.stage || '',\r\n    touches_sent:   Number(r.touches_sent) || 0,\r\n    last_touch:     at(r.last_touch_hours_ago),\r\n    last_reply:     at(r.last_reply_hours_ago),\r\n    source:         r.source || '',\r\n    wants:          r.wants || '',\r\n    notes:          r.notes || '',\r\n    timezone:       r.timezone || '',\r\n    tags:           r.tags || [],\r\n    demo_local:     r.demo_local || null,\r\n    demo_messages:  (r.demo_messages || []).map((m) => ({\r\n      direction: m.direction, body: m.body, dateAdded: at(m.hours_ago) })),\r\n    _demo:          true\r\n  }\r\n}));"
+      },
+      "id": "c4b41fad-87c4-4c2e-9987-df1430460b85",
+      "name": "use the demo pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Maps the pipeline into the ONE row shape the sequence decides on, whether it came from\r\n// GoHighLevel or from the built-in demo pipeline. Everything downstream is identical either way.\r\n//\r\n// GoHighLevel's /opportunities/search returns opportunities, not the contact facts the sequence\r\n// wants: how many touches have gone out, when the last one was. Those live in custom fields, so\r\n// their ids are settings (`SEQ_*_FIELD_ID`); a blank id reads as 0 rather than being invented.\r\n// The stage arrives as a pipelineStageId, which is turned back into the name `OPEN_STAGES` uses.\r\n// The lead context the AI writer uses (what they want, the source, a summary) comes from the\r\n// CUSTOM_FIELDS that workflow 01 writes, when their ids are set.\r\n//\r\n// If the account has more opportunities than one page, that is REPORTED (`more_pages`), never\r\n// silently dropped.\r\nconst cfg = $('config').first().json;\r\n\r\nconst stageById = {};\r\nfor (const s of cfg.stages || []) if (s.id) stageById[s.id] = s.stage;\r\n\r\nfunction fromOpportunity(o) {\r\n  const cf = {};\r\n  for (const f of (o.customFields || [])) cf[f.id] = (f.value !== undefined ? f.value : f.fieldValue);\r\n  const c = o.contact || {};\r\n  const row = {\r\n    contact_key:    c.email || c.phone || o.contactId || o.id || '',\r\n    name:           c.name || c.contactName || o.name || '',\r\n    company:        c.companyName || '',\r\n    email:          c.email || '',\r\n    phone:          c.phone || '',\r\n    contact_id:     o.contactId || c.id || '',\r\n    opportunity_id: o.id || '',\r\n    owner:          o.assignedTo || '',\r\n    stage:          stageById[o.pipelineStageId] || o.pipelineStageName || 'unknown',\r\n    touches_sent:   Number(cf[cfg.seq_touches_field_id]) || 0,\r\n    last_touch:     cfg.seq_last_touch_field_id ? (cf[cfg.seq_last_touch_field_id] || '') : '',\r\n    last_reply:     cfg.seq_last_reply_field_id ? (cf[cfg.seq_last_reply_field_id] || '') : '',\r\n    source:         o.source || c.source || '',\r\n    wants:          '',\r\n    notes:          '',\r\n    timezone:       c.timezone || '',\r\n    tags:           Array.isArray(c.tags) ? c.tags : []\r\n  };\r\n  for (const f of cfg.custom_fields || []) {\r\n    if (!f.id || cf[f.id] === undefined) continue;\r\n    row[f.from === 'summary' ? 'notes' : f.from] = String(cf[f.id]);\r\n  }\r\n  return row;\r\n}\r\n\r\nconst rows = [];\r\nlet more = false;\r\nlet total = null;\r\nlet from = '';\r\n\r\nfor (const item of $input.all()) {\r\n  const j = item.json || {};\r\n  if (Array.isArray(j.opportunities)) {\r\n    for (const o of j.opportunities) rows.push(fromOpportunity(o));\r\n    const meta = j.meta || {};\r\n    total = (meta.total === undefined || meta.total === null) ? null : Number(meta.total);\r\n    more = !!(meta.nextPageUrl || meta.nextPage || meta.startAfterId);\r\n    from = 'GoHighLevel';\r\n  } else if (j.contact_key || j.email || j.contact_id || j.stage) {\r\n    // The demo pipeline already emits the row shape.\r\n    rows.push(j);\r\n    if (!from) from = 'the demo pipeline';\r\n  }\r\n}\r\n\r\nreturn [{\r\n  json: {\r\n    rows: rows,\r\n    rows_read: rows.length,\r\n    more_pages: more,\r\n    total_available: total,\r\n    _from: from || 'an empty pipeline'\r\n  }\r\n}];"
+      },
+      "id": "3c22f0fe-59ba-49c1-992c-8b079cd5d8d8",
+      "name": "read the pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GoHighLevel is configured but the read failed. The run STOPS here rather than falling back to\r\n// the demo pipeline — a fabricated lead must never be sequenced against a real account. This\r\n// node's output carries the reason, so the failure is a visible step rather than a quiet morning.\r\nreturn $input.all().map((i) => {\r\n  const j = i.json || {};\r\n  const err = j.error || j;\r\n  const detail = (err && (err.message || err.description || err.error)) || j;\r\n  return {\r\n    json: {\r\n      _outcome: 'read failed',\r\n      _reason: 'could not read the pipeline from GoHighLevel — nothing was sequenced',\r\n      ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)\r\n    }\r\n  };\r\n});"
+      },
+      "id": "017f2f38-fb8b-4d35-82f9-6718866fbd94",
+      "name": "STOP: could not read the pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decides, for every lead in the pipeline, whether it is DUE the next touch, WAITING for its\r\n// time, or STOPPED, and for a stopped one, why. One item out, carrying all three lists, so a\r\n// single run reads as a report rather than as N separate decisions.\r\n//\r\n// The stop checks run in order and a lead leaves at the first one that applies: an opt-out tag\r\n// beats everything, leaving an open stage beats replying, and both beat the counter.\r\n// Each stopped or waiting lead carries a short `reason_key` the run report groups by.\r\nconst cfg = $('config').first().json;\r\nconst source = $input.first().json || {};\r\nconst rows = source.rows || [];\r\nconst seq = cfg.sequence || [];\r\nconst open = cfg.open_stages || [];\r\nconst maxTouches = Number(cfg.max_touches) || seq.length;\r\nconst now = Date.now();\r\n\r\n// A timestamp the way the pipeline wrote it, tolerating the shapes a CRM or a sheet hands\r\n// back. A date with no zone (\"2026-10-20 09:00\") is read as UTC. An unreadable date is treated\r\n// as absent, never as \"now\": a lead we cannot date is not chased on a guess.\r\nfunction ms(v) {\r\n  const s = String(v || '').trim();\r\n  if (!s) return null;\r\n  if (/^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(s)) {\r\n    const t = Date.parse(s.replace(' ', 'T') + 'Z');\r\n    if (!isNaN(t)) return t;\r\n  }\r\n  let t = Date.parse(s);\r\n  if (isNaN(t)) t = Date.parse(s.replace(' ', 'T'));\r\n  return isNaN(t) ? null : t;\r\n}\r\n\r\nconst due = [], waiting = [], stopped = [], board = {}, seen = {};\r\n\r\nfor (const r of rows) {\r\n  board[r.stage] = (board[r.stage] || 0) + 1;\r\n\r\n  const base = {\r\n    contact_key: r.contact_key, name: r.name, company: r.company, owner: r.owner,\r\n    stage: r.stage, email: r.email, phone: r.phone, contact_id: r.contact_id,\r\n    opportunity_id: r.opportunity_id || '',\r\n    touches_sent: Number(r.touches_sent) || 0,\r\n    last_touch: r.last_touch || '', source: r.source || '', wants: r.wants || '',\r\n    notes: r.notes || '', timezone: r.timezone || '', tags: r.tags || []\r\n  };\r\n  if (r._demo) Object.assign(base, {\r\n    _demo: true, demo_local: r.demo_local || null, demo_messages: r.demo_messages || [] });\r\n\r\n  const lastTouch = ms(r.last_touch);\r\n  const lastReply = ms(r.last_reply);\r\n  const tags = (r.tags || []).map((t) => String(t).toLowerCase());\r\n\r\n  if (cfg.dnc_tag && tags.indexOf(cfg.dnc_tag.toLowerCase()) >= 0) {\r\n    stopped.push(Object.assign({}, base, { reason_key: 'opted out',\r\n      reason: 'opted out earlier (' + cfg.dnc_tag + ' tag)' }));\r\n    continue;\r\n  }\r\n  if (cfg.stop_on_stage_move && open.indexOf(r.stage) < 0) {\r\n    stopped.push(Object.assign({}, base, { reason_key: 'left the sequence',\r\n      reason: 'left the sequence — stage is ' + (r.stage || 'blank') }));\r\n    continue;\r\n  }\r\n  if (lastReply !== null && (lastTouch === null || lastReply >= lastTouch)) {\r\n    stopped.push(Object.assign({}, base, { reason_key: 'replied',\r\n      reason: 'they replied — a person takes it from here' }));\r\n    continue;\r\n  }\r\n  if (base.touches_sent >= maxTouches) {\r\n    stopped.push(Object.assign({}, base, { reason_key: 'finished',\r\n      reason: 'the sequence is finished (' + base.touches_sent + ' touches)' }));\r\n    continue;\r\n  }\r\n\r\n  const next = seq[base.touches_sent];\r\n  if (!next) {\r\n    stopped.push(Object.assign({}, base, { reason_key: 'finished',\r\n      reason: 'no touch left in the sequence' }));\r\n    continue;\r\n  }\r\n\r\n  const age = lastTouch === null ? null : (now - lastTouch) / 3600000;\r\n  if (age === null || age >= Number(next.after_hours)) {\r\n    // One touch per lead per run: a lead listed twice in the pipeline is touched once.\r\n    if (seen[base.contact_key]) continue;\r\n    seen[base.contact_key] = true;\r\n    due.push(Object.assign({}, base, {\r\n      touch: next.touch, channel: next.channel, label: next.label,\r\n      is_final: next.touch >= maxTouches || base.touches_sent + 1 >= seq.length,\r\n      quiet_hours: age === null ? null : Math.round(age)\r\n    }));\r\n  } else {\r\n    waiting.push(Object.assign({}, base, { reason_key: 'not due yet',\r\n      reason: 'not due yet — touch ' + next.touch + ' in ' +\r\n        Math.max(0, Math.round(Number(next.after_hours) - age)) + ' h'\r\n    }));\r\n  }\r\n}\r\n\r\nreturn [{\r\n  json: {\r\n    rows_read: rows.length,\r\n    source: source._from || 'the pipeline',\r\n    more_pages: source.more_pages === true,\r\n    total_available: (source.total_available === undefined) ? null : source.total_available,\r\n    due: due,\r\n    waiting: waiting,\r\n    stopped: stopped,\r\n    board: board,\r\n    due_count: due.length,\r\n    _has_due: due.length > 0\r\n  }\r\n}];"
+      },
+      "id": "7f9cf34a-c069-4a6f-b591-e8d5ed44eeff",
+      "name": "plan the sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a61628f3-c",
+              "leftValue": "={{ $json._has_due }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a61628f3-2693-40bf-9cab-88a4307ea310",
+      "name": "anything due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The plan is one item carrying every list. The loop below works one lead at a time, so the due\r\n// list becomes one item per lead here. The waiting and stopped lists stay on the plan, where the\r\n// run report picks them up at the end.\r\nconst plan = $input.first().json || {};\r\nreturn (plan.due || []).map((d) => ({ json: d }));"
+      },
+      "id": "2f18b1c3-3952-4f29-acc9-38a27acced69",
+      "name": "split the due leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The sequence ran and nothing was due. This node's output is the run report: what is\r\n// waiting, and what has been stopped and why — so a quiet day still says something rather\r\n// than looking like a broken workflow.\r\nconst p = $input.first().json || {};\r\nreturn [{\r\n  json: {\r\n    _outcome: 'nothing due',\r\n    _reason: 'no lead is due a touch today',\r\n    rows_read: p.rows_read,\r\n    due_count: 0,\r\n    waiting: p.waiting || [],\r\n    stopped: p.stopped || [],\r\n    board: p.board || {}\r\n  }\r\n}];"
+      },
+      "id": "9c4cbc92-272b-4cc3-91e7-d81387c24ea4",
+      "name": "STOP: nothing due today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "c98d074b-ca2e-4a21-a749-e755fa4c6b8f",
+      "name": "loop over the due leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One due lead at a time: can it be reached, by what, and is it a sensible hour where it lives?\r\n//\r\n// Channel: the ladder's channel first. An email touch with no email address goes by SMS, an SMS\r\n// touch with no phone number goes by email, and a lead with neither is stopped as unreachable.\r\n// Window: the lead's local time from the contact's timezone (DEFAULT_TIMEZONE when blank or\r\n// unknown). Outside SEND_WINDOW_START_HOUR..SEND_WINDOW_END_HOUR, or on a weekend when\r\n// SEND_ON_WEEKENDS is false, the lead is \"waiting: quiet hours\" and a later run picks it up.\r\n// Demo leads carry a simulated local time so the demo shows the same decisions whenever it runs.\r\nconst cfg = $('config').first().json;\r\nconst lead = $input.first().json || {};\r\nconst DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\r\n\r\nfunction localParts(tz) {\r\n  const parts = new Intl.DateTimeFormat('en-GB', {\r\n    timeZone: tz, weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());\r\n  const get = (t) => (parts.filter((p) => p.type === t)[0] || {}).value;\r\n  return { weekday: DAYS.indexOf(get('weekday')), hour: Number(get('hour')) };\r\n}\r\n\r\n// ---- where and when\r\nconst wanted = String(lead.timezone || '').trim();\r\nlet tz = wanted || cfg.default_timezone;\r\nlet tzNote = wanted ? 'contact timezone' : 'default timezone';\r\nlet local;\r\nif (lead._demo && lead.demo_local) {\r\n  local = { weekday: Number(lead.demo_local.weekday), hour: Number(lead.demo_local.hour) };\r\n  tzNote += ', simulated local time (demo)';\r\n} else {\r\n  try { local = localParts(tz); }\r\n  catch (e) {\r\n    tzNote = 'unknown timezone \"' + wanted + '\", used the default';\r\n    tz = cfg.default_timezone;\r\n    try { local = localParts(tz); } catch (e2) { tz = 'UTC'; local = localParts('UTC'); }\r\n  }\r\n}\r\n\r\n// ---- how\r\nconst hasEmail = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(String(lead.email || '').trim());\r\nconst hasPhone = String(lead.phone || '').replace(/\\D/g, '').length >= 7;\r\nconst ladder = String(lead.channel || 'email').toLowerCase();\r\nlet channel = ladder;\r\nlet channelNote = 'the ladder channel';\r\nif (ladder === 'email' && !hasEmail) {\r\n  channel = hasPhone ? 'sms' : '';\r\n  channelNote = hasPhone ? 'no email address, so SMS instead' : '';\r\n} else if (ladder === 'sms' && !hasPhone) {\r\n  channel = hasEmail ? 'email' : '';\r\n  channelNote = hasEmail ? 'no phone number, so email instead' : '';\r\n}\r\n\r\nconst out = Object.assign({}, lead, {\r\n  ladder_channel: ladder, channel: channel, channel_note: channelNote,\r\n  timezone_used: tz, timezone_note: tzNote,\r\n  local_time: (DAYS[local.weekday] || '?') + ' ' + String(local.hour).padStart(2, '0') + ':00'\r\n});\r\n\r\nconst start = Number(cfg.send_window_start_hour), end = Number(cfg.send_window_end_hour);\r\nconst weekend = local.weekday === 0 || local.weekday === 6;\r\n\r\nif (!channel) {\r\n  Object.assign(out, { _gate: 'stopped', _outcome: 'stopped', reason_key: 'unreachable',\r\n    _reason: 'unreachable — no email address and no phone number' });\r\n} else if (weekend && !cfg.send_on_weekends) {\r\n  Object.assign(out, { _gate: 'waiting', _outcome: 'waiting', reason_key: 'quiet hours',\r\n    _reason: 'quiet hours — it is the weekend where the lead is (' + out.local_time + ', ' + tz + ')' });\r\n} else if (local.hour < start || local.hour >= end) {\r\n  Object.assign(out, { _gate: 'waiting', _outcome: 'waiting', reason_key: 'quiet hours',\r\n    _reason: 'quiet hours — ' + out.local_time + ' where the lead is (' + tz + '), window ' +\r\n      start + ':00-' + end + ':00' });\r\n} else {\r\n  out._gate = 'go';\r\n}\r\n\r\nreturn [{ json: out }];"
+      },
+      "id": "5a4df6ba-faec-4a7f-a94e-7e8de928365e",
+      "name": "check the sending window and channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "80b8c353-c",
+              "leftValue": "={{ $json._gate === 'go' }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "80b8c353-3a8f-4f84-aca4-091fccfffc47",
+      "name": "ready to contact now?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0663eedd-c",
+              "leftValue": "={{ $('config').first().json.ghl_enabled && !$json._demo }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "0663eedd-7a9e-4c76-a5cd-3e8228bdcd43",
+      "name": "read the conversation live?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('config').first().json.ghl_api_base + '/conversations/search' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "locationId",
+              "value": "={{ $('config').first().json.ghl_location_id }}"
+            },
+            {
+              "name": "contactId",
+              "value": "={{ $('check the sending window and channel').first().json.contact_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_conversations_api_version }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "b27b91fe-d15b-4ae6-a7a2-a2554656c944",
+      "name": "[cred] GoHighLevel - find the conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        120
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6f51fa3e-c",
+              "leftValue": "={{ ($json.conversations || []).length > 0 }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "6f51fa3e-1d9c-4e8b-a45b-71945604a435",
+      "name": "found a conversation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3380,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('config').first().json.ghl_api_base + '/conversations/' + $json.conversations[0].id + '/messages' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_conversations_api_version }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "4a53fda2-670f-4a87-a0c8-faf5ff4fbffd",
+      "name": "[cred] GoHighLevel - read the messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3640,
+        120
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads the lead's conversation before a touch goes out, and decides one of three things:\r\n//   send      - nothing new from them, the touch can go\r\n//   replied   - an inbound message arrived after the last touch: stop, hand to the owner\r\n//   opted_out - they asked to stop (OPT_OUT_KEYWORDS / OPT_OUT_PHRASES): stop for good, tag DNC\r\n// An opt-out anywhere in the conversation wins over a reply. Live leads arrive here with the\r\n// GoHighLevel messages (or with no conversation yet); demo leads bring their own `demo_messages`.\r\n// It also prepares the GoHighLevel writes for a stop, so they can be sent or shown as a preview.\r\nconst cfg = $('config').first().json;\r\nconst lead = $('check the sending window and channel').first().json;\r\nconst input = $input.first().json || {};\r\n\r\nfunction ms(v) {\r\n  const s = String(v || '').trim();\r\n  if (!s) return null;\r\n  if (/^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(s)) {\r\n    const t = Date.parse(s.replace(' ', 'T') + 'Z');\r\n    if (!isNaN(t)) return t;\r\n  }\r\n  const t = Date.parse(s);\r\n  return isNaN(t) ? null : t;\r\n}\r\n\r\nlet messages = [];\r\nlet readFrom = 'no conversation yet';\r\nif (lead._demo) {\r\n  messages = lead.demo_messages || [];\r\n  readFrom = 'the demo conversation';\r\n} else if (input.messages) {\r\n  const m = input.messages;\r\n  messages = Array.isArray(m) ? m : (Array.isArray(m.messages) ? m.messages : []);\r\n  readFrom = 'the GoHighLevel conversation';\r\n}\r\n\r\nconst norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\\s-]/g, ' ').replace(/\\s+/g, ' ').trim();\r\nconst inbound = messages.filter((m) => String(m.direction || '').toLowerCase() === 'inbound');\r\nconst optOut = inbound.filter((m) => {\r\n  const b = norm(m.body || m.message);\r\n  return (cfg.opt_out_keywords || []).indexOf(b) >= 0 ||\r\n    (cfg.opt_out_phrases || []).some((p) => b.indexOf(norm(p)) >= 0);\r\n})[0];\r\nconst lastTouch = ms(lead.last_touch);\r\nconst reply = lastTouch === null ? null : inbound.filter((m) => {\r\n  const t = ms(m.dateAdded || m.date_added || m.createdAt);\r\n  return t !== null && t > lastTouch;\r\n}).pop();\r\n\r\n// The owner as a GoHighLevel user id: an OWNERS name maps to its user_id; a live lead already\r\n// carries the assigned user id. Blank means the task is created unassigned.\r\nfunction ownerId(owner) {\r\n  const list = cfg.owners || [];\r\n  const hit = list.filter((o) => o.owner === owner)[0];\r\n  if (hit) return hit.user_id || '';\r\n  return owner || '';\r\n}\r\nconst due = new Date(Date.now() + Number(cfg.task_due_hours || 24) * 3600000).toISOString();\r\nconst excerpt = (m) => String((m && (m.body || m.message)) || '').slice(0, 280);\r\n\r\nconst out = Object.assign({}, lead, { conversation_read_from: readFrom, messages_read: messages.length });\r\n\r\nif (optOut) {\r\n  Object.assign(out, {\r\n    _verdict: 'opted_out', _outcome: 'stopped', reason_key: 'opted out',\r\n    _reason: 'opted out — \"' + excerpt(optOut).slice(0, 60) + '\"; tagged ' + cfg.dnc_tag,\r\n    reply_excerpt: excerpt(optOut),\r\n    _stop_writes: { tags: { tags: [cfg.dnc_tag] } }\r\n  });\r\n} else if (reply) {\r\n  const task = {\r\n    title: 'Reply from ' + (lead.name || 'a lead') + ': take over from the follow-up sequence',\r\n    body: 'They replied after touch ' + lead.touches_sent + ': \"' + excerpt(reply) + '\"',\r\n    dueDate: due, completed: false\r\n  };\r\n  const uid = ownerId(lead.owner);\r\n  if (uid) task.assignedTo = uid;\r\n  Object.assign(out, {\r\n    _verdict: 'replied', _outcome: 'stopped', reason_key: 'replied',\r\n    _reason: 'they replied in the conversation — handed to ' + (lead.owner || 'the owner'),\r\n    reply_excerpt: excerpt(reply),\r\n    _stop_writes: { tags: { tags: [cfg.replied_tag] }, task: task }\r\n  });\r\n} else {\r\n  out._verdict = 'send';\r\n}\r\n\r\nreturn [{ json: out }];"
+      },
+      "id": "4961bf8c-498f-493d-a1d2-0a94a9f9a50d",
+      "name": "check replies and opt-outs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "verdict-r0",
+                    "leftValue": "={{ $json._verdict }}",
+                    "rightValue": "send",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "verdict-r1",
+                    "leftValue": "={{ $json._verdict }}",
+                    "rightValue": "replied",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "replied"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "verdict-r2",
+                    "leftValue": "={{ $json._verdict }}",
+                    "rightValue": "opted_out",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "opted out"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "386632dd-3b26-42cd-a7fb-e81790aed291",
+      "name": "what did the conversation say?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        4160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3b5d0fdd-c",
+              "leftValue": "={{ $('config').first().json.ghl_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3b5d0fdd-407f-4af4-ac5c-055410b657fe",
+      "name": "write the stop to GoHighLevel?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $json.contact_id + '/tags' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._stop_writes.tags) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "4d71f8df-4f7b-43cf-a977-be3cdc337698",
+      "name": "[cred] GoHighLevel - tag the stopped lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4680,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f6d6c3ac-c",
+              "leftValue": "={{ $('check replies and opt-outs').first().json._verdict === 'replied' }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "f6d6c3ac-bc5a-41b0-a0ee-858f6e9fd8e5",
+      "name": "did they reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4940,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $('check replies and opt-outs').first().json.contact_id + '/tasks' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('check replies and opt-outs').first().json._stop_writes.task) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "8ad0c4d7-db52-46a5-a408-8819353607f5",
+      "name": "[cred] GoHighLevel - task the owner about the reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5200,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Writes the template version of the touch (the SEQUENCE line with a greeting, and for SMS the\r\n// opt-out line), and the request the AI writer would get. NOTHING is sent from here.\r\n//\r\n// The template text is always built: it is what goes out when the AI writer is not configured,\r\n// fails, or writes something that breaks a guardrail. The AI request carries only the lead\r\n// context it needs (service wanted, source, stage, notes, touch number) and the rules it must\r\n// follow; the guardrails are still enforced in code after it.\r\nconst cfg = $('config').first().json;\r\nconst seq = cfg.sequence || [];\r\nconst d = $input.first().json || {};\r\nconst t = seq.filter((s) => s.touch === d.touch)[0] || {};\r\nconst channel = (d.channel || t.channel || 'email').toLowerCase();\r\nconst first = String(d.name || '').split(' ')[0] || 'there';\r\nconst optOutLine = cfg.sms_opt_out_line || 'Reply STOP to opt out';\r\n\r\nconst templateBody = channel === 'sms'\r\n  ? 'Hi ' + first + ', ' + (t.line || '') + ' ' + optOutLine\r\n  : 'Hi ' + first + ',\\n\\n' + (t.line || '');\r\nconst templateSubject = channel === 'email' ? (t.subject || 'Following up on your enquiry') : '';\r\n\r\nconst rules = [\r\n  'You write one short follow-up message from a small business to a lead who has gone quiet.',\r\n  'Plain, friendly, first person, no emojis, no signature, no placeholders in brackets.',\r\n  'Never mention prices, costs, discounts, offers, refunds, guarantees or promises, and never invent facts.',\r\n  'Use only the lead details you are given.',\r\n  channel === 'sms'\r\n    ? 'This is an SMS. Leave \"subject\" empty. Keep \"body\" under ' + cfg.sms_max_chars +\r\n      ' characters and end it with exactly: \"' + optOutLine + '\"'\r\n    : 'This is an email. Keep \"subject\" under ' + cfg.subject_max_chars + ' characters and \"body\" under ' +\r\n      cfg.email_max_chars + ' characters. Start the body with \"Hi ' + first + ',\".',\r\n  'Reply with JSON only: {\"subject\": \"...\", \"body\": \"...\"}'\r\n].join(' ');\r\n\r\nconst context = {\r\n  first_name: first,\r\n  company: d.company || '',\r\n  service_wanted: d.wants || '',\r\n  source: d.source || '',\r\n  stage: d.stage || '',\r\n  notes: d.notes || '',\r\n  touch_number: d.touch,\r\n  touches_in_sequence: cfg.max_touches,\r\n  purpose: t.label || '',\r\n  channel: channel,\r\n  example_line: t.line || ''\r\n};\r\n\r\nreturn [{\r\n  json: Object.assign({}, d, {\r\n    channel: channel,\r\n    template_subject: templateSubject,\r\n    template_body: templateBody,\r\n    _ai_request: {\r\n      model: cfg.ai_model,\r\n      temperature: cfg.ai_temperature,\r\n      messages: [\r\n        { role: 'system', content: rules },\r\n        { role: 'user', content: JSON.stringify(context) }\r\n      ]\r\n    },\r\n    _template_ready: true\r\n  })\r\n}];"
+      },
+      "id": "c5fccc62-51f7-4cf7-887f-c0f5c5499661",
+      "name": "compose the next touch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aebd39e7-c",
+              "leftValue": "={{ $('config').first().json.ai_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "aebd39e7-a605-4314-a074-ec0733e30f31",
+      "name": "AI writer configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ai_api_base + '/chat/completions' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._ai_request) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "413ae010-9670-49e7-a21c-6ad532cd7c58",
+      "name": "[cred] AI - draft the touch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5980,
+        120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decides which words go out, and builds every GoHighLevel request that follows a send.\r\n//\r\n// The AI draft is used only if it passes every guardrail, checked here in code:\r\n//   - not empty, no placeholders or markup\r\n//   - within the length for its channel (EMAIL_MAX_CHARS, SUBJECT_MAX_CHARS, SMS_MAX_CHARS)\r\n//   - no prices, amounts, percentages or BANNED_WORDS (discounts, offers, promises...)\r\n//   - an SMS ends with SMS_OPT_OUT_LINE\r\n// Otherwise the template text goes, and `fallback_reason` says why: AI not configured, the AI\r\n// call failed, the reply was unreadable, or which guardrail it broke. AI text that failed a\r\n// guardrail is never sent.\r\nconst cfg = $('config').first().json;\r\nconst touch = $('compose the next touch').first().json;\r\nconst j = $input.first().json || {};\r\nconst channel = touch.channel;\r\n\r\nfunction parseDraft(content) {\r\n  const s = String(content || '').trim();\r\n  const m = s.match(/\\{[\\s\\S]*\\}/);\r\n  if (!m) return null;\r\n  try {\r\n    const o = JSON.parse(m[0]);\r\n    return { subject: String(o.subject || '').trim(), body: String(o.body || '').trim() };\r\n  } catch (e) { return null; }\r\n}\r\n\r\nfunction escapeRe(s) { return s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'); }\r\n\r\nfunction guardrails(draft) {\r\n  const broken = [];\r\n  const all = draft.subject + '\\n' + draft.body;\r\n  if (!draft.body) broken.push('empty body');\r\n  if (/\\[[^\\]]*\\]|\\{\\{|\\}\\}|<[^>]+>/.test(all)) broken.push('placeholder or markup');\r\n  if (channel === 'sms') {\r\n    if (draft.body.length > cfg.sms_max_chars) broken.push('SMS longer than ' + cfg.sms_max_chars);\r\n    const end = draft.body.replace(/[.!\\s]+$/, '');\r\n    if (!end.toLowerCase().endsWith(String(cfg.sms_opt_out_line).toLowerCase())) broken.push('SMS missing the opt-out line');\r\n  } else {\r\n    if (draft.body.length > cfg.email_max_chars) broken.push('email longer than ' + cfg.email_max_chars);\r\n    if (draft.subject.length > cfg.subject_max_chars) broken.push('subject longer than ' + cfg.subject_max_chars);\r\n  }\r\n  if (/[$£€₹¥]\\s?\\d|\\d\\s?(usd|gbp|eur|dollars?|pounds?|euros?)\\b|\\d+(\\.\\d+)?\\s?(%|percent)/i.test(all)) {\r\n    broken.push('mentions a price, amount or percentage');\r\n  }\r\n  const hits = (cfg.banned_words || []).filter((w) =>\r\n    new RegExp('(^|[^a-z])' + escapeRe(w) + '([^a-z]|$)', 'i').test(all));\r\n  if (hits.length) broken.push('banned words: ' + hits.join(', '));\r\n  return broken;\r\n}\r\n\r\nlet subject = touch.template_subject;\r\nlet body = touch.template_body;\r\nlet textSource = 'template';\r\nlet fallback = '';\r\nlet aiDraft = null;\r\n\r\nif (j._template_ready) {\r\n  fallback = 'AI not configured';\r\n} else if (j.error) {\r\n  const e = j.error;\r\n  fallback = 'AI call failed: ' + String((e && (e.message || e.description)) || e).slice(0, 160);\r\n} else {\r\n  const content = (((j.choices || [])[0] || {}).message || {}).content;\r\n  const draft = parseDraft(content);\r\n  if (!draft) {\r\n    fallback = 'AI reply unreadable';\r\n  } else {\r\n    aiDraft = draft;\r\n    const broken = guardrails(draft);\r\n    if (broken.length) {\r\n      fallback = 'guardrail: ' + broken.join('; ');\r\n    } else {\r\n      body = draft.body;\r\n      if (channel === 'email') subject = draft.subject || touch.template_subject;\r\n      textSource = 'ai';\r\n    }\r\n  }\r\n}\r\n\r\nif (channel === 'email' && cfg.from_name) body += '\\n\\n— ' + cfg.from_name;\r\n\r\nconst base = cfg.ghl_api_base;\r\nconst ghlBody = channel === 'email'\r\n  ? { type: 'Email', contactId: touch.contact_id, subject: subject, message: body,\r\n      html: '<p>' + body.split('\\n\\n').join('</p><p>').split('\\n').join('<br>') + '</p>' }\r\n  : { type: 'SMS', contactId: touch.contact_id, message: body };\r\n\r\n// ---- what follows a successful send\r\nconst now = new Date();\r\nconst newCount = (Number(touch.touches_sent) || 0) + 1;\r\nconst customFields = [];\r\nif (cfg.seq_touches_field_id) customFields.push({ id: cfg.seq_touches_field_id, value: String(newCount) });\r\nif (cfg.seq_last_touch_field_id) customFields.push({ id: cfg.seq_last_touch_field_id, value: now.toISOString() });\r\n\r\nconst owners = cfg.owners || [];\r\nconst ownerHit = owners.filter((o) => o.owner === touch.owner)[0];\r\nconst ownerId = ownerHit ? (ownerHit.user_id || '') : (touch.owner || '');\r\nconst task = {\r\n  title: 'Call this lead: the follow-up sequence finished with no reply',\r\n  body: (touch.name || 'This lead') + ' received all ' + newCount + ' touches and has not replied. ' +\r\n    'Last touch: ' + channel + (touch.wants ? '. They asked about: ' + touch.wants : '') + '.',\r\n  dueDate: new Date(now.getTime() + Number(cfg.task_due_hours || 24) * 3600000).toISOString(),\r\n  completed: false\r\n};\r\nif (ownerId) task.assignedTo = ownerId;\r\nconst move = { pipelineStageId: cfg.nurture_stage_id };\r\nif (cfg.ghl_pipeline_id) move.pipelineId = cfg.ghl_pipeline_id;\r\n\r\nconst isFinal = touch.is_final === true || Number(touch.touch) >= Number(cfg.max_touches);\r\n\r\nreturn [{\r\n  json: {\r\n    contact_key: touch.contact_key, name: touch.name, owner: touch.owner, stage: touch.stage,\r\n    contact_id: touch.contact_id, opportunity_id: touch.opportunity_id,\r\n    email: touch.email, phone: touch.phone,\r\n    touch: touch.touch, touches_sent: touch.touches_sent, channel: channel,\r\n    ladder_channel: touch.ladder_channel, channel_note: touch.channel_note,\r\n    local_time: touch.local_time, timezone_used: touch.timezone_used,\r\n    subject: channel === 'email' ? subject : '',\r\n    body: body,\r\n    text_source: textSource,\r\n    fallback_reason: fallback,\r\n    ai_draft_rejected: textSource === 'template' && aiDraft ? aiDraft : null,\r\n    _ghl: { method: 'POST', url: base + '/conversations/messages', body: ghlBody },\r\n    _writeback: {\r\n      fields: { customFields: customFields },\r\n      fields_note: customFields.length ? '' : 'no SEQ_*_FIELD_ID set: the counter is not written back',\r\n      tags: { tags: ['sequence-touch-' + touch.touch].concat(cfg.sequence_tags || []) },\r\n      note: { body: 'Follow-up touch ' + touch.touch + ' of ' + cfg.max_touches + ' sent by ' + channel +\r\n        (touch.channel_note && touch.channel_note !== 'the ladder channel' ? ' (' + touch.channel_note + ')' : '') +\r\n        '. Text: ' + (textSource === 'ai' ? 'AI-written, passed the guardrails' : 'template' +\r\n        (fallback ? ' (' + fallback + ')' : '')) + '.\\n\\n' + body },\r\n      is_final: isFinal,\r\n      task: task,\r\n      nurture_enabled: isFinal && !!cfg.nurture_stage_id && !!touch.opportunity_id,\r\n      move: move\r\n    },\r\n    _demo: touch._demo === true\r\n  }\r\n}];"
+      },
+      "id": "3527330c-52b5-4145-a2cb-7c19cd3f1af9",
+      "name": "apply the guardrails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9a5453b5-c",
+              "leftValue": "={{ $('config').first().json.ghl_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "9a5453b5-239d-42c5-ab4a-d9da890647f2",
+      "name": "sending switched on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._ghl.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_conversations_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._ghl.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "c37b584e-9284-43ca-b458-dece2575c911",
+      "name": "[cred] GoHighLevel - send the touch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6760,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sending is off (DRY_RUN is still true, or GoHighLevel is not connected). Nothing was sent and\r\n// nothing was written. This node's output IS the result: the exact words, who they were for,\r\n// whether the AI or the template wrote them, and every GoHighLevel write that would follow.\r\nconst d = $input.first().json || {};\r\nconst w = d._writeback || {};\r\nconst wouldWrite = [\r\n  w.fields_note ? 'sequence fields: skipped, ' + w.fields_note : 'sequence fields: touch count and last-touch date',\r\n  'tags: ' + ((w.tags && w.tags.tags) || []).join(', '),\r\n  'note on the contact'\r\n];\r\nif (w.is_final) {\r\n  wouldWrite.push('task for ' + (d.owner || 'the owner') + ': ' + w.task.title);\r\n  wouldWrite.push(w.nurture_enabled ? 'opportunity moved to the nurture stage'\r\n    : 'nurture move skipped: no NURTURE_STAGE id in STAGES (or no opportunity id)');\r\n}\r\nreturn [{\r\n  json: Object.assign({}, d, {\r\n    _outcome: 'previewed',\r\n    reason_key: 'preview',\r\n    _reason: 'preview — sending is off, nothing was sent or written',\r\n    to: d.channel === 'email' ? d.email : d.phone,\r\n    would_send: d._ghl,\r\n    would_write: wouldWrite\r\n  })\r\n}];"
+      },
+      "id": "86a4c9cb-0245-4bc9-a221-787aadfe3278",
+      "name": "keep the touch as a preview",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6760,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $('apply the guardrails').first().json.contact_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('apply the guardrails').first().json._writeback.fields) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "679a45ba-8b96-4a8b-a4fd-756713b522d4",
+      "name": "[cred] GoHighLevel - update the sequence fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7020,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $('apply the guardrails').first().json.contact_id + '/tags' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('apply the guardrails').first().json._writeback.tags) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "7c5993d4-7ce0-4e06-a14a-c28f602f7436",
+      "name": "[cred] GoHighLevel - add the touch tags",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7280,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $('apply the guardrails').first().json.contact_id + '/notes' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('apply the guardrails').first().json._writeback.note) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "d97c38b8-21fa-4972-a236-d3b89d1e2e93",
+      "name": "[cred] GoHighLevel - add a note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7540,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b432fc75-c",
+              "leftValue": "={{ $('apply the guardrails').first().json._writeback.is_final }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "b432fc75-0fd4-4cf1-a3dc-6a85b0bd9f96",
+      "name": "final touch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.ghl_api_base + '/contacts/' + $('apply the guardrails').first().json.contact_id + '/tasks' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('apply the guardrails').first().json._writeback.task) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "8fe7b26d-2788-4337-af39-9faad7fcaa90",
+      "name": "[cred] GoHighLevel - create the call task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8060,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3e3159af-c",
+              "leftValue": "={{ $('apply the guardrails').first().json._writeback.nurture_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3e3159af-c2dc-42fa-a592-aea9f8ea6e78",
+      "name": "nurture stage set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8320,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('config').first().json.ghl_api_base + '/opportunities/' + $('apply the guardrails').first().json.opportunity_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Version",
+              "value": "={{ $('config').first().json.ghl_api_version }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('apply the guardrails').first().json._writeback.move) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "9538c4e7-e461-4ec3-a105-a4a476fe6b66",
+      "name": "[cred] GoHighLevel - move to nurture",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8580,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// The touch went out. This checks every write that followed it: the sequence fields, the tags,\r\n// the note, and after the final touch the owner's task and the move to nurture. A write that\r\n// failed does not undo the send; it is listed, and the run report counts it, because a counter\r\n// that was not written back means the next run would see the old count.\r\nconst d = $('apply the guardrails').first().json;\r\nconst sent = $('[cred] GoHighLevel - send the touch').first().json || {};\r\nconst w = d._writeback || {};\r\n\r\nconst steps = [\r\n  ['sequence fields', $('[cred] GoHighLevel - update the sequence fields').first().json],\r\n  ['tags',            $('[cred] GoHighLevel - add the touch tags').first().json],\r\n  ['note',            $('[cred] GoHighLevel - add a note').first().json]\r\n];\r\nif (w.is_final) {\r\n  steps.push(['owner task', $('[cred] GoHighLevel - create the call task').first().json]);\r\n  if (w.nurture_enabled) steps.push(['move to nurture', $('[cred] GoHighLevel - move to nurture').first().json]);\r\n}\r\n\r\nconst failed = [];\r\nfor (const [label, r] of steps) {\r\n  if (r && r.error) {\r\n    const e = r.error;\r\n    failed.push(label + ': ' + String((e && (e.message || e.description)) || e).slice(0, 160));\r\n  }\r\n}\r\n\r\nreturn [{\r\n  json: Object.assign({}, d, {\r\n    _outcome: 'sent',\r\n    reason_key: 'sent',\r\n    _reason: 'touch ' + d.touch + ' sent by ' + d.channel + (w.is_final ? ', the final one' : ''),\r\n    message_id: sent.messageId || sent.id || '',\r\n    writes_done: steps.map((s) => s[0]),\r\n    write_back_failed: failed.length > 0,\r\n    write_back_errors: failed\r\n  })\r\n}];"
+      },
+      "id": "ab6d37c5-2d9c-4e80-ad98-26e7c25df5ba",
+      "name": "confirm the write-back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Every lead that leaves the loop body passes through here, whichever way it went: waiting,\r\n// stopped, previewed or sent. One flat record per lead, which the loop collects for the run\r\n// report. A stop written to GoHighLevel (a reply or an opt-out) arrives as the API response, so\r\n// its decision is read back from `check replies and opt-outs`.\r\nconst j = $input.first().json || {};\r\nlet o = j;\r\nlet stopWrite = '';\r\nif (!j._outcome) {\r\n  o = $('check replies and opt-outs').first().json;\r\n  const tag = $('[cred] GoHighLevel - tag the stopped lead').first().json || {};\r\n  const msg = (e) => String((e && (e.message || e.description)) || e).slice(0, 160);\r\n  const errors = [tag.error, j.error].filter(Boolean).map(msg)\r\n    .filter((m, i, all) => all.indexOf(m) === i);\r\n  stopWrite = errors.length ? 'failed: ' + errors.join('; ') : 'written';\r\n}\r\n\r\nreturn [{\r\n  json: {\r\n    contact_key: o.contact_key,\r\n    name: o.name,\r\n    owner: o.owner,\r\n    stage: o.stage,\r\n    touch: o.touch,\r\n    channel: o.channel || '',\r\n    outcome: o._outcome,\r\n    reason_key: o.reason_key || o._outcome,\r\n    reason: o._reason || '',\r\n    text_source: o.text_source || '',\r\n    fallback_reason: o.fallback_reason || '',\r\n    subject: o.subject || '',\r\n    body: o.body || '',\r\n    to: o.to || '',\r\n    would_write: o.would_write || [],\r\n    write_back_failed: o.write_back_failed === true,\r\n    write_back_errors: o.write_back_errors || [],\r\n    stop_write: stopWrite || (o._stop_writes ? 'preview, not written' : ''),\r\n    local_time: o.local_time || '',\r\n    _demo: o._demo === true\r\n  }\r\n}];"
+      },
+      "id": "dac0c48c-4c97-4e87-a2bf-e88c7a8d6777",
+      "name": "record the lead outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9100,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// A GoHighLevel call for this lead failed: the conversation could not be read, or the touch was\r\n// refused. Nothing was sent to this lead (a lead whose conversation cannot be read is never\r\n// touched blind, since it might have opted out). The loop carries on with the next lead, and\r\n// the run report counts this one as failed with the step and the response.\r\nconst lead = $('check the sending window and channel').first().json;\r\nconst j = $input.first().json || {};\r\nconst e = j.error || j;\r\nconst detail = (e && (e.message || e.description || e.error)) || e;\r\nlet step = 'a GoHighLevel call';\r\ntry { step = $prevNode.name; } catch (err) { /* not available outside n8n */ }\r\n\r\nreturn [{\r\n  json: {\r\n    contact_key: lead.contact_key,\r\n    name: lead.name,\r\n    owner: lead.owner,\r\n    stage: lead.stage,\r\n    touch: lead.touch,\r\n    channel: lead.channel || '',\r\n    outcome: 'failed',\r\n    reason_key: 'failed',\r\n    reason: 'failed at \"' + step + '\" — nothing was sent to this lead',\r\n    failed_step: step,\r\n    ghl_response: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600),\r\n    _demo: lead._demo === true\r\n  }\r\n}];"
+      },
+      "id": "10a6f98f-7c14-481b-a477-d23fefada172",
+      "name": "record a lead failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9100,
+        1020
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('config').first().json.pause_between_leads_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "3b0fe9ee-ede7-45ba-a478-42b341d44fce",
+      "name": "pause between leads",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        9360,
+        840
+      ],
+      "webhookId": "7b539b49-a73a-4abc-a655-99e3bef53929"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One summary for the whole run: the leads the plan set aside (waiting, stopped) plus every\r\n// lead the loop worked through (sent, previewed, waiting on quiet hours, stopped on a reply or\r\n// an opt-out, failed). It also counts how many touches the AI wrote against the template, and\r\n// shapes the same summary for a Slack or Discord webhook and for one Google Sheets row.\r\nconst cfg = $('config').first().json;\r\nconst plan = $('plan the sequence').first().json;\r\nconst worked = $input.all().map((i) => i.json || {}).filter((o) => o.outcome);\r\n\r\nconst waiting = (plan.waiting || []).map((w) => ({ name: w.name, reason_key: w.reason_key, reason: w.reason }))\r\n  .concat(worked.filter((o) => o.outcome === 'waiting'));\r\nconst stopped = (plan.stopped || []).map((s) => ({ name: s.name, reason_key: s.reason_key, reason: s.reason }))\r\n  .concat(worked.filter((o) => o.outcome === 'stopped'));\r\nconst sent = worked.filter((o) => o.outcome === 'sent');\r\nconst previewed = worked.filter((o) => o.outcome === 'previewed');\r\nconst failed = worked.filter((o) => o.outcome === 'failed');\r\nconst written = sent.concat(previewed);\r\n\r\nconst byReason = {};\r\nfor (const s of stopped) byReason[s.reason_key || 'other'] = (byReason[s.reason_key || 'other'] || 0) + 1;\r\nconst fallbacks = {};\r\nfor (const t of written) if (t.text_source !== 'ai' && t.fallback_reason) {\r\n  const k = t.fallback_reason.split(':')[0];\r\n  fallbacks[k] = (fallbacks[k] || 0) + 1;\r\n}\r\n\r\nconst counts = {\r\n  leads_read: plan.rows_read || 0,\r\n  due: plan.due_count || 0,\r\n  sent: sent.length,\r\n  previewed: previewed.length,\r\n  waiting: waiting.length,\r\n  stopped: stopped.length,\r\n  failed: failed.length,\r\n  write_back_failed: sent.filter((s) => s.write_back_failed).length,\r\n  ai_written: written.filter((t) => t.text_source === 'ai').length,\r\n  template_written: written.filter((t) => t.text_source !== 'ai').length\r\n};\r\n\r\nconst list = (arr, f) => arr.map(f).join('; ') || 'none';\r\nconst lines = [\r\n  'Follow-up sequence run (' + (cfg.mode === 'live' ? 'live' : 'preview, nothing sent') + ') from ' + plan.source,\r\n  'Read ' + counts.leads_read + ' leads, ' + counts.due + ' due.' + (plan.more_pages ? ' More pages exist: only the first page was read.' : ''),\r\n  'Sent: ' + counts.sent + (counts.previewed ? ' | Previewed: ' + counts.previewed : '') +\r\n    ' | Waiting: ' + counts.waiting + ' | Stopped: ' + counts.stopped + ' | Failed: ' + counts.failed,\r\n  'Stopped by reason: ' + (Object.keys(byReason).map((k) => k + ' ' + byReason[k]).join(', ') || 'none'),\r\n  'Text: AI ' + counts.ai_written + ', template ' + counts.template_written +\r\n    (Object.keys(fallbacks).length ? ' (' + Object.keys(fallbacks).map((k) => k + ' ' + fallbacks[k]).join(', ') + ')' : ''),\r\n  'Touches: ' + list(written, (t) => t.name + ' #' + t.touch + ' ' + t.channel),\r\n  'Waiting: ' + list(waiting, (w) => w.name + ' (' + w.reason_key + ')'),\r\n  'Failed: ' + list(failed, (f) => f.name + ' (' + f.failed_step + ')') +\r\n    (counts.write_back_failed ? ' | write-back failed after a send: ' + counts.write_back_failed : '')\r\n];\r\nconst text = lines.join('\\n');\r\nconst discord = /discord(app)?\\.com\\/api\\/webhooks/i.test(cfg.report_webhook_url || '');\r\nconst runAt = new Date().toISOString();\r\n\r\nreturn [{\r\n  json: Object.assign({ run_at: runAt, mode: cfg.mode, source: plan.source }, counts, {\r\n    stopped_by_reason: byReason,\r\n    fallback_reasons: fallbacks,\r\n    summary: text,\r\n    touches: written,\r\n    waiting_leads: waiting,\r\n    stopped_leads: stopped,\r\n    failed_leads: failed,\r\n    _webhook_body: discord ? { content: text.slice(0, 1900) } : { text: text },\r\n    _sheet_row: Object.assign({ run_at: runAt, mode: cfg.mode, source: plan.source }, counts, {\r\n      stopped_by_reason: Object.keys(byReason).map((k) => k + ' ' + byReason[k]).join(', '),\r\n      summary: text })\r\n  })\r\n}];"
+      },
+      "id": "fc1e7d3b-137f-4a6b-affb-5c166cb6807f",
+      "name": "build the run report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9620,
+        1020
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "69ac26b5-c",
+              "leftValue": "={{ $('config').first().json.report_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "69ac26b5-6317-4a63-aea1-6cc54102e379",
+      "name": "report webhook set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9880,
+        1020
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.report_webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._webhook_body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "0fee086b-f34b-4c81-a383-fdbd9e685a9e",
+      "name": "post the run report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10140,
+        840
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c17fabc-c",
+              "leftValue": "={{ $('config').first().json.log_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "8c17fabc-ec02-4200-a98c-53ec90834bed",
+      "name": "log sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        10400,
+        1020
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.log_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.log_sheet_tab }}"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_at": "={{ $('build the run report').first().json._sheet_row.run_at }}",
+            "mode": "={{ $('build the run report').first().json._sheet_row.mode }}",
+            "source": "={{ $('build the run report').first().json._sheet_row.source }}",
+            "leads_read": "={{ $('build the run report').first().json._sheet_row.leads_read }}",
+            "due": "={{ $('build the run report').first().json._sheet_row.due }}",
+            "sent": "={{ $('build the run report').first().json._sheet_row.sent }}",
+            "previewed": "={{ $('build the run report').first().json._sheet_row.previewed }}",
+            "waiting": "={{ $('build the run report').first().json._sheet_row.waiting }}",
+            "stopped": "={{ $('build the run report').first().json._sheet_row.stopped }}",
+            "stopped_by_reason": "={{ $('build the run report').first().json._sheet_row.stopped_by_reason }}",
+            "failed": "={{ $('build the run report').first().json._sheet_row.failed }}",
+            "write_back_failed": "={{ $('build the run report').first().json._sheet_row.write_back_failed }}",
+            "ai_written": "={{ $('build the run report').first().json._sheet_row.ai_written }}",
+            "template_written": "={{ $('build the run report').first().json._sheet_row.template_written }}",
+            "summary": "={{ $('build the run report').first().json._sheet_row.summary }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_at",
+              "displayName": "run_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "leads_read",
+              "displayName": "leads_read",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "due",
+              "displayName": "due",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent",
+              "displayName": "sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "previewed",
+              "displayName": "previewed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "waiting",
+              "displayName": "waiting",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stopped",
+              "displayName": "stopped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stopped_by_reason",
+              "displayName": "stopped_by_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "failed",
+              "displayName": "failed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "write_back_failed",
+              "displayName": "write_back_failed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_written",
+              "displayName": "ai_written",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "template_written",
+              "displayName": "template_written",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a39676ba-114f-41ff-a6dd-5817f11878e9",
+      "name": "[cred] Google Sheets - append the run log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        10660,
+        840
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The end of every run that had leads due. This node's output is the run report, whether or not\r\n// it was also posted to chat or logged to a sheet, so the execution list always says what\r\n// happened: open it to read who was touched, who is waiting, who stopped and why.\r\nconst cfg = $('config').first().json;\r\nconst r = $('build the run report').first().json;\r\nreturn [{\r\n  json: {\r\n    _outcome: 'run finished',\r\n    _reason: cfg.mode === 'live' ? 'touches sent where due' : 'preview run, nothing was sent or written',\r\n    posted_to_chat: cfg.report_enabled === true,\r\n    logged_to_sheet: cfg.log_enabled === true,\r\n    summary: r.summary,\r\n    sent: r.sent, previewed: r.previewed, waiting: r.waiting, stopped: r.stopped, failed: r.failed,\r\n    ai_written: r.ai_written, template_written: r.template_written,\r\n    stopped_by_reason: r.stopped_by_reason,\r\n    touches: r.touches,\r\n    waiting_leads: r.waiting_leads,\r\n    stopped_leads: r.stopped_leads,\r\n    failed_leads: r.failed_leads\r\n  }\r\n}];"
+      },
+      "id": "01ff953b-3caa-4ea4-a65c-95360dd3d03f",
+      "name": "STOP: run finished",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10920,
+        1020
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Follow-up sequence — start here\n\nThe second of two workflows. Import it alongside **01-intake-and-routing**: both share the same\n**config** node, and 01 is what writes the contacts this one reads.\n\n**Run it before you configure anything.** Press **Execute Workflow**: twelve invented leads from\nthe built-in demo pipeline, and every decision in one run. Four touches previewed (one by SMS\nbecause there is no email, one the final touch), two waiting (not due, quiet hours), six stopped\n(replied twice, opted out, unreachable, won, finished). Open **STOP: run finished** for the run\nreport and **keep the touch as a preview** for the exact words. No credential, nothing sent.\n\n**Setup, in order**\n1. **config**: the same ids as workflow 01 (location, pipeline, `STAGES` incl. Nurture,\n   `OWNERS`, `CUSTOM_FIELDS`).\n2. The same Header Auth credential on every `[cred] GoHighLevel` node; the token also needs\n   `conversations.readonly`, `conversations.write`, `conversations/message.readonly`,\n   `conversations/message.write` and `opportunities.write`.\n3. `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID`, `SEQ_LAST_REPLY_FIELD_ID`: the\n   counter and the dates on the contact. The send path writes the counter back.\n4. Optional: an OpenAI-compatible key on **[cred] AI - draft the touch**, `AI_CREDENTIAL_ADDED = true`.\n5. Optional: `REPORT_WEBHOOK_URL` (Slack/Discord) and `LOG_SHEET_ID` (+ Google credential).\n6. `DRY_RUN = false`: only then may a touch reach a real person.",
+        "height": 640,
+        "width": 620
+      },
+      "id": "7c8234a0-24e7-40bb-a425-544b3ef5fcba",
+      "name": "Sticky Note start2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -600
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run the sequence now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "GoHighLevel connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GoHighLevel connected?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - read the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "use the demo pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - read the pipeline": {
+      "main": [
+        [
+          {
+            "node": "read the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: could not read the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "use the demo pipeline": {
+      "main": [
+        [
+          {
+            "node": "read the pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the pipeline": {
+      "main": [
+        [
+          {
+            "node": "plan the sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "plan the sequence": {
+      "main": [
+        [
+          {
+            "node": "anything due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "anything due?": {
+      "main": [
+        [
+          {
+            "node": "split the due leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: nothing due today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split the due leads": {
+      "main": [
+        [
+          {
+            "node": "loop over the due leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loop over the due leads": {
+      "main": [
+        [
+          {
+            "node": "build the run report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "check the sending window and channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check the sending window and channel": {
+      "main": [
+        [
+          {
+            "node": "ready to contact now?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ready to contact now?": {
+      "main": [
+        [
+          {
+            "node": "read the conversation live?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read the conversation live?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - find the conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "check replies and opt-outs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - find the conversation": {
+      "main": [
+        [
+          {
+            "node": "found a conversation?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record a lead failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "found a conversation?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - read the messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "check replies and opt-outs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - read the messages": {
+      "main": [
+        [
+          {
+            "node": "check replies and opt-outs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record a lead failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check replies and opt-outs": {
+      "main": [
+        [
+          {
+            "node": "what did the conversation say?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "what did the conversation say?": {
+      "main": [
+        [
+          {
+            "node": "compose the next touch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "write the stop to GoHighLevel?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "write the stop to GoHighLevel?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "write the stop to GoHighLevel?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - tag the stopped lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - tag the stopped lead": {
+      "main": [
+        [
+          {
+            "node": "did they reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "did they reply?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - task the owner about the reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - task the owner about the reply": {
+      "main": [
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "compose the next touch": {
+      "main": [
+        [
+          {
+            "node": "AI writer configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI writer configured?": {
+      "main": [
+        [
+          {
+            "node": "[cred] AI - draft the touch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "apply the guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] AI - draft the touch": {
+      "main": [
+        [
+          {
+            "node": "apply the guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply the guardrails": {
+      "main": [
+        [
+          {
+            "node": "sending switched on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sending switched on?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - send the touch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "keep the touch as a preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - send the touch": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - update the sequence fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record a lead failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "keep the touch as a preview": {
+      "main": [
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - update the sequence fields": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - add the touch tags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - add the touch tags": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - add a note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - add a note": {
+      "main": [
+        [
+          {
+            "node": "final touch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "final touch?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - create the call task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "confirm the write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - create the call task": {
+      "main": [
+        [
+          {
+            "node": "nurture stage set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "nurture stage set?": {
+      "main": [
+        [
+          {
+            "node": "[cred] GoHighLevel - move to nurture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "confirm the write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] GoHighLevel - move to nurture": {
+      "main": [
+        [
+          {
+            "node": "confirm the write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "confirm the write-back": {
+      "main": [
+        [
+          {
+            "node": "record the lead outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record the lead outcome": {
+      "main": [
+        [
+          {
+            "node": "pause between leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record a lead failure": {
+      "main": [
+        [
+          {
+            "node": "pause between leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pause between leads": {
+      "main": [
+        [
+          {
+            "node": "loop over the due leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the run report": {
+      "main": [
+        [
+          {
+            "node": "report webhook set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "report webhook set?": {
+      "main": [
+        [
+          {
+            "node": "post the run report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "log sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "post the run report": {
+      "main": [
+        [
+          {
+            "node": "log sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log sheet set?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Google Sheets - append the run log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: run finished",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Google Sheets - append the run log": {
+      "main": [
+        [
+          {
+            "node": "STOP: run finished",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8ad0a2c7-b0fe-4b74-aae2-5e486232922f",
+  "meta": {
+    "instanceId": "4de688815039b145d6ed15564956ae9b609eadd764f5406eca51846489ad254c"
+  },
+  "nodeGroups": [],
+  "id": "NpbRUMldlRw8nQlj",
+  "tags": []
+}

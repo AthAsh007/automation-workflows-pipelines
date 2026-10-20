@@ -2,6 +2,102 @@
   "name": "Publish approved LinkedIn posts from a Google Sheets queue",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Publish approved LinkedIn posts from a Google Sheets queue\n\nFor teams using the companion drafting workflow who need approved drafts published to a LinkedIn company page, and nothing else.\n\n### How it works\n1. Every five minutes it checks the log for a draft awaiting approval. Most runs stop here, which is expected.\n2. It reads the reply in the Discord approval channel. Only a clear approval passes; anything else is a refusal.\n3. It re-checks that the approved draft is still the draft on file, so an edit after approval cannot slip through.\n4. It publishes with three LinkedIn calls: register the upload, upload the image, publish the post. Retry is off on the publish call, because a retried timeout can post twice.\n5. The bank row is marked used and the result is logged.\n\n### Setup\n1. Connect LinkedIn, Google Sheets and Discord.\n2. Set your LinkedIn organisation URN in `config`.\n3. Keep `TEST_RUN = true` until a full approval cycle ends at `STOP: not published`.\n4. Optional: a Slack webhook for the run summary.\n\n### Customization tips\nThe accepted approval words are in `read the approval reply`. That node is the security boundary of this pair, so change it carefully.",
+        "height": 672,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -112
+      ],
+      "id": "7e990c1c-7aa6-47c1-bcaa-be90d9f9bd95",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Find a draft awaiting approval\nRuns every 5 minutes. Most runs stop here.",
+        "height": 442,
+        "width": 1580,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -112
+      ],
+      "id": "a8504b56-9bf0-44aa-9229-72fe09d1a16a",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the approval reply\nStrict on purpose: only a clear yes passes.",
+        "height": 632,
+        "width": 740,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        -112
+      ],
+      "id": "6acc1f3e-35be-494c-936e-1dc6fecacc7c",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Re-check the draft\nPublishes only if the approved draft is unchanged.",
+        "height": 442,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        -112
+      ],
+      "id": "18f06bb4-b19e-40f1-9c39-585179dc5357",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Publish to LinkedIn\nRegister, upload, publish. No retry on publish, so a timeout cannot double-post.",
+        "height": 442,
+        "width": 1580,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        -112
+      ],
+      "id": "1ef31e70-6a71-4ad2-b765-dbbd865b2c1e",
+      "name": "Section 4"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Record the result\nMarks the bank row, logs the outcome, optional Slack summary.",
+        "height": 442,
+        "width": 2420,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4720,
+        -112
+      ],
+      "id": "68b61116-1e3c-4b95-9090-b9cb52702c01",
+      "name": "Section 5"
+    },
+    {
       "parameters": {},
       "id": "manual2",
       "name": "Run it now",
@@ -802,102 +898,6 @@
         7000,
         190
       ]
-    },
-    {
-      "parameters": {
-        "content": "## Publish approved LinkedIn posts from a Google Sheets queue\n\n**Who's it for**\nTeams using the companion drafting workflow, who need the approved draft published to a LinkedIn\ncompany page - and need it to be impossible to publish something nobody approved.\n\n**How it works**\nEvery five minutes it reads the log for a draft awaiting approval. **Most runs do nothing** and end\nat `STOP: nothing awaiting`; that is the correct outcome. When a draft is pending, the approval\nchannel is read and the reply is interpreted. The gate is deliberately strict: every rule in\n**`read the approval reply`** is a refusal, because the looser version of each has an obvious way\nto publish something unapproved. Before publishing it re-checks that the approved draft is still\nthe draft on file, so an edit after approval cannot ride through on an old yes.\n\nPublishing is three LinkedIn calls: register the upload, PUT the image bytes, publish the post. The\npublish call has retry switched **off** on purpose - a publish that times out may have succeeded,\nand retrying double-posts to the company page, which cannot be undone from here. The result is\nwritten back to the log and the bank row is marked used.\n\n**How to set up**\n1. Attach LinkedIn, Google Sheets and Discord credentials.\n2. Set your LinkedIn organisation URN in **`config`**.\n3. Leave `TEST_RUN = true` until you have watched a full approval cycle end at\n   `STOP: not published`.\n\n**Requirements**\nA LinkedIn company page with API access, the Google Sheet used by the drafting workflow, and the\nDiscord approval channel.\n\n**How to customize**\nThe accepted approval words are in **`read the approval reply`**. Read that node before changing\nanything - it is the whole security boundary of this pair.",
-        "height": 1082,
-        "width": 660,
-        "color": 4
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1362
-      ],
-      "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Most runs do nothing\n\nThe poll runs every five minutes and almost always ends at **`STOP: nothing awaiting`**.\n\nThat is the correct outcome, not a failure. A workflow that only does something when a human has acted will be idle nearly all the time.",
-        "height": 180,
-        "width": 1320,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -220
-      ],
-      "id": "sticky-01",
-      "name": "1. Most runs do nothing"
-    },
-    {
-      "parameters": {
-        "content": "### 2. The gate\n\n**`read the approval reply`** is the security boundary of this whole pair. Read it before changing anything here.\n\nEvery rule in it is a **refusal** - who may approve, which message the reply must be attached to, and what words count. Each one is there because the looser version has an obvious way to publish something nobody approved.",
-        "height": 246,
-        "width": 760,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1400,
-        330
-      ],
-      "id": "sticky-02",
-      "name": "2. The gate"
-    },
-    {
-      "parameters": {
-        "content": "### 3. Still the same draft?\n\n**`still the approved draft?`** re-checks that what is about to be published is what was actually approved.\n\nWithout it, editing the bank row after approval would let new content ride through on an old yes - which is the difference between an approval gate and the appearance of one.",
-        "height": 246,
-        "width": 760,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2240,
-        -286
-      ],
-      "id": "sticky-03",
-      "name": "3. Still the same draft?"
-    },
-    {
-      "parameters": {
-        "content": "### 4. The irreversible step\n\nThree calls: register the upload, PUT the bytes, publish.\n\n**`[cred] LinkedIn - publish the post` has retry switched OFF, on purpose.** A publish that times out may have succeeded. Retrying it double-posts to the company page, and that cannot be undone from here.\n\nAn unknown outcome means look at the page with your own eyes before running this again.",
-        "height": 246,
-        "width": 1600,
-        "color": 2
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3080,
-        330
-      ],
-      "id": "sticky-04",
-      "name": "4. The irreversible step"
-    },
-    {
-      "parameters": {
-        "content": "### 5. Write the result down\n\nThe bank row is marked used and the log gets a row for the outcome, so the drafting workflow never offers the same item twice.\n\nEvery path - published, cancelled, failed, still awaiting - writes its own outcome. A silent failure here would look exactly like a quiet day.",
-        "height": 180,
-        "width": 2440,
-        "color": 5
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        4760,
-        -220
-      ],
-      "id": "sticky-05",
-      "name": "5. Write the result down"
     }
   ],
   "connections": {

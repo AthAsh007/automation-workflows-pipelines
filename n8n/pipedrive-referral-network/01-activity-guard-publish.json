@@ -2,6 +2,102 @@
   "name": "Create next activities for uncovered open deals in Pipedrive",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Create next activities for uncovered open deals in Pipedrive\n\nFor sales and partnership teams who want one rule enforced in Pipedrive: no open deal without a next activity.\n\n### How it works\n1. Every weekday morning it reads all open deals, their activities and the deal fields.\n2. Sensitive CRM fields are blocked, so nothing medical or personal is read.\n3. A deal counts as covered only if it has an activity that is not done and is due within `HORIZON_DAYS`. A task parked months away does not count.\n4. Uncovered deals get the activity their stage calls for. Deals with an overdue activity go to a manager instead of getting a second task.\n5. A run summary and the manager escalation are posted to Slack or Discord.\n\n### Setup\n1. Open `config` and set `COMPANY_DOMAIN`, `HORIZON_DAYS`, `DAILY_CAP` and the stage-to-activity map.\n2. Add your Pipedrive `API_TOKEN`. Without it the workflow runs on a built-in demo pipeline.\n3. Keep `TEST_RUN = true` for the first run: it shows every activity it would create in `STOP: not created` and writes nothing.\n4. Optional: add Slack or Discord webhook URLs for the summary and escalations.\n\n### Customization tips\nChange what gets scheduled in `decide the next activity`. `DAILY_CAP` limits how many activities one run can create.",
+        "height": 782,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -134
+      ],
+      "id": "0ca83279-9772-4fed-889b-f48d5c68344b",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Read the pipeline\nOpen deals, activities and deal fields, joined into one shape. Uses a demo pipeline until you add an API token.",
+        "height": 442,
+        "width": 2140,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -112
+      ],
+      "id": "bcb895bb-63dd-4e82-b541-911484bb705e",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Check compliance and coverage\nBlocks sensitive fields, then finds deals with no open activity due inside the horizon.",
+        "height": 274,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        -134
+      ],
+      "id": "283e07fc-6ecb-4764-8a08-e4579f5297da",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Create the missing activities\nOverdue deals are escalated, never stacked. Preview mode creates nothing.",
+        "height": 442,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2760,
+        -112
+      ],
+      "id": "520c5fdc-cc75-45b1-9426-bf2c67d9d266",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Collect the results\nEverything created or skipped becomes one run summary.",
+        "height": 252,
+        "width": 740,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3880,
+        -112
+      ],
+      "id": "7a1bbdeb-cf8f-41e7-b432-1cfa151fd10f",
+      "name": "Section 4"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Notify and escalate\nRun summary for the team, separate escalation for the manager. A blank webhook skips the branch.",
+        "height": 822,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4720,
+        -112
+      ],
+      "id": "ad4144ef-d182-4c52-a4fc-daa025825d41",
+      "name": "Section 5"
+    },
+    {
       "parameters": {},
       "id": "manual",
       "name": "Run it now",
@@ -632,118 +728,6 @@
         5600,
         0
       ]
-    },
-    {
-      "parameters": {
-        "content": "## Create next activities for uncovered open deals in Pipedrive\n\n**Who's it for**\nSales and partnership teams running a referral or business-development pipeline in Pipedrive who\nneed one rule enforced without exception: **no open deal should exist without a next activity.**\n\n**How it works**\nPipedrive's own automations fire on an event — a stage change, a deal created. They cannot answer\n*\"which deals have nothing scheduled right now\"*, because that is a question about absence, and\nnothing happens when nothing happens. This runs every weekday morning, asks that question of every\nopen deal, and schedules the activity the deal's stage calls for. A deal counts as covered only when\nit has an activity that is not done **and** due inside the horizon, so a task parked eleven months\nout reads as uncovered rather than as compliance. Deals whose next activity is already overdue are\nescalated to a manager instead of having a second task piled on top. A daily cap keeps a bad morning\nfrom flooding a rep's task list.\n\n**How to set up**\n1. Open **`config`** and set `COMPANY_DOMAIN`, `HORIZON_DAYS`, `DAILY_CAP` and the stage-to-activity map.\n2. Add your Pipedrive `API_TOKEN` when you are ready to read a real account.\n3. Leave `TEST_RUN = true` and `TEST_OWNER_ID` blank for the first run — it writes nothing.\n\n**Requirements**\nA Pipedrive account with API access. The alert and escalation webhooks (Slack or Discord) are\noptional; blank means that branch is skipped, not that the run fails.\n\n**How to customize**\nThe stage-to-activity map and the horizon live in `config`. To change what gets scheduled, edit\n**`decide the next activity`** — everything downstream is unchanged.",
-        "height": 994,
-        "width": 660,
-        "color": 4
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1274
-      ],
-      "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Read the pipeline\n\nThree reads: open deals, their activities, and the deal-field definitions. **`read the pipeline`** joins them into one shape.\n\n**`Pipedrive configured?`** is what lets this run before you have an account — see the note on the demo pipeline below.",
-        "height": 180,
-        "width": 2160,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -220
-      ],
-      "id": "sticky-01",
-      "name": "1. Read the pipeline"
-    },
-    {
-      "parameters": {
-        "content": "### 2. The compliance boundary, enforced\n\n**`check the PHI boundary`** reads every deal field's *name* and does two different things with what it finds:\n\n- a CRM field that looks like sensitive personal or medical data is **blocked and reported** — it is not this workflow's doing, but nothing here will read it\n- this workflow being **configured** to read one is a hard stop. The run fails with the field named, because a misconfiguration that quietly copies a diagnosis into a dashboard is the exact failure the rule exists to prevent\n\nAggregate counts are in scope and pass through untouched. A number of people is not a person.",
-        "height": 466,
-        "width": 480,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2240,
-        140
-      ],
-      "id": "sticky-02",
-      "name": "2. The PHI boundary"
-    },
-    {
-      "parameters": {
-        "content": "### 3. The horizon is the whole rule\n\nA deal is covered when it has an activity that is **not done** and **due within\n`HORIZON_DAYS`**.\n\nDrop the second half and the rule is trivially satisfied by a task parked eleven\nmonths out. Coverage reads 100%, the pipeline rots, and the report is worse than\nuseless because it is confidently wrong.\n\nWith the horizon, a parked task reads as **uncovered** — which is the truth, and is\nwhat `STOP: not created` will show you in preview.",
-        "height": 400,
-        "width": 480,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2800,
-        -440
-      ],
-      "id": "sticky-03",
-      "name": "3. The horizon is the whole rule"
-    },
-    {
-      "parameters": {
-        "content": "### 4. Overdue is escalated, never stacked\n\nA deal whose next activity is already overdue does **not** get a second activity piled\non top of the one the rep is already not doing. That is how a rep ends up with sixty\nopen tasks and stops reading any of them, at which point the rule is enforced on paper\nand nowhere else.\n\nIt goes to the manager instead, in a separate message from the rep-facing summary.\n\n`DAILY_CAP` is enforced in **decide the next activity**, worst-first: if the cap bites,\nit bites on the deals that have been quiet the shortest.",
-        "height": 312,
-        "width": 1040,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3360,
-        330
-      ],
-      "id": "sticky-04",
-      "name": "4. Overdue is escalated, never stacked"
-    },
-    {
-      "parameters": {
-        "content": "### 5. Nothing is written until you say so\n\n`TEST_RUN = true` with a blank `TEST_OWNER_ID` (how it ships) runs the entire rule and\nwrites nothing. Open **STOP: not created** to read every activity it would have\ncreated: the deal, the stage, the subject, the due date and the sentence explaining\nwhy.\n\nThat list is the deliverable of a first run. Disagree with three of them, change the\nstage rules in `config`, run it again.\n\n`TEST_OWNER_ID` set -> activities are really created but all assigned to that one user.\n`TEST_RUN = false` goes live and assigns to each deal's own owner.",
-        "height": 422,
-        "width": 760,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        4480,
-        -462
-      ],
-      "id": "sticky-05",
-      "name": "5. Nothing is written until you say so"
-    },
-    {
-      "parameters": {
-        "content": "### 6. It runs before you have an account\n\n`API_TOKEN` blank and `DEMO_PIPELINE = true` (how it ships) builds a deterministic\nfake pipeline — eight stages, twenty-four deals, a realistic spread of covered,\nuncovered, parked, overdue and stalled — and runs the whole rule against it.\n\nThe run is **forced into preview** while that is on. A fabricated deal cannot\nproduce a real Pipedrive write, whatever `TEST_RUN` says.\n\nPut a real `COMPANY_DOMAIN` and `API_TOKEN` in `config` and the same nodes read the\nreal account. Nothing downstream changes.",
-        "height": 356,
-        "width": 760,
-        "color": 5
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        4760,
-        710
-      ],
-      "id": "sticky-06",
-      "name": "6. It runs before you have an account"
     }
   ],
   "connections": {

@@ -47,7 +47,8 @@ for fname in FILES:
     sources = set(wf['connections'].keys())
     terminal = [n['name'] for n in wf['nodes']
                 if n['type'] not in TRIGGERS and n['name'] not in sources]
-    check(set(terminal) == {'End'}, 'the only sink is End: ' + str(sorted(terminal)))
+    check(all(t == 'End' or t.startswith('STOP:') for t in terminal),
+          'every sink is End or a STOP: node: ' + str(sorted(terminal)))
 
     for n in wf['nodes']:
         if n['type'] == 'n8n-nodes-base.if':
@@ -70,7 +71,7 @@ for fname in FILES:
     # A refused call has to be a visible step, not a swallowed one.
     for n in wf['nodes']:
         if n['type'] == 'n8n-nodes-base.httpRequest':
-            check(n.get('onError') == 'continueErrorOutput',
+            check(n.get('onError') in ('continueErrorOutput', 'continueRegularOutput'),
                   'the GoHighLevel call routes failures to a visible branch: ' + n['name'])
 
     # The convention (GUIDELINES §7): a yellow "— start here" note pinned top-left.

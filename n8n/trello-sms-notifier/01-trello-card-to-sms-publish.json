@@ -3,6 +3,70 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Send SMS alerts from new Trello cards with Twilio\n\nFor small sales and service teams who want the person on a new Trello card texted the moment it lands, without anyone watching the board.\n\n### How it works\n1. A Trello webhook fires when a card is added to the watched list. **Run the demo** sends two invented cards through instead.\n2. `read the card` finds the name, company, phone, budget and timeline in any field or label.\n3. A card without a phone number stops at a named node instead of failing the run.\n4. The SMS is built from a template in `config` and sent with Twilio.\n5. Sent and rejected messages end at separate nodes, so a failed delivery is visible.\n\n### Setup\n1. Open `config` and add your Trello key, token, board id and list id.\n2. Add your Twilio account SID, auth token and sending number.\n3. Point a Trello webhook at the production URL of `When a card arrives`.\n4. Keep `DRY_RUN = true` for the first run: it shows the message and the number without sending.\n\n### Customization tips\nThe message template and field mapping are in `config`. To text someone else, change which field `read the card` uses as the phone number.",
+        "height": 694,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        -112
+      ],
+      "id": "ed65b95f-5918-4921-bc84-5bb584c8e6c8",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive the card\nTrello webhook in production, or Run the demo with two invented cards.",
+        "height": 442,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -112
+      ],
+      "id": "4145f60e-f2ad-445e-9042-cc10c101fc3b",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Check and build the SMS\nNo phone number means a named stop, not an error.",
+        "height": 442,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        -112
+      ],
+      "id": "25f8828d-06d9-4941-8bd3-4ac7fa4b1e94",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Send with Twilio\nDRY_RUN previews without sending. Sent and rejected end at different nodes.",
+        "height": 442,
+        "width": 1020,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        -112
+      ],
+      "id": "e069c397-e97d-4c85-9c4c-bab3bc822440",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
         "httpMethod": "POST",
         "path": "trello-card",
         "responseMode": "onReceived",
@@ -247,86 +311,6 @@
         2520,
         0
       ]
-    },
-    {
-      "parameters": {
-        "content": "## Send SMS alerts from new Trello cards with Twilio\n\n**Who's it for**\nSmall sales and service teams who triage new work on a Trello board and want the person named on\nthe card texted the moment it lands — without anyone watching the board.\n\n**How it works**\nA Trello webhook fires when a card appears on the watched list, or you press **Run the demo** to\nwalk two invented cards through the whole thing. The card is read field by field — name, company,\nphone, budget, timeline — from any field or label, so a board that keeps the phone number in the\ndescription works the same as one that uses a custom field. A card with no phone number is routed\nto a named STOP node rather than failing the run. The SMS is built from a template in `config`,\nthen sent through Twilio. Both the accepted and rejected Twilio responses end at their own named\nnode, so a delivery failure is visible rather than silent.\n\n**How to set up**\n1. Open **`config`** and add `TRELLO_KEY`, `TRELLO_TOKEN`, `TRELLO_BOARD_ID` and `TRELLO_LIST_ID`,\n   then `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER`.\n2. Point your Trello webhook at the production URL of the **`When a card arrives`** node.\n3. Leave **`DRY_RUN = true`** for the first run — it builds the message and shows it to you\n   without sending.\n\n**Requirements**\nA Trello account with API access and a Twilio account with an SMS-capable number.\n\n**How to customize**\nThe message template and the field mapping are both in `config`. To text a different person, change\nwhich field **`read the card`** treats as the phone number.",
-        "height": 994,
-        "width": 620,
-        "color": 4
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1334
-      ],
-      "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Take the card, however it arrives\n\nTwo ways in: the Trello webhook in production, and **`Run the demo`** which loads two invented cards — one routable, one not — so you can run the whole workflow before you have an account.\n\n**`read the card`** pulls name, company, phone, budget and timeline from any field or label, so it does not care how your board is laid out.",
-        "height": 224,
-        "width": 1040,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -264
-      ],
-      "id": "sticky-01",
-      "name": "1. Take the card"
-    },
-    {
-      "parameters": {
-        "content": "### 2. No phone number, no send\n\nA card without a number is not an error — it is a normal thing for a board to contain. It stops at **`STOP: no phone number`** with the card attached, so somebody can fix the card.\n\n**`build the SMS`** renders the template from `config` against the card's fields.",
-        "height": 268,
-        "width": 480,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1120,
-        330
-      ],
-      "id": "sticky-02",
-      "name": "2. No phone, no send"
-    },
-    {
-      "parameters": {
-        "content": "### 3. Nothing is sent until you say so\n\n`DRY_RUN = true` (how it ships) builds the SMS and stops in **`STOP: preview - SMS not sent`**, where you can read the exact body and the number it would go to.\n\nFill in the Twilio credentials and set `DRY_RUN = false` to send for real.",
-        "height": 268,
-        "width": 480,
-        "color": 3
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1680,
-        -308
-      ],
-      "id": "sticky-03",
-      "name": "3. Nothing is sent until you say so"
-    },
-    {
-      "parameters": {
-        "content": "### 4. Both outcomes are named\n\nTwilio accepting the message and Twilio rejecting it end at **two different nodes**, not one.\n\nA rejected send — a bad number, an unverified sender, a carrier block — is the failure worth seeing, and a workflow that ends green on both is how it stays hidden.",
-        "height": 268,
-        "width": 480,
-        "color": 7
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2240,
-        330
-      ],
-      "id": "sticky-04",
-      "name": "4. Both outcomes are named"
     }
   ],
   "connections": {

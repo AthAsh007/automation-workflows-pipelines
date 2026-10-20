@@ -203,113 +203,118 @@ c1 = {
 p1, n1 = save("01-intake-and-routing", w1, c1, ["ghl", "lead-intake"])
 
 # =====================================================================  WORKFLOW 2
-w2 = []
+if False:  # the OLD 17-node 02 layout, kept for reference only (see the note below)
+    w2 = []
 
-w2.append({"parameters": {}, "id": "seq-now", "name": "Run the sequence now",
-    "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [-1240, 160]})
+    w2.append({"parameters": {}, "id": "seq-now", "name": "Run the sequence now",
+        "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [-1240, 160]})
 
-w2.append({"parameters": {"rule": {"interval": [{"field": "cronExpression",
-        "expression": "0 8 * * 1-5"}]}},
-    "id": "seq-sched", "name": "Every weekday morning, 08:00",
-    "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [-1240, 380]})
+    w2.append({"parameters": {"rule": {"interval": [{"field": "cronExpression",
+            "expression": "0 8 * * 1-5"}]}},
+        "id": "seq-sched", "name": "Every weekday morning, 08:00",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [-1240, 380]})
 
-w2.append(code("cfg2", "config", [-1020, 260], "config.js"))
-w2.append(if_flag("connected2", "GoHighLevel connected?", [-800, 260], "ghl_enabled"))
-w2.append(http_get_opportunities("ghl-read", "[cred] GoHighLevel - read the pipeline",
-                                 [-560, 100]))
-w2.append(code("demo-pipe", "use the demo pipeline", [-560, 420], "use-the-demo-pipeline.js"))
-w2.append(code("stop-noread", "STOP: could not read the pipeline", [-320, 620],
-               "stop-could-not-read.js"))
-w2.append(code("readpipe", "read the pipeline", [-320, 260], "read-the-pipeline.js"))
-w2.append(code("plan", "plan the sequence", [-100, 260], "plan-the-sequence.js"))
-w2.append(if_expr("due", "anything due?", [120, 260], "={{ $json._has_due }}"))
-w2.append(code("stop-nodue", "STOP: nothing due today", [340, 460], "stop-nothing-due.js"))
+    w2.append(code("cfg2", "config", [-1020, 260], "config.js"))
+    w2.append(if_flag("connected2", "GoHighLevel connected?", [-800, 260], "ghl_enabled"))
+    w2.append(http_get_opportunities("ghl-read", "[cred] GoHighLevel - read the pipeline",
+                                     [-560, 100]))
+    w2.append(code("demo-pipe", "use the demo pipeline", [-560, 420], "use-the-demo-pipeline.js"))
+    w2.append(code("stop-noread", "STOP: could not read the pipeline", [-320, 620],
+                   "stop-could-not-read.js"))
+    w2.append(code("readpipe", "read the pipeline", [-320, 260], "read-the-pipeline.js"))
+    w2.append(code("plan", "plan the sequence", [-100, 260], "plan-the-sequence.js"))
+    w2.append(if_expr("due", "anything due?", [120, 260], "={{ $json._has_due }}"))
+    w2.append(code("stop-nodue", "STOP: nothing due today", [340, 460], "stop-nothing-due.js"))
 
-w2.append(code("compose", "compose the next touch", [340, 140], "compose-the-next-touch.js"))
-w2.append(if_flag("sending", "sending the touches?", [560, 140], "ghl_enabled"))
-w2.append(code("stop-prev2", "STOP: preview - touches not sent", [780, 340],
-               "stop-preview-sequence.js"))
+    w2.append(code("compose", "compose the next touch", [340, 140], "compose-the-next-touch.js"))
+    w2.append(if_flag("sending", "sending the touches?", [560, 140], "ghl_enabled"))
+    w2.append(code("stop-prev2", "STOP: preview - touches not sent", [780, 340],
+                   "stop-preview-sequence.js"))
 
-w2.append(http_post("ghl-send", "[cred] GoHighLevel - send the touch", [780, 40],
-    url="={{ $json._ghl.url }}",
-    body="={{ JSON.stringify($json._ghl.body) }}",
-    note="GoHighLevel conversations: post the touch to the contact. The key comes from the "
-         "config node; a blank key means this node never executes."))
-w2.append(code("stop-sent", "STOP: touches sent", [1020, -60], "stop-touches-sent.js"))
-w2.append(code("stop-sendrej", "STOP: GoHighLevel rejected the touch", [1020, 200],
-               "stop-touch-rejected.js"))
+    w2.append(http_post("ghl-send", "[cred] GoHighLevel - send the touch", [780, 40],
+        url="={{ $json._ghl.url }}",
+        body="={{ JSON.stringify($json._ghl.body) }}",
+        note="GoHighLevel conversations: post the touch to the contact. The key comes from the "
+             "config node; a blank key means this node never executes."))
+    w2.append(code("stop-sent", "STOP: touches sent", [1020, -60], "stop-touches-sent.js"))
+    w2.append(code("stop-sendrej", "STOP: GoHighLevel rejected the touch", [1020, 200],
+                   "stop-touch-rejected.js"))
 
-w2.append(noop("end2", "End", [1280, 260]))
+    w2.append(noop("end2", "End", [1280, 260]))
 
-w2.append(sticky("start2", [-1300, -1040], 560, 600, 1,
-    "## Follow-up sequence — start here\n\n"
-    "The second of two workflows. Import it alongside **01-intake-and-routing** — both\n"
-    "share the same **config** node, and 01 is what writes the contacts this one reads.\n\n"
-    "**Run it before you configure anything.** Press **Execute Workflow**: six\n"
-    "invented leads from the built-in demo pipeline, and every decision in one run —\n"
-    "two due, one waiting, three stopped. Open **STOP: preview - touches not sent** to\n"
-    "read the exact message each due lead would receive. No credential, nothing sent.\n\n"
-    "**Setup, in order**\n"
-    "1. **config** — the same ids as workflow 01: location, pipeline, `STAGES`,\n"
-    "   `OWNERS`, `CUSTOM_FIELDS`.\n"
-    "2. `GHL_CREDENTIAL_ADDED` — this one also needs `conversations.write` to send a touch.\n"
-    "3. `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID`, `SEQ_LAST_REPLY_FIELD_ID`\n"
-    "   — where the counter and the two dates live on the contact.\n"
-    "4. `SEQUENCE`, `MAX_TOUCHES`, `OPEN_STAGES` — the ladder and its stops. Leave\n"
-    "   `MAX_TOUCHES` at 3 until the replies say otherwise.\n"
-    "5. Something must write `touches_sent` back after each touch, or the ladder\n"
-    "   never advances.\n"
-    "6. `DRY_RUN = false` — only then may a touch reach a real person."))
+    w2.append(sticky("start2", [-1300, -1040], 560, 600, 1,
+        "## Follow-up sequence — start here\n\n"
+        "The second of two workflows. Import it alongside **01-intake-and-routing** — both\n"
+        "share the same **config** node, and 01 is what writes the contacts this one reads.\n\n"
+        "**Run it before you configure anything.** Press **Execute Workflow**: six\n"
+        "invented leads from the built-in demo pipeline, and every decision in one run —\n"
+        "two due, one waiting, three stopped. Open **STOP: preview - touches not sent** to\n"
+        "read the exact message each due lead would receive. No credential, nothing sent.\n\n"
+        "**Setup, in order**\n"
+        "1. **config** — the same ids as workflow 01: location, pipeline, `STAGES`,\n"
+        "   `OWNERS`, `CUSTOM_FIELDS`.\n"
+        "2. `GHL_CREDENTIAL_ADDED` — this one also needs `conversations.write` to send a touch.\n"
+        "3. `SEQ_TOUCHES_FIELD_ID`, `SEQ_LAST_TOUCH_FIELD_ID`, `SEQ_LAST_REPLY_FIELD_ID`\n"
+        "   — where the counter and the two dates live on the contact.\n"
+        "4. `SEQUENCE`, `MAX_TOUCHES`, `OPEN_STAGES` — the ladder and its stops. Leave\n"
+        "   `MAX_TOUCHES` at 3 until the replies say otherwise.\n"
+        "5. Something must write `touches_sent` back after each touch, or the ladder\n"
+        "   never advances.\n"
+        "6. `DRY_RUN = false` — only then may a touch reach a real person."))
 
-w2.append(sticky("w2a", [-1280, -150], 480, 380, 4,
-    "## 2 of 2 — the follow-up sequence\n\n"
-    "Every weekday morning, or by hand. It reads the pipeline from\n"
-    "**GoHighLevel** — or from the built-in demo pipeline when no key is\n"
-    "set — then decides, for each lead, one of three things:\n\n"
-    "**Due.** Quiet for long enough for the next touch — so the touch is\n"
-    "composed and sent.\n\n"
-    "**Waiting.** Not quiet long enough yet. Nothing happens.\n\n"
-    "**Stopped.** They replied, or the stage left the open list, or the\n"
-    "sequence is finished. It says which, on the node.\n\n"
-    "One touch per lead per run, `MAX_TOUCHES` in total — the counter is\n"
-    "`touches_sent` on the contact."))
+    w2.append(sticky("w2a", [-1280, -150], 480, 380, 4,
+        "## 2 of 2 — the follow-up sequence\n\n"
+        "Every weekday morning, or by hand. It reads the pipeline from\n"
+        "**GoHighLevel** — or from the built-in demo pipeline when no key is\n"
+        "set — then decides, for each lead, one of three things:\n\n"
+        "**Due.** Quiet for long enough for the next touch — so the touch is\n"
+        "composed and sent.\n\n"
+        "**Waiting.** Not quiet long enough yet. Nothing happens.\n\n"
+        "**Stopped.** They replied, or the stage left the open list, or the\n"
+        "sequence is finished. It says which, on the node.\n\n"
+        "One touch per lead per run, `MAX_TOUCHES` in total — the counter is\n"
+        "`touches_sent` on the contact."))
 
-w2.append(sticky("w2b", [1080, 440], 480, 300, 3,
-    "## The stops are the point\n\n"
-    "A follow-up sequence is only as good as the rule that ends it. A lead\n"
-    "is dropped the moment it stops being a lead: a reply moves it to a\n"
-    "person, a stage move takes it out of the open list, and the counter\n"
-    "caps the nudging so nobody is chased forever.\n\n"
-    "With GoHighLevel unconfigured, **STOP: preview** prints the exact\n"
-    "message each lead would receive. A read that fails does NOT fall back\n"
-    "to the demo leads — a fabricated lead is never sequenced against a\n"
-    "real account."))
+    w2.append(sticky("w2b", [1080, 440], 480, 300, 3,
+        "## The stops are the point\n\n"
+        "A follow-up sequence is only as good as the rule that ends it. A lead\n"
+        "is dropped the moment it stops being a lead: a reply moves it to a\n"
+        "person, a stage move takes it out of the open list, and the counter\n"
+        "caps the nudging so nobody is chased forever.\n\n"
+        "With GoHighLevel unconfigured, **STOP: preview** prints the exact\n"
+        "message each lead would receive. A read that fails does NOT fall back\n"
+        "to the demo leads — a fabricated lead is never sequenced against a\n"
+        "real account."))
 
-c2 = {
-    "Run the sequence now": main("config"),
-    "Every weekday morning, 08:00": main("config"),
-    "config": main("GoHighLevel connected?"),
-    "GoHighLevel connected?": branch(["[cred] GoHighLevel - read the pipeline"],
-                                     ["use the demo pipeline"]),
-    "[cred] GoHighLevel - read the pipeline": branch(["read the pipeline"],
-                                                     ["STOP: could not read the pipeline"]),
-    "STOP: could not read the pipeline": main("End"),
-    "use the demo pipeline": main("read the pipeline"),
-    "read the pipeline": main("plan the sequence"),
-    "plan the sequence": main("anything due?"),
-    "anything due?": branch(["compose the next touch"], ["STOP: nothing due today"]),
-    "STOP: nothing due today": main("End"),
-    "compose the next touch": main("sending the touches?"),
-    "sending the touches?": branch(["[cred] GoHighLevel - send the touch"],
-                                   ["STOP: preview - touches not sent"]),
-    "STOP: preview - touches not sent": main("End"),
-    "[cred] GoHighLevel - send the touch": branch(["STOP: touches sent"],
-                                                  ["STOP: GoHighLevel rejected the touch"]),
-    "STOP: touches sent": main("End"),
-    "STOP: GoHighLevel rejected the touch": main("End"),
-}
+    c2 = {
+        "Run the sequence now": main("config"),
+        "Every weekday morning, 08:00": main("config"),
+        "config": main("GoHighLevel connected?"),
+        "GoHighLevel connected?": branch(["[cred] GoHighLevel - read the pipeline"],
+                                         ["use the demo pipeline"]),
+        "[cred] GoHighLevel - read the pipeline": branch(["read the pipeline"],
+                                                         ["STOP: could not read the pipeline"]),
+        "STOP: could not read the pipeline": main("End"),
+        "use the demo pipeline": main("read the pipeline"),
+        "read the pipeline": main("plan the sequence"),
+        "plan the sequence": main("anything due?"),
+        "anything due?": branch(["compose the next touch"], ["STOP: nothing due today"]),
+        "STOP: nothing due today": main("End"),
+        "compose the next touch": main("sending the touches?"),
+        "sending the touches?": branch(["[cred] GoHighLevel - send the touch"],
+                                       ["STOP: preview - touches not sent"]),
+        "STOP: preview - touches not sent": main("End"),
+        "[cred] GoHighLevel - send the touch": branch(["STOP: touches sent"],
+                                                      ["STOP: GoHighLevel rejected the touch"]),
+        "STOP: touches sent": main("End"),
+        "STOP: GoHighLevel rejected the touch": main("End"),
+    }
 
-p2, n2 = save("02-follow-up-sequence", w2, c2, ["ghl", "follow-up"])
+# 02 was rebuilt on 2026-10-20 (49 nodes: per-lead loop, reply/opt-out check, quiet hours,
+# channel fallback, AI draft with guardrails, write-back, run report) without Python, from the
+# same js/*.js files. The w2/c2 above are the OLD 17-node layout, so they are no longer saved:
+# running this would otherwise overwrite the new 02. Port the new layout here before re-enabling.
+# p2, n2 = save("02-follow-up-sequence", w2, c2, ["ghl", "follow-up"])
 
 print('wrote %s (%d nodes)' % (os.path.basename(p1), n1))
-print('wrote %s (%d nodes)' % (os.path.basename(p2), n2))
+print('02-follow-up-sequence.json left as is (see the note above the save)')

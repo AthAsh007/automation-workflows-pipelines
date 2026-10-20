@@ -98,7 +98,7 @@ function readOne(json) {
   email = email.toLowerCase();
 
   // What they actually want, decided by keywords in what they wrote. This is a rule, not a
-  // model — the honest gap the README names, and the first thing to replace for a client.
+  // model — the honest gap the README names, and the first thing to replace for real traffic.
   const hay = (subject + ' ' + message).toLowerCase();
   let wants = 'general';
   if (/\b(support|broken|not working|issue|problem|fix|error|urgent)\b/.test(hay)) wants = 'support';
