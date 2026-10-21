@@ -1,7 +1,56 @@
 {
   "source": "demo",
-  "read_at": "2026-09-02T16:02:19.700Z",
+  "read_at": "2026-10-21T03:25:17.456Z",
+  "read_ok": true,
   "failures": [],
+  "_demo_memory": {
+    "escalated": {
+      "999": {
+        "first": "2026-10-15",
+        "last": "2026-10-15",
+        "organisation": "Old Mill Pain Clinic"
+      },
+      "3002": {
+        "first": "2026-10-20",
+        "last": "2026-10-20",
+        "organisation": "Northgate Neurology Associates"
+      },
+      "3018": {
+        "first": "2026-10-12",
+        "last": "2026-10-12",
+        "organisation": "Riverbend Pain & Spine"
+      }
+    },
+    "runs": [
+      {
+        "date": "2026-10-13",
+        "coverage_pct": 41,
+        "uncovered": 14,
+        "overdue": 6
+      },
+      {
+        "date": "2026-10-20",
+        "coverage_pct": 48,
+        "uncovered": 13,
+        "overdue": 5
+      }
+    ]
+  },
+  "_demo_baseline": {
+    "run_at": "2026-10-14 03:25:17",
+    "open_deals": 21,
+    "covered": 10,
+    "gaps": 11,
+    "coverage_pct": 48,
+    "overdue": 7,
+    "outreach_attempts": 9,
+    "conversations": 3,
+    "meetings": 1,
+    "new_partners": 0,
+    "active_partners": null,
+    "stalled": 9,
+    "high_priority": 3
+  },
   "deals": [
     {
       "id": 3001,
@@ -17,8 +66,8 @@
       "organisation": "Riverbend Pain & Spine",
       "person_id": 700,
       "person": "Dr. A. Whitfield",
-      "add_time": "2026-07-30 16:02:19",
-      "stage_change_time": "2026-08-16 16:02:19",
+      "add_time": "2026-09-17 03:25:17",
+      "stage_change_time": "2026-10-04 03:25:17",
       "raw": {
         "id": 3001,
         "specialty": "Pain management"
@@ -38,8 +87,8 @@
       "organisation": "Northgate Neurology Associates",
       "person_id": 701,
       "person": "Dr. P. Iyer",
-      "add_time": "2026-08-15 16:02:19",
-      "stage_change_time": "2026-08-24 16:02:19",
+      "add_time": "2026-10-03 03:25:17",
+      "stage_change_time": "2026-10-12 03:25:17",
       "raw": {
         "id": 3002,
         "specialty": "Neurology"
@@ -59,8 +108,8 @@
       "organisation": "Cedar Hollow Orthopaedics",
       "person_id": 702,
       "person": "Dr. M. Okonkwo",
-      "add_time": "2026-08-14 16:02:19",
-      "stage_change_time": "2026-08-24 16:02:19",
+      "add_time": "2026-10-02 03:25:17",
+      "stage_change_time": "2026-10-12 03:25:17",
       "raw": {
         "id": 3003,
         "specialty": "Orthopaedics"
@@ -80,8 +129,8 @@
       "organisation": "Lakeshore Rehabilitation Group",
       "person_id": 703,
       "person": "Dr. S. Duval",
-      "add_time": "2026-07-27 16:02:19",
-      "stage_change_time": "2026-08-15 16:02:19",
+      "add_time": "2026-09-14 03:25:17",
+      "stage_change_time": "2026-10-03 03:25:17",
       "raw": {
         "id": 3004,
         "specialty": "Physical medicine"
@@ -101,8 +150,8 @@
       "organisation": "Lakeshore Rehabilitation Group",
       "person_id": 703,
       "person": "Dr. S. Duval",
-      "add_time": "2026-07-30 16:02:19",
-      "stage_change_time": "2026-08-16 16:02:19",
+      "add_time": "2026-09-17 03:25:17",
+      "stage_change_time": "2026-10-04 03:25:17",
       "raw": {
         "id": 3005,
         "specialty": "Physical medicine"
@@ -122,8 +171,8 @@
       "organisation": "Fairview Family Practice",
       "person_id": 704,
       "person": "Dr. R. Castellanos",
-      "add_time": "2026-07-24 16:02:19",
-      "stage_change_time": "2026-08-13 16:02:19",
+      "add_time": "2026-09-11 03:25:17",
+      "stage_change_time": "2026-10-01 03:25:17",
       "raw": {
         "id": 3006,
         "specialty": "Primary care"
@@ -143,8 +192,8 @@
       "organisation": "Summit Pain Institute",
       "person_id": 705,
       "person": "Dr. K. Baruah",
-      "add_time": "2026-08-03 16:02:19",
-      "stage_change_time": "2026-08-18 16:02:19",
+      "add_time": "2026-09-21 03:25:17",
+      "stage_change_time": "2026-10-06 03:25:17",
       "raw": {
         "id": 3007,
         "specialty": "Pain management"
@@ -164,8 +213,8 @@
       "organisation": "Harbour Point Rheumatology",
       "person_id": 706,
       "person": "Dr. J. Lindqvist",
-      "add_time": "2026-08-24 16:02:19",
-      "stage_change_time": "2026-08-29 16:02:19",
+      "add_time": "2026-10-12 03:25:17",
+      "stage_change_time": "2026-10-17 03:25:17",
       "raw": {
         "id": 3008,
         "specialty": "Rheumatology"
@@ -185,8 +234,8 @@
       "organisation": "Harbour Point Rheumatology",
       "person_id": 706,
       "person": "Dr. J. Lindqvist",
-      "add_time": "2026-08-26 16:02:19",
-      "stage_change_time": "2026-08-30 16:02:19",
+      "add_time": "2026-10-14 03:25:17",
+      "stage_change_time": "2026-10-18 03:25:17",
       "raw": {
         "id": 3009,
         "specialty": "Rheumatology"
@@ -206,8 +255,8 @@
       "organisation": "Westfield Sports Medicine",
       "person_id": 707,
       "person": "Dr. T. Nakamura",
-      "add_time": "2026-07-24 16:02:19",
-      "stage_change_time": "2026-08-13 16:02:19",
+      "add_time": "2026-09-11 03:25:17",
+      "stage_change_time": "2026-10-01 03:25:17",
       "raw": {
         "id": 3010,
         "specialty": "Sports medicine"
@@ -227,8 +276,8 @@
       "organisation": "Riverbend Pain & Spine",
       "person_id": 700,
       "person": "Dr. A. Whitfield",
-      "add_time": "2026-08-22 16:02:19",
-      "stage_change_time": "2026-08-28 16:02:19",
+      "add_time": "2026-10-10 03:25:17",
+      "stage_change_time": "2026-10-16 03:25:17",
       "raw": {
         "id": 3011,
         "specialty": "Pain management"
@@ -248,8 +297,8 @@
       "organisation": "Northgate Neurology Associates",
       "person_id": 701,
       "person": "Dr. P. Iyer",
-      "add_time": "2026-08-23 16:02:19",
-      "stage_change_time": "2026-08-28 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
+      "stage_change_time": "2026-10-16 03:25:17",
       "raw": {
         "id": 3012,
         "specialty": "Neurology"
@@ -269,8 +318,8 @@
       "organisation": "Northgate Neurology Associates",
       "person_id": 701,
       "person": "Dr. P. Iyer",
-      "add_time": "2026-08-14 16:02:19",
-      "stage_change_time": "2026-08-24 16:02:19",
+      "add_time": "2026-10-02 03:25:17",
+      "stage_change_time": "2026-10-12 03:25:17",
       "raw": {
         "id": 3013,
         "specialty": "Neurology"
@@ -290,8 +339,8 @@
       "organisation": "Cedar Hollow Orthopaedics",
       "person_id": 702,
       "person": "Dr. M. Okonkwo",
-      "add_time": "2026-08-03 16:02:19",
-      "stage_change_time": "2026-08-18 16:02:19",
+      "add_time": "2026-09-21 03:25:17",
+      "stage_change_time": "2026-10-06 03:25:17",
       "raw": {
         "id": 3014,
         "specialty": "Orthopaedics"
@@ -311,8 +360,8 @@
       "organisation": "Fairview Family Practice",
       "person_id": 704,
       "person": "Dr. R. Castellanos",
-      "add_time": "2026-08-04 16:02:19",
-      "stage_change_time": "2026-08-19 16:02:19",
+      "add_time": "2026-09-22 03:25:17",
+      "stage_change_time": "2026-10-07 03:25:17",
       "raw": {
         "id": 3015,
         "specialty": "Primary care"
@@ -332,8 +381,8 @@
       "organisation": "Summit Pain Institute",
       "person_id": 705,
       "person": "Dr. K. Baruah",
-      "add_time": "2026-08-10 16:02:19",
-      "stage_change_time": "2026-08-22 16:02:19",
+      "add_time": "2026-09-28 03:25:17",
+      "stage_change_time": "2026-10-10 03:25:17",
       "raw": {
         "id": 3016,
         "specialty": "Pain management"
@@ -353,8 +402,8 @@
       "organisation": "Westfield Sports Medicine",
       "person_id": 707,
       "person": "Dr. T. Nakamura",
-      "add_time": "2026-08-23 16:02:19",
-      "stage_change_time": "2026-08-28 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
+      "stage_change_time": "2026-10-16 03:25:17",
       "raw": {
         "id": 3017,
         "specialty": "Sports medicine"
@@ -374,8 +423,8 @@
       "organisation": "Riverbend Pain & Spine",
       "person_id": 700,
       "person": "Dr. A. Whitfield",
-      "add_time": "2026-08-16 16:02:19",
-      "stage_change_time": "2026-08-25 16:02:19",
+      "add_time": "2026-10-04 03:25:17",
+      "stage_change_time": "2026-10-13 03:25:17",
       "raw": {
         "id": 3018,
         "specialty": "Pain management"
@@ -395,8 +444,8 @@
       "organisation": "Cedar Hollow Orthopaedics",
       "person_id": 702,
       "person": "Dr. M. Okonkwo",
-      "add_time": "2026-08-25 16:02:19",
-      "stage_change_time": "2026-08-29 16:02:19",
+      "add_time": "2026-10-13 03:25:17",
+      "stage_change_time": "2026-10-17 03:25:17",
       "raw": {
         "id": 3019,
         "specialty": "Orthopaedics"
@@ -416,8 +465,8 @@
       "organisation": "Lakeshore Rehabilitation Group",
       "person_id": 703,
       "person": "Dr. S. Duval",
-      "add_time": "2026-08-30 16:02:19",
-      "stage_change_time": "2026-09-01 16:02:19",
+      "add_time": "2026-10-18 03:25:17",
+      "stage_change_time": "2026-10-20 03:25:17",
       "raw": {
         "id": 3020,
         "specialty": "Physical medicine"
@@ -437,8 +486,8 @@
       "organisation": "Summit Pain Institute",
       "person_id": 705,
       "person": "Dr. K. Baruah",
-      "add_time": "2026-08-25 16:02:19",
-      "stage_change_time": "2026-08-29 16:02:19",
+      "add_time": "2026-10-13 03:25:17",
+      "stage_change_time": "2026-10-17 03:25:17",
       "raw": {
         "id": 3021,
         "specialty": "Pain management"
@@ -458,8 +507,8 @@
       "organisation": "Harbour Point Rheumatology",
       "person_id": 706,
       "person": "Dr. J. Lindqvist",
-      "add_time": "2026-08-06 16:02:19",
-      "stage_change_time": "2026-08-20 16:02:19",
+      "add_time": "2026-09-24 03:25:17",
+      "stage_change_time": "2026-10-08 03:25:17",
       "raw": {
         "id": 3022,
         "specialty": "Rheumatology"
@@ -479,8 +528,8 @@
       "organisation": "Marchetti Interventional Pain",
       "person_id": 799,
       "person": "Dr. L. Marchetti",
-      "add_time": "2025-07-29 16:02:19",
-      "stage_change_time": "2025-11-06 16:02:19",
+      "add_time": "2025-09-16 03:25:17",
+      "stage_change_time": "2025-12-25 03:25:17",
       "raw": {
         "id": 3023,
         "specialty": "Pain management"
@@ -495,10 +544,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-16",
+      "due_date": "2026-10-04",
       "due_time": "",
-      "marked_done_time": "2026-08-16 16:02:19",
-      "add_time": "2026-08-16 16:02:19",
+      "marked_done_time": "2026-10-04 03:25:17",
+      "add_time": "2026-10-04 03:25:17",
       "owner_id": 11
     },
     {
@@ -508,10 +557,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-03",
+      "due_date": "2026-09-21",
       "due_time": "",
-      "marked_done_time": "2026-08-03 16:02:19",
-      "add_time": "2026-08-03 16:02:19",
+      "marked_done_time": "2026-09-21 03:25:17",
+      "add_time": "2026-09-21 03:25:17",
       "owner_id": 12
     },
     {
@@ -521,10 +570,10 @@
       "subject": "First outreach call — introduce Trialbridge and the referral network",
       "note": "",
       "done": false,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-07",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-23 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
       "owner_id": 12
     },
     {
@@ -534,10 +583,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-04",
+      "due_date": "2026-09-22",
       "due_time": "",
-      "marked_done_time": "2026-08-04 16:02:19",
-      "add_time": "2026-08-04 16:02:19",
+      "marked_done_time": "2026-09-22 03:25:17",
+      "add_time": "2026-09-22 03:25:17",
       "owner_id": 13
     },
     {
@@ -547,10 +596,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-27",
+      "due_date": "2026-10-15",
       "due_time": "",
-      "marked_done_time": "2026-08-27 16:02:19",
-      "add_time": "2026-08-27 16:02:19",
+      "marked_done_time": "2026-10-15 03:25:17",
+      "add_time": "2026-10-15 03:25:17",
       "owner_id": 11
     },
     {
@@ -560,10 +609,10 @@
       "subject": "Check back next year",
       "note": "",
       "done": false,
-      "due_date": "2026-12-16",
+      "due_date": "2027-02-03",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-30 16:02:19",
+      "add_time": "2026-10-18 03:25:17",
       "owner_id": 11
     },
     {
@@ -573,10 +622,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-17",
+      "due_date": "2026-10-05",
       "due_time": "",
-      "marked_done_time": "2026-08-17 16:02:19",
-      "add_time": "2026-08-17 16:02:19",
+      "marked_done_time": "2026-10-05 03:25:17",
+      "add_time": "2026-10-05 03:25:17",
       "owner_id": 12
     },
     {
@@ -586,10 +635,10 @@
       "subject": "Check back next year",
       "note": "",
       "done": false,
-      "due_date": "2026-12-16",
+      "due_date": "2027-02-03",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-30 16:02:19",
+      "add_time": "2026-10-18 03:25:17",
       "owner_id": 12
     },
     {
@@ -599,10 +648,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-21",
+      "due_date": "2026-10-09",
       "due_time": "",
-      "marked_done_time": "2026-08-21 16:02:19",
-      "add_time": "2026-08-21 16:02:19",
+      "marked_done_time": "2026-10-09 03:25:17",
+      "add_time": "2026-10-09 03:25:17",
       "owner_id": 13
     },
     {
@@ -612,10 +661,10 @@
       "subject": "Follow-up call — no answer yet on the first attempt",
       "note": "",
       "done": false,
-      "due_date": "2026-09-06",
+      "due_date": "2026-10-25",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -625,10 +674,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-16",
+      "due_date": "2026-10-04",
       "due_time": "",
-      "marked_done_time": "2026-08-16 16:02:19",
-      "add_time": "2026-08-16 16:02:19",
+      "marked_done_time": "2026-10-04 03:25:17",
+      "add_time": "2026-10-04 03:25:17",
       "owner_id": 11
     },
     {
@@ -638,10 +687,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-13",
+      "due_date": "2026-10-01",
       "due_time": "",
-      "marked_done_time": "2026-08-13 16:02:19",
-      "add_time": "2026-08-13 16:02:19",
+      "marked_done_time": "2026-10-01 03:25:17",
+      "add_time": "2026-10-01 03:25:17",
       "owner_id": 12
     },
     {
@@ -651,10 +700,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-24",
+      "due_date": "2026-10-12",
       "due_time": "",
-      "marked_done_time": "2026-08-24 16:02:19",
-      "add_time": "2026-08-24 16:02:19",
+      "marked_done_time": "2026-10-12 03:25:17",
+      "add_time": "2026-10-12 03:25:17",
       "owner_id": 13
     },
     {
@@ -664,10 +713,10 @@
       "subject": "Follow up — find the decision maker for referrals",
       "note": "",
       "done": false,
-      "due_date": "2026-09-07",
+      "due_date": "2026-10-26",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -677,10 +726,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-22",
+      "due_date": "2026-10-10",
       "due_time": "",
-      "marked_done_time": "2026-08-22 16:02:19",
-      "add_time": "2026-08-22 16:02:19",
+      "marked_done_time": "2026-10-10 03:25:17",
+      "add_time": "2026-10-10 03:25:17",
       "owner_id": 11
     },
     {
@@ -690,10 +739,10 @@
       "subject": "Check back next year",
       "note": "",
       "done": false,
-      "due_date": "2026-12-16",
+      "due_date": "2027-02-03",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-30 16:02:19",
+      "add_time": "2026-10-18 03:25:17",
       "owner_id": 11
     },
     {
@@ -703,10 +752,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-08",
+      "due_date": "2026-09-26",
       "due_time": "",
-      "marked_done_time": "2026-08-08 16:02:19",
-      "add_time": "2026-08-08 16:02:19",
+      "marked_done_time": "2026-09-26 03:25:17",
+      "add_time": "2026-09-26 03:25:17",
       "owner_id": 12
     },
     {
@@ -716,10 +765,10 @@
       "subject": "Follow up — find the decision maker for referrals",
       "note": "",
       "done": false,
-      "due_date": "2026-09-11",
+      "due_date": "2026-10-30",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 12
     },
     {
@@ -729,10 +778,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-20",
+      "due_date": "2026-10-08",
       "due_time": "",
-      "marked_done_time": "2026-08-20 16:02:19",
-      "add_time": "2026-08-20 16:02:19",
+      "marked_done_time": "2026-10-08 03:25:17",
+      "add_time": "2026-10-08 03:25:17",
       "owner_id": 13
     },
     {
@@ -742,10 +791,10 @@
       "subject": "Follow up — find the decision maker for referrals",
       "note": "",
       "done": false,
-      "due_date": "2026-09-05",
+      "due_date": "2026-10-24",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -755,10 +804,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-08",
+      "due_date": "2026-09-26",
       "due_time": "",
-      "marked_done_time": "2026-08-08 16:02:19",
-      "add_time": "2026-08-08 16:02:19",
+      "marked_done_time": "2026-09-26 03:25:17",
+      "add_time": "2026-09-26 03:25:17",
       "owner_id": 11
     },
     {
@@ -768,10 +817,10 @@
       "subject": "Book the physician meeting",
       "note": "",
       "done": false,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-16",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-23 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
       "owner_id": 11
     },
     {
@@ -781,10 +830,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-29",
+      "due_date": "2026-10-17",
       "due_time": "",
-      "marked_done_time": "2026-08-29 16:02:19",
-      "add_time": "2026-08-29 16:02:19",
+      "marked_done_time": "2026-10-17 03:25:17",
+      "add_time": "2026-10-17 03:25:17",
       "owner_id": 12
     },
     {
@@ -794,10 +843,10 @@
       "subject": "Book the physician meeting",
       "note": "",
       "done": false,
-      "due_date": "2026-09-09",
+      "due_date": "2026-10-28",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 12
     },
     {
@@ -807,10 +856,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-07-28",
+      "due_date": "2026-09-15",
       "due_time": "",
-      "marked_done_time": "2026-07-28 16:02:19",
-      "add_time": "2026-07-28 16:02:19",
+      "marked_done_time": "2026-09-15 03:25:17",
+      "add_time": "2026-09-15 03:25:17",
       "owner_id": 12
     },
     {
@@ -820,10 +869,10 @@
       "subject": "Confirm the meeting and drop off study materials",
       "note": "",
       "done": false,
-      "due_date": "2026-09-04",
+      "due_date": "2026-10-23",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 12
     },
     {
@@ -833,10 +882,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-09",
+      "due_date": "2026-09-27",
       "due_time": "",
-      "marked_done_time": "2026-08-09 16:02:19",
-      "add_time": "2026-08-09 16:02:19",
+      "marked_done_time": "2026-09-27 03:25:17",
+      "add_time": "2026-09-27 03:25:17",
       "owner_id": 13
     },
     {
@@ -846,10 +895,10 @@
       "subject": "Check back next year",
       "note": "",
       "done": false,
-      "due_date": "2026-12-16",
+      "due_date": "2027-02-03",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-30 16:02:19",
+      "add_time": "2026-10-18 03:25:17",
       "owner_id": 13
     },
     {
@@ -859,10 +908,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-07-29",
+      "due_date": "2026-09-16",
       "due_time": "",
-      "marked_done_time": "2026-07-29 16:02:19",
-      "add_time": "2026-07-29 16:02:19",
+      "marked_done_time": "2026-09-16 03:25:17",
+      "add_time": "2026-09-16 03:25:17",
       "owner_id": 13
     },
     {
@@ -872,10 +921,10 @@
       "subject": "Follow up with an interested practice — do not let this go quiet",
       "note": "",
       "done": false,
-      "due_date": "2026-09-10",
+      "due_date": "2026-10-29",
       "due_time": "10:00",
       "marked_done_time": null,
-      "add_time": "2026-08-31 16:02:19",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -885,10 +934,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-08-07",
+      "due_date": "2026-09-25",
       "due_time": "",
-      "marked_done_time": "2026-08-07 16:02:19",
-      "add_time": "2026-08-07 16:02:19",
+      "marked_done_time": "2026-09-25 03:25:17",
+      "add_time": "2026-09-25 03:25:17",
       "owner_id": 11
     },
     {
@@ -898,10 +947,10 @@
       "subject": "Follow up with an interested practice — do not let this go quiet",
       "note": "",
       "done": false,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-07",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-23 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
       "owner_id": 11
     },
     {
@@ -911,10 +960,10 @@
       "subject": "Outreach call",
       "note": "No answer, left message",
       "done": true,
-      "due_date": "2026-08-22",
+      "due_date": "2026-10-10",
       "due_time": "",
-      "marked_done_time": "2026-08-22 16:02:19",
-      "add_time": "2026-08-22 16:02:19",
+      "marked_done_time": "2026-10-10 03:25:17",
+      "add_time": "2026-10-10 03:25:17",
       "owner_id": 11
     },
     {
@@ -924,10 +973,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-07-31",
+      "due_date": "2026-09-18",
       "due_time": "",
-      "marked_done_time": "2026-07-31 16:02:19",
-      "add_time": "2026-07-31 16:02:19",
+      "marked_done_time": "2026-09-18 03:25:17",
+      "add_time": "2026-09-18 03:25:17",
       "owner_id": 12
     },
     {
@@ -937,10 +986,10 @@
       "subject": "Thank-you call — confirm the referral process is working for them",
       "note": "",
       "done": false,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-07",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-23 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
       "owner_id": 12
     },
     {
@@ -950,10 +999,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-07-14",
+      "due_date": "2026-09-01",
       "due_time": "",
-      "marked_done_time": "2026-07-14 16:02:19",
-      "add_time": "2026-07-14 16:02:19",
+      "marked_done_time": "2026-09-01 03:25:17",
+      "add_time": "2026-09-01 03:25:17",
       "owner_id": 12
     },
     {
@@ -963,10 +1012,10 @@
       "subject": "Outreach call",
       "note": "Spoke with the practice manager",
       "done": true,
-      "due_date": "2026-07-20",
+      "due_date": "2026-09-07",
       "due_time": "",
-      "marked_done_time": "2026-07-20 16:02:19",
-      "add_time": "2026-07-20 16:02:19",
+      "marked_done_time": "2026-09-07 03:25:17",
+      "add_time": "2026-09-07 03:25:17",
       "owner_id": 13
     },
     {
@@ -976,10 +1025,10 @@
       "subject": "Monthly referral partner check-in",
       "note": "",
       "done": false,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-07",
       "due_time": "09:00",
       "marked_done_time": null,
-      "add_time": "2026-08-23 16:02:19",
+      "add_time": "2026-10-11 03:25:17",
       "owner_id": 13
     },
     {
@@ -989,10 +1038,10 @@
       "subject": "Referral check-in",
       "note": "Practice has not referred since the spring",
       "done": true,
-      "due_date": "2026-06-19",
+      "due_date": "2026-08-07",
       "due_time": "",
-      "marked_done_time": "2026-06-19 16:02:19",
-      "add_time": "2026-06-19 16:02:19",
+      "marked_done_time": "2026-08-07 03:25:17",
+      "add_time": "2026-08-07 03:25:17",
       "owner_id": 11
     },
     {
@@ -1002,10 +1051,10 @@
       "subject": "Follow-up call",
       "note": "No answer, left message with the front desk",
       "done": true,
-      "due_date": "2026-09-02",
+      "due_date": "2026-10-21",
       "due_time": "",
-      "marked_done_time": "2026-09-02 16:02:19",
-      "add_time": "2026-09-02 16:02:19",
+      "marked_done_time": "2026-10-21 03:25:17",
+      "add_time": "2026-10-21 03:25:17",
       "owner_id": 11
     },
     {
@@ -1015,10 +1064,10 @@
       "subject": "Physician meeting",
       "note": "Reviewed inclusion criteria",
       "done": true,
-      "due_date": "2026-09-02",
+      "due_date": "2026-10-21",
       "due_time": "",
-      "marked_done_time": "2026-09-02 16:02:19",
-      "add_time": "2026-09-02 16:02:19",
+      "marked_done_time": "2026-10-21 03:25:17",
+      "add_time": "2026-10-21 03:25:17",
       "owner_id": 11
     },
     {
@@ -1028,10 +1077,10 @@
       "subject": "Study information email",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-08-31",
+      "due_date": "2026-10-19",
       "due_time": "",
-      "marked_done_time": "2026-08-31 16:02:19",
-      "add_time": "2026-08-31 16:02:19",
+      "marked_done_time": "2026-10-19 03:25:17",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -1041,10 +1090,10 @@
       "subject": "Follow-up call",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-08-29",
+      "due_date": "2026-10-17",
       "due_time": "",
-      "marked_done_time": "2026-08-29 16:02:19",
-      "add_time": "2026-08-29 16:02:19",
+      "marked_done_time": "2026-10-17 03:25:17",
+      "add_time": "2026-10-17 03:25:17",
       "owner_id": 12
     },
     {
@@ -1054,10 +1103,10 @@
       "subject": "Study information email",
       "note": "No answer, left message with the front desk",
       "done": true,
-      "due_date": "2026-08-27",
+      "due_date": "2026-10-15",
       "due_time": "",
-      "marked_done_time": "2026-08-27 16:02:19",
-      "add_time": "2026-08-27 16:02:19",
+      "marked_done_time": "2026-10-15 03:25:17",
+      "add_time": "2026-10-15 03:25:17",
       "owner_id": 11
     },
     {
@@ -1067,10 +1116,10 @@
       "subject": "Physician meeting",
       "note": "Reviewed inclusion criteria",
       "done": true,
-      "due_date": "2026-08-27",
+      "due_date": "2026-10-15",
       "due_time": "",
-      "marked_done_time": "2026-08-27 16:02:19",
-      "add_time": "2026-08-27 16:02:19",
+      "marked_done_time": "2026-10-15 03:25:17",
+      "add_time": "2026-10-15 03:25:17",
       "owner_id": 11
     },
     {
@@ -1080,10 +1129,10 @@
       "subject": "Follow-up call",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-09-01",
+      "due_date": "2026-10-20",
       "due_time": "",
-      "marked_done_time": "2026-09-01 16:02:19",
-      "add_time": "2026-09-01 16:02:19",
+      "marked_done_time": "2026-10-20 03:25:17",
+      "add_time": "2026-10-20 03:25:17",
       "owner_id": 13
     },
     {
@@ -1093,10 +1142,10 @@
       "subject": "Study information email",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-08-30",
+      "due_date": "2026-10-18",
       "due_time": "",
-      "marked_done_time": "2026-08-30 16:02:19",
-      "add_time": "2026-08-30 16:02:19",
+      "marked_done_time": "2026-10-18 03:25:17",
+      "add_time": "2026-10-18 03:25:17",
       "owner_id": 12
     },
     {
@@ -1106,10 +1155,10 @@
       "subject": "Follow-up call",
       "note": "No answer, left message with the front desk",
       "done": true,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-16",
       "due_time": "",
-      "marked_done_time": "2026-08-28 16:02:19",
-      "add_time": "2026-08-28 16:02:19",
+      "marked_done_time": "2026-10-16 03:25:17",
+      "add_time": "2026-10-16 03:25:17",
       "owner_id": 11
     },
     {
@@ -1119,10 +1168,10 @@
       "subject": "Physician meeting",
       "note": "Reviewed inclusion criteria",
       "done": true,
-      "due_date": "2026-08-28",
+      "due_date": "2026-10-16",
       "due_time": "",
-      "marked_done_time": "2026-08-28 16:02:19",
-      "add_time": "2026-08-28 16:02:19",
+      "marked_done_time": "2026-10-16 03:25:17",
+      "add_time": "2026-10-16 03:25:17",
       "owner_id": 11
     },
     {
@@ -1132,10 +1181,10 @@
       "subject": "Study information email",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-09-02",
+      "due_date": "2026-10-21",
       "due_time": "",
-      "marked_done_time": "2026-09-02 16:02:19",
-      "add_time": "2026-09-02 16:02:19",
+      "marked_done_time": "2026-10-21 03:25:17",
+      "add_time": "2026-10-21 03:25:17",
       "owner_id": 12
     },
     {
@@ -1145,10 +1194,10 @@
       "subject": "Follow-up call",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-08-31",
+      "due_date": "2026-10-19",
       "due_time": "",
-      "marked_done_time": "2026-08-31 16:02:19",
-      "add_time": "2026-08-31 16:02:19",
+      "marked_done_time": "2026-10-19 03:25:17",
+      "add_time": "2026-10-19 03:25:17",
       "owner_id": 13
     },
     {
@@ -1158,10 +1207,10 @@
       "subject": "Study information email",
       "note": "No answer, left message with the front desk",
       "done": true,
-      "due_date": "2026-08-29",
+      "due_date": "2026-10-17",
       "due_time": "",
-      "marked_done_time": "2026-08-29 16:02:19",
-      "add_time": "2026-08-29 16:02:19",
+      "marked_done_time": "2026-10-17 03:25:17",
+      "add_time": "2026-10-17 03:25:17",
       "owner_id": 11
     },
     {
@@ -1171,10 +1220,10 @@
       "subject": "Physician meeting",
       "note": "Reviewed inclusion criteria",
       "done": true,
-      "due_date": "2026-08-29",
+      "due_date": "2026-10-17",
       "due_time": "",
-      "marked_done_time": "2026-08-29 16:02:19",
-      "add_time": "2026-08-29 16:02:19",
+      "marked_done_time": "2026-10-17 03:25:17",
+      "add_time": "2026-10-17 03:25:17",
       "owner_id": 11
     },
     {
@@ -1184,10 +1233,10 @@
       "subject": "Follow-up call",
       "note": "Spoke with the practice manager about the CRPS protocol",
       "done": true,
-      "due_date": "2026-08-27",
+      "due_date": "2026-10-15",
       "due_time": "",
-      "marked_done_time": "2026-08-27 16:02:19",
-      "add_time": "2026-08-27 16:02:19",
+      "marked_done_time": "2026-10-15 03:25:17",
+      "add_time": "2026-10-15 03:25:17",
       "owner_id": 12
     }
   ],

@@ -36,14 +36,20 @@ const BANK_COLUMNS = {
   state:         'State'         // ready | posted | cancelled | holding
 };
 
+// Append-only. A draft is opened by an `awaiting` row and closed by a later row carrying the
+// same Message id: posted | cancelled | expired | superseded | failed. Three statuses annotate
+// without closing: edit-refused | alert | report. The full rule is in "find the pending draft".
 const LOG_COLUMNS = {
   date:       'Date',
   slug:       'Slug',
   slot:       'Slot',
-  status:     'Status',       // awaiting | posted | cancelled | expired | skipped | failed
+  status:     'Status',
   channel_id: 'Channel id',
   message_id: 'Message id',   // the Discord draft — how workflow 02 finds the reply
+  reply_id:   'Reply id',     // the reviewer message that caused this row, so it is acted on once
   caption_fp: 'Caption fp',   // fingerprint of the delivered caption
+  pillar:     'Pillar',       // what topic rotation is measured against
+  hook:       'Hook',         // the opening sentence, for the repeated-hook check
   urn:        'Post urn',
   note:       'Note',
   at:         'At'
@@ -69,6 +75,14 @@ const OFF_CADENCE_DESIGN_SLOTS = [6];   // slot 6 is a Friday, and went out that
 // No two posts published within this many slots may share a layout or a pillar. Five is a
 // publishing week at the weekday cadence. Measured in slots, not dates.
 const WINDOW_SLOTS = 5;
+
+// Topic rotation, measured in CALENDAR DAYS from the log rather than in slots, so it still
+// holds after the bank has been reordered, rows were skipped or a post went out by hand.
+//   TOPIC_COOLDOWN_DAYS  a pillar published this recently is held; the next row is tried
+//   FAMILY_MAX_PER_WEEK  at most this many posts in any rolling 7 days from one pillar family
+//                        (the part before the comma: "AI workflow, reporting" -> "AI workflow")
+const TOPIC_COOLDOWN_DAYS = 21;
+const FAMILY_MAX_PER_WEEK = 2;
 
 // ---------------------------------------------------------------- Brand system
 // DESIGN.md is the source of record for all of this. Changing a colour here changes every
@@ -131,9 +145,24 @@ const DISCORD_CHANNEL_ID = '';
 const APPROVE_WORDS = ['post', 'approve', 'ship it'];
 const CANCEL_WORDS  = ['cancel', 'reject', 'discard'];
 
+// An EDIT is a message whose FIRST LINE is one of these words and whose remaining lines are the
+// replacement caption. It is never published directly: it is checked against the same caption
+// rules, and if it passes the bot re-delivers it with the same image as a NEW draft that needs
+// its own `post`. If it fails, the bot replies with the reasons and the original stays open.
+const EDIT_WORDS = ['edit'];
+
+// The line appended under every draft. Workflow 02 strips exactly this string back off before
+// fingerprinting, so change it only while no draft is awaiting approval.
+const APPROVAL_INSTRUCTION = 'Reply **post** to publish, **cancel** to discard, or **edit** '
+  + 'with the new caption on the lines below it.';
+
 // How long a draft stays approvable. After this the day has moved on and the claims in it
 // may not have. Workflow 02 marks it expired rather than publishing it.
 const APPROVAL_EXPIRES_HOURS = 20;
+
+// When LinkedIn rejects the token on an approved draft, the approval channel is told once, then
+// again only after this many hours, not every five minutes for the rest of the day.
+const ALERT_REPEAT_HOURS = 6;
 
 // ---------------------------------------------------------------- LinkedIn
 // The organisation to post as, and the token that may post as it.
@@ -147,6 +176,23 @@ const LINKEDIN_ACCESS_TOKEN = '';
 // Probed 2026-08-18: 202512 and earlier are retired (HTTP 426 NONEXISTENT_VERSION).
 // 202601..202608 are active.
 const LINKEDIN_VERSION = '202608';
+
+// LinkedIn access tokens last 60 days and lapse silently. Put the current token's expiry date
+// here (YYYY-MM-DD) and every run summary warns TOKEN_WARN_DAYS ahead. Blank -> no early
+// warning; an expired token is still caught at publish time and alerted, never failed quietly.
+const LINKEDIN_TOKEN_EXPIRES_ON = '';
+const TOKEN_WARN_DAYS = 7;
+
+// Weekly report, built from the Log by workflow 02 the first time its poll runs on
+// REPORT_WEEKDAY at or after REPORT_HOUR (TIMEZONE). Posted to REPORT_WEBHOOK_URL.
+const REPORT_WEEKDAY = 1;   // 1 = Monday
+const REPORT_HOUR    = 9;
+
+// Per-post impressions, clicks and reactions in the weekly report. Needs a token with
+// r_organization_social, which LinkedIn only grants to apps approved for the Community
+// Management API. false -> the report is built from the Log alone. A 403 is reported as that
+// product gate, not as a failure.
+const STATS_ENABLED = false;
 
 // ---------------------------------------------------------------- Writing the caption
 // Only used for a bank row whose Caption cell is empty. A row that already carries a caption
@@ -165,6 +211,18 @@ const CAPTION_MAX_WORDS = 220;
 const HASHTAGS_MIN      = 4;
 const HASHTAGS_MAX      = 6;
 const MAX_EMOJI         = 1;
+const HASHTAGS_LAST_LINE_ONLY = true;   // hashtags mid-caption read as spam
+const NO_LINKS_IN_BODY        = true;   // a link in the body cuts reach; it goes in the first comment
+
+// The opening sentence is compared with every hook published in the last HOOK_LOOKBACK_DAYS.
+// At or above HOOK_SIMILARITY (share of meaningful words in common) it is held as a repeat.
+const HOOK_LOOKBACK_DAYS = 60;
+const HOOK_SIMILARITY    = 0.6;
+
+// A MODEL-written caption that fails the rules gets this many rewrites, with the exact failures
+// fed back to the model. Still failing -> held for a human. A banked caption is never
+// rewritten: a person wrote it, so a person fixes it. 0 -> no rewrite, hold straight away.
+const REWRITE_ATTEMPTS = 1;
 
 // Rejected outright, in a written caption or a banked one. A caption that trips this is held
 // back with the phrase named, never quietly edited.
@@ -183,10 +241,16 @@ const DISCORD_MESSAGE_LIMIT = 2000;
 // ---------------------------------------------------------------- Optional notification
 const REPORT_WEBHOOK_URL = '';   // Slack incoming webhook. Blank = no notification.
 
+// Workflow 02 demo: with SHEET_ID blank it reads a made-up log holding one open draft and a
+// made-up channel holding this reply to it, so the approval gate runs with no Discord bot.
+// 'post' | 'cancel' | 'edit' (a clean revision) | 'bad-edit' (one the caption rules refuse)
+const DEMO_REPLY = 'edit';
+
 // ---------------------------------------------------------------- Demo bank
-// Used only when SHEET_ID is blank. Three posts, three layouts, so a screen-share shows the
-// renderer doing real work before any Google account is attached. While the demo bank is in
-// use the run is FORCED into preview: made-up content can never reach the company page.
+// Used only when SHEET_ID is blank. Three posts, three layouts. With the demo log ("load the
+// demo log") slot 1 is held by topic rotation, so slot 2 is picked and goes through the
+// write -> fail -> rewrite -> pass loop. While the demo bank is in use the run is FORCED into
+// preview: made-up content can never reach the company page.
 const DEMO_BANK = [
   {
     slot: 1, slug: 'demo-map-the-failure-mode', pillar: 'Engineering insight',
@@ -202,10 +266,19 @@ const DEMO_BANK = [
       ['Your assistant', 'Work stopped, or just slower?']
     ],
     footer: 'Map the failure mode first.',
-    caption: 'DEMO DRAFT — not for publication.\n\nThis is what the pipeline delivers '
-      + 'for review every morning: a caption, and the image it would go out with.\n\nThe '
-      + 'layout, the palette and the one-accent rule come from the design system, applied '
-      + 'in code rather than retyped each time.\n\n#Demo #Acme'
+    caption: 'Most teams can name the tools they depend on. Far fewer can say what still '
+      + 'works when one of them is down for a day.\n\n'
+      + 'Before the next outage, sit down with whoever ships your releases and walk through '
+      + 'four questions. Could you deploy a fix without the pipeline? Could anyone sign in if '
+      + 'single sign-on was down? Do your build outputs exist anywhere else? And when the '
+      + 'assistant everyone leans on stops answering, does work stop or just slow down?\n\n'
+      + 'None of this needs new software. It needs an afternoon and a written answer to each '
+      + 'question, kept somewhere people will actually find it.\n\n'
+      + 'The trade-off is real: an answer you wrote down goes stale as the stack changes, so '
+      + 'it needs an owner and a review date, or it quietly becomes fiction.\n\n'
+      + 'Which of the four would your team struggle with first?\n\n'
+      + '(Demo draft, not for publication.)\n\n'
+      + '#Resilience #DevOps #Engineering #Demo'
   },
   {
     slot: 2, slug: 'demo-never-approve-your-own-work',
@@ -222,9 +295,10 @@ const DEMO_BANK = [
     ],
     band: 'APPROVAL IS A HUMAN, IN THE RIGHT CHANNEL.',
     footer: 'Everything else is the system agreeing with itself.',
-    caption: 'DEMO DRAFT — not for publication.\n\nThe approval gate in this pipeline '
-      + 'reads one channel and ignores its own messages. That is the whole guardrail.\n\n'
-      + '#Demo #Acme'
+    // Blank on purpose: in the demo this row is written by "demo writer - first draft", whose
+    // caption breaks four rules, then fixed by "demo writer - rewrite" — the real rewrite loop,
+    // with canned model answers standing in for an API key.
+    caption: ''
   },
   {
     slot: 3, slug: 'demo-reporting-costs-a-day', pillar: 'AI workflow, reporting',
@@ -239,8 +313,19 @@ const DEMO_BANK = [
       ['STEP 03 · DECIDE', 'Stays<br>human', 'Someone still decides which system is right.']
     ],
     footer: 'The judgement stays. The copying goes.',
-    caption: 'DEMO DRAFT — not for publication.\n\nThird layout, same build node. The '
-      + 'bank row picks the layout; nothing downstream changes.\n\n#Demo #Acme'
+    caption: 'The weekly report is rarely slow because of the analysis. It is slow because '
+      + 'somebody spends most of a day collecting numbers from five places first.\n\n'
+      + 'That collecting is the part worth automating. Pull each export on a schedule, line '
+      + 'the figures up, and flag the sources that disagree instead of averaging them away. '
+      + 'The person who used to assemble the report now starts the morning with a finished '
+      + 'draft and a short list of conflicts to settle.\n\n'
+      + 'What does not change is the judgement. When two systems disagree about revenue, a '
+      + 'person still decides which one is right, and the report says so.\n\n'
+      + 'The limit worth knowing: this only works once the sources have stable exports. If '
+      + 'a number lives in somebody\'s head, it has to be written down first.\n\n'
+      + 'How many hours does your team spend collecting before anyone analyses anything?\n\n'
+      + '(Demo draft, not for publication.)\n\n'
+      + '#Reporting #Automation #Operations #Demo'
   }
 ];
 
@@ -278,6 +363,10 @@ const CHANNEL_ID = MODE === 'test' ? TEST_CHANNEL_ID.trim() : DISCORD_CHANNEL_ID
 
 const lower = (a) => a.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
 
+const TOKEN_EXPIRY_MS = Date.parse(String(LINKEDIN_TOKEN_EXPIRES_ON).trim() + 'T00:00:00Z');
+const TOKEN_DAYS_LEFT = isNaN(TOKEN_EXPIRY_MS) ? null
+  : Math.floor((TOKEN_EXPIRY_MS - Date.now()) / 86400000);
+
 return [{
   json: {
     sheet_id: SHEET_ID.trim(),
@@ -294,6 +383,8 @@ return [{
     enforce_design_thursday:  ENFORCE_DESIGN_THURSDAY !== false,
     off_cadence_design_slots: OFF_CADENCE_DESIGN_SLOTS.map(Number),
     window_slots:             Number(WINDOW_SLOTS) || 5,
+    topic_cooldown_days:      Number(TOPIC_COOLDOWN_DAYS) || 0,
+    family_max_per_week:      Number(FAMILY_MAX_PER_WEEK) || 0,
 
     brand:         BRAND,
     canvas_width:  Number(CANVAS_WIDTH) || 1080,
@@ -310,12 +401,19 @@ return [{
     channel_id:     CHANNEL_ID,
     approve_words:  lower(APPROVE_WORDS),
     cancel_words:   lower(CANCEL_WORDS),
+    edit_words:     lower(EDIT_WORDS),
+    approval_instruction: APPROVAL_INSTRUCTION,
+    alert_repeat_hours:   Number(ALERT_REPEAT_HOURS) || 6,
     approval_expires_hours: Number(APPROVAL_EXPIRES_HOURS) || 20,
     discord_message_limit:  Number(DISCORD_MESSAGE_LIMIT) || 2000,
 
     linkedin_org_urn: LINKEDIN_ORG_URN.trim(),
     linkedin_token:   LINKEDIN_ACCESS_TOKEN.trim(),
     linkedin_version: LINKEDIN_VERSION,
+    linkedin_token_days_left: TOKEN_DAYS_LEFT,
+    token_warn_days:  Number(TOKEN_WARN_DAYS) || 7,
+    report_weekday:   Number(REPORT_WEEKDAY) || 1,
+    report_hour:      Number(REPORT_HOUR) || 0,
 
     llm_base_url: LLM_BASE_URL.replace(/\/+$/, ''),
     llm_api_key:  LLM_API_KEY.trim(),
@@ -327,9 +425,15 @@ return [{
     hashtags_max:      Number(HASHTAGS_MAX) || 6,
     max_emoji:         Number(MAX_EMOJI) || 0,
     banned_phrases:    lower(BANNED_PHRASES),
+    hashtags_last_line_only: HASHTAGS_LAST_LINE_ONLY !== false,
+    no_links_in_body:   NO_LINKS_IN_BODY !== false,
+    hook_lookback_days: Number(HOOK_LOOKBACK_DAYS) || 60,
+    hook_similarity:    Number(HOOK_SIMILARITY) || 0.6,
+    rewrite_attempts:   Math.max(0, Number(REWRITE_ATTEMPTS) || 0),
 
     report_webhook_url: REPORT_WEBHOOK_URL.trim(),
     demo_bank:          DEMO_BANK,
+    demo_reply:         String(DEMO_REPLY).trim().toLowerCase(),
     daily_cap:          Number(DAILY_CAP) || 1,
 
     // derived flags — every gate reads these, never the raw constants
@@ -344,6 +448,7 @@ return [{
     deliver_enabled: MODE !== 'preview' && CHANNEL_ID !== '',
     llm_enabled:     LLM_API_KEY.trim() !== '',
     report_enabled:  REPORT_WEBHOOK_URL.trim() !== '',
+    stats_enabled:   STATS_ENABLED === true && LINKEDIN_ACCESS_TOKEN.trim() !== '' && !USING_DEMO_BANK,
     logo_present:    LOGO_SVG.trim() !== ''
   }
 }];

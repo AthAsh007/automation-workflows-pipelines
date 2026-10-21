@@ -1,12 +1,16 @@
-// STOP: no sheet id, so nothing is written down.
+// STOP: nothing is written down.
 //
-// The numbers were still computed and are still posted to chat. This is the shape a first
-// demo runs in: the dashboard is real, it just has nowhere permanent to live yet.
-const k = $('compute the KPIs').first().json;
+// Either SHEET_ID is blank, or the run is on the demo pipeline — fabricated deals are never
+// written into a real dashboard. The numbers were still computed, compared with last week
+// and are still posted to chat. This is the shape a first demo runs in.
+const cfg = $('config').first().json;
+const k = $('compare with last week').first().json;
 
 return [{
   json: Object.assign({}, k, {
     written: false,
-    held_because: 'SHEET_ID is blank in config — the dashboard was computed but not stored'
+    held_because: cfg.sheet_enabled
+      ? 'demo pipeline — fabricated numbers are never written into a real sheet'
+      : 'SHEET_ID is blank in config — the dashboard was computed but not stored'
   })
 }];

@@ -31,7 +31,10 @@ if (emCount === 0) {
 
 // The focal class is applied to exactly one element per layout by the builder. If a bank row
 // somehow produces none, the post has no focus at all.
-const focal = (html.match(/class="[^"]*\bfocal\b/g) || []).length;
+// In the grid layout the accent band IS the focal element (it carries no `focal` class), so
+// a grid with its band counts. Without this every grid row was held as a layout failure.
+const focal = (html.match(/class="[^"]*\bfocal\b/g) || []).length
+  + (p.layout === 'grid' && html.includes('class="band"') ? 1 : 0);
 if (p.layout !== 'stat' && focal === 0) {
   issues.push('nothing carries the focal accent — the last item should');
 }
@@ -58,7 +61,12 @@ if (/@import|url\(\s*["']?https?:/i.test(html)) {
 }
 
 // ---------------------------------------------------------------- the logo
-if (!cfg.logo_present) {
+if (!cfg.logo_present && !cfg.deliver_enabled) {
+  // PREVIEW delivers nothing, so a placeholder wordmark cannot reach a reviewer. Say so, and
+  // let the rest of the pipeline run so the preview is worth looking at.
+  warnings.push('LOGO_SVG is blank. Fine in preview; it blocks the render the moment a draft '
+    + 'would actually be delivered.');
+} else if (!cfg.logo_present) {
   issues.push('LOGO_SVG is blank in config. The post would render with a text placeholder '
     + 'where the wordmark goes. Paste acme_logo_12.svg into LOGO_SVG.');
 } else if (!/<svg[\s>]/i.test(cfg.logo_svg)) {

@@ -6,7 +6,7 @@ const cfg = (k: string) => `$('config').first().json.${k}`;
 export default defineSpec({
   slug: 'blog-rss-to-social-drafts',
   title: 'Turn new blog RSS posts into social post drafts in Google Sheets with OpenAI',
-  summary: 'Reads your blog feed, picks posts it has not drafted before, writes a LinkedIn, X and Threads draft for each (OpenAI or a built-in template) inside each platform limit, and appends them to a Google Sheets review tab.',
+  summary: 'Reads your blog feed, picks posts it has not drafted before, writes a LinkedIn, X and Threads draft for each (OpenAI or a built-in template) inside each platform limit, books each draft into the next free posting slot for its platform (your posting days and hours, a minimum gap, slots already taken by earlier drafts), and appends them to a Google Sheets review tab.',
   category: 'Marketing and content',
   description: {
     who: 'Content marketers and founders who publish on a blog and then rewrite every post by hand for LinkedIn, X and Threads. The drafts land in a sheet so a person still approves each one before it goes out.',
@@ -15,6 +15,7 @@ export default defineSpec({
       'Posts already drafted, older than 14 days or missing a link are skipped, and at most 3 new posts are taken per run.',
       'Each post gets one draft per platform from OpenAI, or from a template that uses the title, the first two sentences and the link.',
       'Every draft is trimmed at a word boundary to the platform limit (X counts links as 23 characters), hashtags come from the post categories, and rows are appended to the Drafts tab with status "needs review".',
+      'Each draft is booked into the next free slot for its platform: a day and hour from `POST_WINDOWS` in your `TIMEZONE`, at least `MIN_GAP_HOURS` from any other booked post on that platform, including drafts booked by earlier runs. LinkedIn gets one post a day, X can take several.',
     ],
     setup: [
       'Run it once as imported. It drafts the sample posts and stops at `STOP: dry run - sheet untouched`.',
@@ -27,6 +28,7 @@ export default defineSpec({
       '`PLATFORMS` holds the character limit and hashtag count for each network. Remove one to stop drafting for it.',
       '`MAX_POSTS_PER_RUN` and `MAX_AGE_DAYS` control how much backlog one run picks up.',
       '`BLOCKED_HASHTAGS` drops categories such as "Uncategorized" that make poor tags.',
+      '`POST_WINDOWS`, `MIN_GAP_HOURS` and `TIMEZONE` decide when each platform posts; `LEAD_HOURS` keeps the first slot far enough out for someone to review it.',
     ],
   },
   config: {
@@ -40,6 +42,10 @@ export default defineSpec({
       { name: 'MAX_POSTS_PER_RUN', value: 3, note: 'newest posts drafted per run; the rest wait for the next run' },
       { name: 'MAX_AGE_DAYS', value: 14, note: 'posts older than this are never drafted' },
       { name: 'BLOCKED_HASHTAGS', value: ['uncategorized', 'news', 'blog'], note: 'categories that never become hashtags (lowercase)' },
+      { name: 'TIMEZONE', value: 'Europe/London', note: 'IANA time zone the posting hours are in' },
+      { name: 'POST_WINDOWS', value: { linkedin: { days: [2, 3, 4], hours: [8, 12] }, x: { days: [1, 2, 3, 4, 5], hours: [9, 13, 17] }, threads: { days: [1, 2, 3, 4, 5, 6], hours: [11, 19] } }, note: 'per platform: weekdays (1 = Monday) and local hours a post may go out' },
+      { name: 'MIN_GAP_HOURS', value: { linkedin: 24, x: 4, threads: 8 }, note: 'least time between two booked posts on the same platform' },
+      { name: 'LEAD_HOURS', value: 4, note: 'no slot is booked sooner than this, so there is time to review' },
       { name: 'BRAND_VOICE', value: 'plain, specific, no hype, first person plural', note: 'tone hint given to OpenAI' },
     ],
     flags: { sheet_enabled: "DRAFTS_SHEET_ID.trim() !== ''" },
@@ -146,19 +152,58 @@ for (const { json: p } of $input.all()) {
       trimmed = true;
     }
     const draft = body + tail;
-    rows.push({ post_id: p.id, post_title: p.title, post_link: p.link, platform, draft,
+    rows.push({ post_id: p.id, post_title: p.title, post_link: p.link, post_published: p.published, platform, draft,
       chars: body.length + tailLen, limit: rule.limit, hashtags: useTags.join(' '), source: p.source,
       trimmed, status: 'needs review', created_at: new Date().toISOString().slice(0, 16).replace('T', ' ') });
   }
 }
 return rows.map(json => ({ json }));`),
+    code('Book posting slots', `
+// Books every draft into the first free slot for its platform. Candidate times step
+// hour by hour from now + LEAD_HOURS; a slot is free when its local weekday and hour
+// (in TIMEZONE, so daylight saving is handled) are in POST_WINDOWS and it is at least
+// MIN_GAP_HOURS from every slot already booked on that platform, by this run or by
+// earlier runs. Newest post books first.
+const cfg = $('config').first().json;
+const booked = $getWorkflowStaticData('global').slots || {};
+const fmt = new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+const local = t => Object.fromEntries(fmt.formatToParts(new Date(t)).map(p => [p.type, p.value]));
+const DAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+const now = Date.now();
+const taken = {};
+for (const [p, list] of Object.entries(booked)) taken[p] = list.map(x => new Date(x).getTime()).filter(t => t > now);
+const start = Math.ceil((now + cfg.lead_hours * 36e5) / 36e5) * 36e5;
+const order = $input.all().map(i => i.json).sort((a, b) => String(b.post_published || '').localeCompare(String(a.post_published || '')));
+const out = [];
+for (const r of order) {
+  const win = cfg.post_windows[r.platform];
+  const gap = (cfg.min_gap_hours[r.platform] || 0) * 36e5;
+  const list = (taken[r.platform] ||= []);
+  let slot = null;
+  for (let t = start; win && t < start + 21 * 864e5; t += 36e5) {
+    const l = local(t);
+    if (!win.days.includes(DAY[l.weekday]) || !win.hours.includes(Number(l.hour))) continue;
+    if (list.some(b => Math.abs(b - t) < gap)) continue;
+    slot = { t, label: l.year + '-' + l.month + '-' + l.day + ' ' + l.hour + ':00' };
+    break;
+  }
+  if (slot) list.push(slot.t);
+  out.push({ ...r, suggested_slot: slot ? slot.label + ' ' + cfg.timezone : 'no free slot in 21 days', slot_utc: slot ? new Date(slot.t).toISOString() : '' });
+}
+return out.map(json => ({ json }));`),
     ifWhen('Live and sheet set?', [[cfg('live'), 'true'], [cfg('sheet_enabled'), 'true']]),
     stop('STOP: dry run - sheet untouched'),
     sheets.append('Append drafts to the sheet', cfg('drafts_sheet_id'), 'Drafts'),
     code('Remember drafted posts', `
 // Only after a successful append: store the guids so the next run skips them.
-// The list is capped at 500 so static data never grows without limit.
+// The list is capped at 500 so static data never grows without limit. The booked
+// slots are stored too, past ones dropped, so the next run books around them.
 const store = $getWorkflowStaticData('global');
+const slots = store.slots || {};
+for (const r of $('Book posting slots').all()) if (r.json.slot_utc) (slots[r.json.platform] ||= []).push(r.json.slot_utc);
+const nowIso = new Date().toISOString();
+for (const p of Object.keys(slots)) slots[p] = [...new Set(slots[p])].filter(x => x > nowIso).sort();
+store.slots = slots;
 const ids = [...new Set($('Fit drafts to platform limits').all().map(r => r.json.post_id))];
 store.drafted = [...ids, ...(store.drafted || []).filter(x => !ids.includes(x))].slice(0, 500);
 return [{ json: { remembered: ids.length, total_remembered: store.drafted.length, rows_written: $input.all().length } }];`),
@@ -178,7 +223,8 @@ return [{ json: { remembered: ids.length, total_remembered: store.drafted.length
     ['Write drafts with OpenAI', 'Read OpenAI drafts'],
     ['Write drafts from template', 'Combine drafts'], ['Read OpenAI drafts', 0, 'Combine drafts', 1],
     ['Combine drafts', 'Fit drafts to platform limits'],
-    ['Fit drafts to platform limits', 'Live and sheet set?'],
+    ['Fit drafts to platform limits', 'Book posting slots'],
+    ['Book posting slots', 'Live and sheet set?'],
     ['Live and sheet set?', 0, 'Append drafts to the sheet'], ['Live and sheet set?', 1, 'STOP: dry run - sheet untouched'],
     ['Append drafts to the sheet', 'Remember drafted posts'],
   ],
@@ -187,7 +233,8 @@ return [{ json: { remembered: ids.length, total_remembered: store.drafted.length
     { title: 'Read the feed', why: '`Live feed switched on?` reads the real feed only once `USE_LIVE_FEED` is true. `Load sample posts` returns the same fields the RSS node does, so the rest of the run behaves identically offline.', nodes: ['Live feed switched on?', 'Read the blog feed', 'Load sample posts', 'Combine post sources'] },
     { title: 'Pick posts worth drafting', why: '`Pick new posts` drops posts with no link, old posts and guids already drafted, then caps the batch before any model call is made. An empty batch ends at `STOP: no new posts` instead of calling OpenAI with nothing.', nodes: ['Pick new posts', 'Anything new to draft?', 'STOP: no new posts', 'One item per post'] },
     { title: 'Write and fit the drafts', why: 'OpenAI is optional; the template path writes from the title and first two sentences. Both feed `Fit drafts to platform limits`, which enforces the character limit in code because a model does not count reliably.', nodes: ['Template drafts only?', 'Write drafts from template', 'Write drafts with OpenAI', 'Read OpenAI drafts', 'Combine drafts', 'Fit drafts to platform limits'] },
-    { title: 'Save for human review', why: 'Rows are appended only when `DRY_RUN` is false and a sheet id is set. `Remember drafted posts` runs after the append, so a failed write never marks a post as done.', nodes: ['Live and sheet set?', 'STOP: dry run - sheet untouched', 'Append drafts to the sheet', 'Remember drafted posts'] },
+    { title: 'Book a slot per platform', why: '`Book posting slots` walks forward hour by hour in `TIMEZONE` and takes the first posting hour that keeps `MIN_GAP_HOURS` from every booked post, so three new posts become a spread-out queue, not three posts at 09:00.', nodes: ['Book posting slots'] },
+    { title: 'Save for human review', why: 'Rows are appended only when `DRY_RUN` is false and a sheet id is set. `Remember drafted posts` runs after the append and stores the post ids and booked slots, so a failed write books nothing.', nodes: ['Live and sheet set?', 'STOP: dry run - sheet untouched', 'Append drafts to the sheet', 'Remember drafted posts'] },
   ],
   scenarios: [
     {
@@ -207,6 +254,21 @@ return [{ json: { remembered: ids.length, total_remembered: store.drafted.length
         if (!li || li.hashtags !== '#Onboarding #EmailMarketing') f.push(`blocked tag not dropped: ${li?.hashtags}`);
         const x = rows.find((r: any) => r.post_id === 'post-118' && r.platform === 'x');
         if (!x || x.hashtags.split(' ').length !== 2) f.push('X draft should carry 2 hashtags');
+        const booked = out['Book posting slots'];
+        if (booked.some((r: any) => !r.slot_utc)) f.push('every draft should get a slot');
+        for (const p of ['linkedin', 'x', 'threads']) {
+          const gap = ({ linkedin: 24, x: 4, threads: 8 } as any)[p] * 36e5;
+          const ts = booked.filter((r: any) => r.platform === p).map((r: any) => new Date(r.slot_utc).getTime()).sort((a: number, b: number) => a - b);
+          for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] < gap) f.push(p + ' slots closer than MIN_GAP_HOURS');
+        }
+        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', hourCycle: 'h23' });
+        for (const r of booked.filter((r: any) => r.platform === 'linkedin')) {
+          const l = fmt.formatToParts(new Date(r.slot_utc));
+          const wd = l.find(x => x.type === 'weekday')!.value, h = Number(l.find(x => x.type === 'hour')!.value);
+          if (!['Tue', 'Wed', 'Thu'].includes(wd) || ![8, 12].includes(h)) f.push('LinkedIn slot outside its window: ' + r.suggested_slot);
+        }
+        if (booked.some((r: any) => new Date(r.slot_utc).getTime() < Date.now() + 4 * 36e5)) f.push('slot booked inside LEAD_HOURS');
+        if (booked[0]?.post_id !== 'post-118') f.push('newest post should book first');
         return f;
       },
     },
@@ -231,6 +293,7 @@ return [{ json: { remembered: ids.length, total_remembered: store.drafted.length
         if (!li?.trimmed || li.chars > 3000) f.push('long LinkedIn draft was not trimmed to 3000');
         if (!rows.every((r: any) => r.source === 'openai')) f.push('rows should be marked openai');
         if (out['Remember drafted posts'][0]?.remembered !== 1) f.push('post not remembered after append');
+        if (!out['Append drafts to the sheet'].every((r: any) => r.suggested_slot && r.slot_utc)) f.push('rows written without a slot');
         return f;
       },
     },

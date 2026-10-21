@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Turn new blog RSS posts into social post drafts in Google Sheets with OpenAI\n\n**Who's it for**\nContent marketers and founders who publish on a blog and then rewrite every post by hand for LinkedIn, X and Threads. The drafts land in a sheet so a person still approves each one before it goes out.\n\n**How it works**\n1. Every 3 hours it reads your blog RSS feed, or 5 sample posts until the feed is switched on.\n2. Posts already drafted, older than 14 days or missing a link are skipped, and at most 3 new posts are taken per run.\n3. Each post gets one draft per platform from OpenAI, or from a template that uses the title, the first two sentences and the link.\n4. Every draft is trimmed at a word boundary to the platform limit (X counts links as 23 characters), hashtags come from the post categories, and rows are appended to the Drafts tab with status \"needs review\".\n\n**How to set up**\n1. Run it once as imported. It drafts the sample posts and stops at `STOP: dry run - sheet untouched`.\n2. Put your feed address in `FEED_URL` and set `USE_LIVE_FEED = true`.\n3. Connect Google Sheets and set `DRAFTS_SHEET_ID` to a sheet with a Drafts tab. Optionally add an OpenAI credential and set `USE_OPENAI = true`.\n4. Check the drafts in `Fit drafts to platform limits`, then set `DRY_RUN = false` so rows are written and posts are remembered.\n\n**Requirements**\n- A blog with an RSS or Atom feed\n- A Google Sheet with a Drafts tab\n- Optional: an OpenAI API key\n\n**How to customize**\n- `PLATFORMS` holds the character limit and hashtag count for each network. Remove one to stop drafting for it.\n- `MAX_POSTS_PER_RUN` and `MAX_AGE_DAYS` control how much backlog one run picks up.\n- `BLOCKED_HASHTAGS` drops categories such as \"Uncategorized\" that make poor tags.",
-        "height": 1056,
+        "content": "## Turn new blog RSS posts into social post drafts in Google Sheets with OpenAI\n\n**Who's it for**\nContent marketers and founders who publish on a blog and then rewrite every post by hand for LinkedIn, X and Threads. The drafts land in a sheet so a person still approves each one before it goes out.\n\n**How it works**\n1. Every 3 hours it reads your blog RSS feed, or 5 sample posts until the feed is switched on.\n2. Posts already drafted, older than 14 days or missing a link are skipped, and at most 3 new posts are taken per run.\n3. Each post gets one draft per platform from OpenAI, or from a template that uses the title, the first two sentences and the link.\n4. Every draft is trimmed at a word boundary to the platform limit (X counts links as 23 characters), hashtags come from the post categories, and rows are appended to the Drafts tab with status \"needs review\".\n5. Each draft is booked into the next free slot for its platform: a day and hour from `POST_WINDOWS` in your `TIMEZONE`, at least `MIN_GAP_HOURS` from any other booked post on that platform, including drafts booked by earlier runs. LinkedIn gets one post a day, X can take several.\n\n**How to set up**\n1. Run it once as imported. It drafts the sample posts and stops at `STOP: dry run - sheet untouched`.\n2. Put your feed address in `FEED_URL` and set `USE_LIVE_FEED = true`.\n3. Connect Google Sheets and set `DRAFTS_SHEET_ID` to a sheet with a Drafts tab. Optionally add an OpenAI credential and set `USE_OPENAI = true`.\n4. Check the drafts in `Fit drafts to platform limits`, then set `DRY_RUN = false` so rows are written and posts are remembered.\n\n**Requirements**\n- A blog with an RSS or Atom feed\n- A Google Sheet with a Drafts tab\n- Optional: an OpenAI API key\n\n**How to customize**\n- `PLATFORMS` holds the character limit and hashtag count for each network. Remove one to stop drafting for it.\n- `MAX_POSTS_PER_RUN` and `MAX_AGE_DAYS` control how much backlog one run picks up.\n- `BLOCKED_HASHTAGS` drops categories such as \"Uncategorized\" that make poor tags.\n- `POST_WINDOWS`, `MIN_GAP_HOURS` and `TIMEZONE` decide when each platform posts; `LEAD_HOURS` keeps the first slot far enough out for someone to review it.",
+        "height": 1232,
         "width": 520,
         "color": 4
       },
@@ -20,7 +20,7 @@
     {
       "parameters": {
         "content": "## 1. Start and settings\n\nRuns every 3 hours or by hand. Feed address, platform limits and the hashtag block list all sit in `config`, so nothing downstream needs editing.",
-        "height": 656,
+        "height": 768,
         "width": 416,
         "color": 7
       },
@@ -36,7 +36,7 @@
     {
       "parameters": {
         "content": "## 2. Read the feed\n\n`Live feed switched on?` reads the real feed only once `USE_LIVE_FEED` is true. `Load sample posts` returns the same fields the RSS node does, so the rest of the run behaves identically offline.",
-        "height": 656,
+        "height": 768,
         "width": 640,
         "color": 7
       },
@@ -52,7 +52,7 @@
     {
       "parameters": {
         "content": "## 3. Pick posts worth drafting\n\n`Pick new posts` drops posts with no link, old posts and guids already drafted, then caps the batch before any model call is made. An empty batch ends at `STOP: no new posts` instead of calling OpenAI with nothing.",
-        "height": 656,
+        "height": 768,
         "width": 640,
         "color": 7
       },
@@ -68,7 +68,7 @@
     {
       "parameters": {
         "content": "## 4. Write and fit the drafts\n\nOpenAI is optional; the template path writes from the title and first two sentences. Both feed `Fit drafts to platform limits`, which enforces the character limit in code because a model does not count reliably.",
-        "height": 656,
+        "height": 768,
         "width": 1232,
         "color": 7
       },
@@ -83,9 +83,9 @@
     },
     {
       "parameters": {
-        "content": "## 5. Save for human review\n\nRows are appended only when `DRY_RUN` is false and a sheet id is set. `Remember drafted posts` runs after the append, so a failed write never marks a post as done.",
-        "height": 656,
-        "width": 640,
+        "content": "## 5. Book a slot per platform\n\n`Book posting slots` walks forward hour by hour in `TIMEZONE` and takes the first posting hour that keeps `MIN_GAP_HOURS` from every booked post, so three new posts become a spread-out queue, not three posts at 09:00.",
+        "height": 768,
+        "width": 320,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -98,16 +98,32 @@
       "name": "Section 5 note"
     },
     {
+      "parameters": {
+        "content": "## 6. Save for human review\n\nRows are appended only when `DRY_RUN` is false and a sheet id is set. `Remember drafted posts` runs after the append and stores the post ids and booked slots, so a failed write books nothing.",
+        "height": 768,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3488,
+        0
+      ],
+      "id": "13a2a9ed-5717-4c4e-9a00-13a2a9ed1005",
+      "name": "Section 6 note"
+    },
+    {
       "id": "19fd4567-290b-4b37-aa56-ca5683fe19fd",
       "name": "config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// TURN NEW BLOG RSS POSTS INTO SOCIAL POST DRAFTS IN GOOGLE SHEETS WITH OPENAI - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FEED false -> SAMPLE posts. USE_OPENAI false -> drafts come from the built-in template.\n// DRY_RUN true -> drafts are shown, nothing is appended and no post is marked as drafted.\n\n// set true to read FEED_URL instead of the sample posts\nconst USE_LIVE_FEED = false;\n// your blog RSS or Atom feed\nconst FEED_URL = 'https://blog.yourcompany.example/feed';\n// set true after adding an OpenAI credential to the model node\nconst USE_OPENAI = false;\n// Google Sheets id with a Drafts tab; blank means nothing is written\nconst DRAFTS_SHEET_ID = '';\n// one draft per platform: character limit and how many hashtags to add\nconst PLATFORMS = {\n  linkedin: {\n    limit: 3000,\n    hashtags: 3\n  },\n  x: {\n    limit: 280,\n    hashtags: 2\n  },\n  threads: {\n    limit: 500,\n    hashtags: 1\n  }\n};\n// newest posts drafted per run; the rest wait for the next run\nconst MAX_POSTS_PER_RUN = 3;\n// posts older than this are never drafted\nconst MAX_AGE_DAYS = 14;\n// categories that never become hashtags (lowercase)\nconst BLOCKED_HASHTAGS = [\n  \"uncategorized\",\n  \"news\",\n  \"blog\"\n];\n// tone hint given to OpenAI\nconst BRAND_VOICE = 'plain, specific, no hype, first person plural';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_feed: USE_LIVE_FEED,\n    feed_url: FEED_URL,\n    use_openai: USE_OPENAI,\n    drafts_sheet_id: DRAFTS_SHEET_ID,\n    platforms: PLATFORMS,\n    max_posts_per_run: MAX_POSTS_PER_RUN,\n    max_age_days: MAX_AGE_DAYS,\n    blocked_hashtags: BLOCKED_HASHTAGS,\n    brand_voice: BRAND_VOICE,\n    dry_run: DRY_RUN,\n    sheet_enabled: DRAFTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// TURN NEW BLOG RSS POSTS INTO SOCIAL POST DRAFTS IN GOOGLE SHEETS WITH OPENAI - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FEED false -> SAMPLE posts. USE_OPENAI false -> drafts come from the built-in template.\n// DRY_RUN true -> drafts are shown, nothing is appended and no post is marked as drafted.\n\n// set true to read FEED_URL instead of the sample posts\nconst USE_LIVE_FEED = false;\n// your blog RSS or Atom feed\nconst FEED_URL = 'https://blog.yourcompany.example/feed';\n// set true after adding an OpenAI credential to the model node\nconst USE_OPENAI = false;\n// Google Sheets id with a Drafts tab; blank means nothing is written\nconst DRAFTS_SHEET_ID = '';\n// one draft per platform: character limit and how many hashtags to add\nconst PLATFORMS = {\n  linkedin: {\n    limit: 3000,\n    hashtags: 3\n  },\n  x: {\n    limit: 280,\n    hashtags: 2\n  },\n  threads: {\n    limit: 500,\n    hashtags: 1\n  }\n};\n// newest posts drafted per run; the rest wait for the next run\nconst MAX_POSTS_PER_RUN = 3;\n// posts older than this are never drafted\nconst MAX_AGE_DAYS = 14;\n// categories that never become hashtags (lowercase)\nconst BLOCKED_HASHTAGS = [\n  \"uncategorized\",\n  \"news\",\n  \"blog\"\n];\n// IANA time zone the posting hours are in\nconst TIMEZONE = 'Europe/London';\n// per platform: weekdays (1 = Monday) and local hours a post may go out\nconst POST_WINDOWS = {\n  linkedin: {\n    days: [\n      2,\n      3,\n      4\n    ],\n    hours: [\n      8,\n      12\n    ]\n  },\n  x: {\n    days: [\n      1,\n      2,\n      3,\n      4,\n      5\n    ],\n    hours: [\n      9,\n      13,\n      17\n    ]\n  },\n  threads: {\n    days: [\n      1,\n      2,\n      3,\n      4,\n      5,\n      6\n    ],\n    hours: [\n      11,\n      19\n    ]\n  }\n};\n// least time between two booked posts on the same platform\nconst MIN_GAP_HOURS = {\n  linkedin: 24,\n  x: 4,\n  threads: 8\n};\n// no slot is booked sooner than this, so there is time to review\nconst LEAD_HOURS = 4;\n// tone hint given to OpenAI\nconst BRAND_VOICE = 'plain, specific, no hype, first person plural';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_feed: USE_LIVE_FEED,\n    feed_url: FEED_URL,\n    use_openai: USE_OPENAI,\n    drafts_sheet_id: DRAFTS_SHEET_ID,\n    platforms: PLATFORMS,\n    max_posts_per_run: MAX_POSTS_PER_RUN,\n    max_age_days: MAX_AGE_DAYS,\n    blocked_hashtags: BLOCKED_HASHTAGS,\n    timezone: TIMEZONE,\n    post_windows: POST_WINDOWS,\n    min_gap_hours: MIN_GAP_HOURS,\n    lead_hours: LEAD_HOURS,\n    brand_voice: BRAND_VOICE,\n    dry_run: DRY_RUN,\n    sheet_enabled: DRAFTS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
-        176
+        288
       ]
     },
     {
@@ -118,7 +134,7 @@
       "parameters": {},
       "position": [
         48,
-        176
+        288
       ]
     },
     {
@@ -138,7 +154,7 @@
       },
       "position": [
         48,
-        352
+        464
       ]
     },
     {
@@ -172,7 +188,7 @@
       },
       "position": [
         512,
-        176
+        288
       ]
     },
     {
@@ -186,7 +202,7 @@
       },
       "position": [
         736,
-        176
+        288
       ]
     },
     {
@@ -199,7 +215,7 @@
       },
       "position": [
         736,
-        352
+        464
       ]
     },
     {
@@ -212,7 +228,7 @@
       },
       "position": [
         960,
-        176
+        288
       ]
     },
     {
@@ -225,7 +241,7 @@
       },
       "position": [
         1200,
-        176
+        288
       ]
     },
     {
@@ -258,7 +274,7 @@
       },
       "position": [
         1424,
-        176
+        288
       ]
     },
     {
@@ -269,7 +285,7 @@
       "parameters": {},
       "position": [
         1648,
-        352
+        464
       ]
     },
     {
@@ -284,7 +300,7 @@
       },
       "position": [
         1648,
-        176
+        288
       ]
     },
     {
@@ -318,7 +334,7 @@
       },
       "position": [
         1888,
-        176
+        288
       ]
     },
     {
@@ -336,7 +352,7 @@
       },
       "position": [
         2112,
-        352
+        464
       ]
     },
     {
@@ -355,7 +371,7 @@
       },
       "position": [
         2128,
-        512
+        624
       ]
     },
     {
@@ -368,7 +384,7 @@
       },
       "position": [
         2240,
-        512
+        624
       ]
     },
     {
@@ -381,7 +397,7 @@
       },
       "position": [
         2480,
-        352
+        464
       ]
     },
     {
@@ -394,7 +410,7 @@
       },
       "position": [
         2112,
-        176
+        288
       ]
     },
     {
@@ -407,7 +423,7 @@
       },
       "position": [
         2704,
-        176
+        288
       ]
     },
     {
@@ -416,11 +432,24 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// One row per post per platform. Adds the link and hashtags, then trims the body\n// at a word boundary so body + link + tags fits the limit. X counts any URL as 23.\nconst cfg = $('config').first().json;\nconst blocked = new Set(cfg.blocked_hashtags);\nconst tag = c => '#' + c.replace(/&/g, 'and').split(/[^A-Za-z0-9]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('');\nconst rows = [];\nfor (const { json: p } of $input.all()) {\n  const tags = p.categories.filter(c => !blocked.has(c.toLowerCase())).map(tag).filter(t => t.length > 2);\n  for (const [platform, rule] of Object.entries(cfg.platforms)) {\n    const useTags = tags.slice(0, rule.hashtags);\n    const linkLen = platform === 'x' ? 23 : p.link.length;\n    const tail = '\\n\\n' + p.link + (useTags.length ? '\\n' + useTags.join(' ') : '');\n    const tailLen = tail.length - p.link.length + linkLen;\n    let body = String(p.body[platform] || '').trim();\n    let trimmed = false;\n    if (body.length + tailLen > rule.limit) {\n      const room = rule.limit - tailLen - 3;\n      body = body.slice(0, room).replace(/\\s+\\S*$/, '') + '...';\n      trimmed = true;\n    }\n    const draft = body + tail;\n    rows.push({ post_id: p.id, post_title: p.title, post_link: p.link, platform, draft,\n      chars: body.length + tailLen, limit: rule.limit, hashtags: useTags.join(' '), source: p.source,\n      trimmed, status: 'needs review', created_at: new Date().toISOString().slice(0, 16).replace('T', ' ') });\n  }\n}\nreturn rows.map(json => ({ json }));\n"
+        "jsCode": "// One row per post per platform. Adds the link and hashtags, then trims the body\n// at a word boundary so body + link + tags fits the limit. X counts any URL as 23.\nconst cfg = $('config').first().json;\nconst blocked = new Set(cfg.blocked_hashtags);\nconst tag = c => '#' + c.replace(/&/g, 'and').split(/[^A-Za-z0-9]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('');\nconst rows = [];\nfor (const { json: p } of $input.all()) {\n  const tags = p.categories.filter(c => !blocked.has(c.toLowerCase())).map(tag).filter(t => t.length > 2);\n  for (const [platform, rule] of Object.entries(cfg.platforms)) {\n    const useTags = tags.slice(0, rule.hashtags);\n    const linkLen = platform === 'x' ? 23 : p.link.length;\n    const tail = '\\n\\n' + p.link + (useTags.length ? '\\n' + useTags.join(' ') : '');\n    const tailLen = tail.length - p.link.length + linkLen;\n    let body = String(p.body[platform] || '').trim();\n    let trimmed = false;\n    if (body.length + tailLen > rule.limit) {\n      const room = rule.limit - tailLen - 3;\n      body = body.slice(0, room).replace(/\\s+\\S*$/, '') + '...';\n      trimmed = true;\n    }\n    const draft = body + tail;\n    rows.push({ post_id: p.id, post_title: p.title, post_link: p.link, post_published: p.published, platform, draft,\n      chars: body.length + tailLen, limit: rule.limit, hashtags: useTags.join(' '), source: p.source,\n      trimmed, status: 'needs review', created_at: new Date().toISOString().slice(0, 16).replace('T', ' ') });\n  }\n}\nreturn rows.map(json => ({ json }));\n"
       },
       "position": [
         2928,
-        176
+        288
+      ]
+    },
+    {
+      "id": "bd8179b7-515d-4687-a443-3443f34ebd81",
+      "name": "Book posting slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Books every draft into the first free slot for its platform. Candidate times step\n// hour by hour from now + LEAD_HOURS; a slot is free when its local weekday and hour\n// (in TIMEZONE, so daylight saving is handled) are in POST_WINDOWS and it is at least\n// MIN_GAP_HOURS from every slot already booked on that platform, by this run or by\n// earlier runs. Newest post books first.\nconst cfg = $('config').first().json;\nconst booked = $getWorkflowStaticData('global').slots || {};\nconst fmt = new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });\nconst local = t => Object.fromEntries(fmt.formatToParts(new Date(t)).map(p => [p.type, p.value]));\nconst DAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\nconst now = Date.now();\nconst taken = {};\nfor (const [p, list] of Object.entries(booked)) taken[p] = list.map(x => new Date(x).getTime()).filter(t => t > now);\nconst start = Math.ceil((now + cfg.lead_hours * 36e5) / 36e5) * 36e5;\nconst order = $input.all().map(i => i.json).sort((a, b) => String(b.post_published || '').localeCompare(String(a.post_published || '')));\nconst out = [];\nfor (const r of order) {\n  const win = cfg.post_windows[r.platform];\n  const gap = (cfg.min_gap_hours[r.platform] || 0) * 36e5;\n  const list = (taken[r.platform] ||= []);\n  let slot = null;\n  for (let t = start; win && t < start + 21 * 864e5; t += 36e5) {\n    const l = local(t);\n    if (!win.days.includes(DAY[l.weekday]) || !win.hours.includes(Number(l.hour))) continue;\n    if (list.some(b => Math.abs(b - t) < gap)) continue;\n    slot = { t, label: l.year + '-' + l.month + '-' + l.day + ' ' + l.hour + ':00' };\n    break;\n  }\n  if (slot) list.push(slot.t);\n  out.push({ ...r, suggested_slot: slot ? slot.label + ' ' + cfg.timezone : 'no free slot in 21 days', slot_utc: slot ? new Date(slot.t).toISOString() : '' });\n}\nreturn out.map(json => ({ json }));\n"
+      },
+      "position": [
+        3232,
+        288
       ]
     },
     {
@@ -463,8 +492,8 @@
         "options": {}
       },
       "position": [
-        3168,
-        176
+        3536,
+        288
       ]
     },
     {
@@ -474,8 +503,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        3392,
-        352
+        3760,
+        464
       ]
     },
     {
@@ -504,8 +533,8 @@
         "options": {}
       },
       "position": [
-        3392,
-        176
+        3760,
+        288
       ]
     },
     {
@@ -514,11 +543,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Only after a successful append: store the guids so the next run skips them.\n// The list is capped at 500 so static data never grows without limit.\nconst store = $getWorkflowStaticData('global');\nconst ids = [...new Set($('Fit drafts to platform limits').all().map(r => r.json.post_id))];\nstore.drafted = [...ids, ...(store.drafted || []).filter(x => !ids.includes(x))].slice(0, 500);\nreturn [{ json: { remembered: ids.length, total_remembered: store.drafted.length, rows_written: $input.all().length } }];\n"
+        "jsCode": "// Only after a successful append: store the guids so the next run skips them.\n// The list is capped at 500 so static data never grows without limit. The booked\n// slots are stored too, past ones dropped, so the next run books around them.\nconst store = $getWorkflowStaticData('global');\nconst slots = store.slots || {};\nfor (const r of $('Book posting slots').all()) if (r.json.slot_utc) (slots[r.json.platform] ||= []).push(r.json.slot_utc);\nconst nowIso = new Date().toISOString();\nfor (const p of Object.keys(slots)) slots[p] = [...new Set(slots[p])].filter(x => x > nowIso).sort();\nstore.slots = slots;\nconst ids = [...new Set($('Fit drafts to platform limits').all().map(r => r.json.post_id))];\nstore.drafted = [...ids, ...(store.drafted || []).filter(x => !ids.includes(x))].slice(0, 500);\nreturn [{ json: { remembered: ids.length, total_remembered: store.drafted.length, rows_written: $input.all().length } }];\n"
       },
       "position": [
-        3616,
-        176
+        3984,
+        288
       ]
     }
   ],
@@ -732,6 +761,17 @@
       ]
     },
     "Fit drafts to platform limits": {
+      "main": [
+        [
+          {
+            "node": "Book posting slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book posting slots": {
       "main": [
         [
           {

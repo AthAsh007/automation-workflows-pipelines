@@ -16,13 +16,17 @@
 const cfg = $('config').first().json;
 const items = $input.all().map(function (i) { return i.json; });
 
+/* @include _business-days.js */
+const cal = businessCalendar(cfg);
+
 const DAY = 86400000;
 const now = Date.now();
 const windowStart = now - Number(cfg.report_window_days || 7) * DAY;
 const runAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-const clean = items.filter(function (j) { return j._has_gaps === false; })[0];
-const deals = items.filter(function (j) { return j._has_gaps !== false && j.id; });
+// One item per open deal; a pipeline with no open deals arrives as one item with no id.
+const clean = items.filter(function (j) { return !j.id; })[0];
+const deals = items.filter(function (j) { return j.id; });
 const pipeline = (deals[0] && deals[0]._pipeline) || {
   read_at: clean && clean.read_at, source: clean && clean.source,
   phi_violations: (clean && clean.phi_violations) || [],
@@ -71,10 +75,12 @@ const conversations = recent.filter(isConversation);
 const meetings = recent.filter(function (a) {
   return a.done && cfg.meeting_types.indexOf(a.type) !== -1;
 });
+// Overdue by OVERDUE_DAYS business days — the same definition the guard escalates on.
 const overdue = activities.filter(function (a) {
   if (a.done || !a.due_date) return false;
   const due = Date.parse(String(a.due_date).slice(0, 10) + 'T00:00:00Z');
-  return !isNaN(due) && due < now - Number(cfg.overdue_days || 0) * DAY;
+  return !isNaN(due) && due < cal.dayStart(now) &&
+    cal.between(due, now) >= Number(cfg.overdue_days || 0);
 });
 
 // ------------------------------------------------------------------ result-field counts

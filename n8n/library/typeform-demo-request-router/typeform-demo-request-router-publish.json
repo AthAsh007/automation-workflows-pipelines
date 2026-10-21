@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Route Typeform demo requests to Airtable by company size and region\n\n**Who's it for**\nSales and marketing teams that collect demo requests in Typeform and sort them by hand into a shared Airtable base. Each request lands with the right owner within seconds, and the requester hears back straight away.\n\n**How it works**\n1. Typeform posts each submission to the webhook. A manual run uses a sample submission.\n2. Answers are read by field ref, not by position, so reordering the form does not break anything. Company size picks the tier: SMB under 50, Mid-market up to 999, Enterprise from 1,000.\n3. Country picks the region (AMER, EMEA, APAC), and `ROUTING` picks the owner for that tier and region. SMB requests go to self-serve with a booking link.\n4. Requests with no valid email, or from a disposable domain, are rejected. Personal email addresses are flagged. The confirmation goes out through Gmail and the request is added to Airtable.\n\n**How to set up**\n1. Run it once from `Run manually`. It routes a sample request and stops at `STOP: preview - nothing sent`.\n2. In Typeform, set a ref on each question that matches `FIELD_REFS`, then add the production URL of `Typeform demo request` as a webhook.\n3. Add an Airtable token credential to `Add the request to Airtable` and fill `AIRTABLE_BASE_ID`. Connect Gmail.\n4. Put your address in `TEST_EMAIL` to receive confirmations yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Typeform account with webhooks\n- An Airtable base with a Demo requests table\n- A Gmail account\n\n**How to customize**\n- `SIZE_TIERS` and `REGIONS` change the cut-offs and country lists.\n- `ROUTING` maps each tier and region to an owner and meeting link.\n- `FIELD_REFS` matches your own question refs.",
-        "height": 1008,
+        "content": "## Route Typeform demo requests to Airtable by company size and region\n\n**Who's it for**\nSales and marketing teams that collect demo requests in Typeform and sort them by hand into a shared Airtable base. Each request lands with the right owner within seconds, with a deadline that respects their working hours.\n\n**How it works**\n1. Typeform posts each submission to the webhook. A manual run uses a sample submission. Answers are read by field ref, so reordering the form does not break anything.\n2. Airtable is searched for earlier requests from the same email. A retried delivery of the same Typeform event stops here. A repeat within `REPEAT_WINDOW_DAYS` goes back to the owner who already has it, and if the lookup fails the request carries on with a flag.\n3. Company size picks the tier, country picks the region, and `ROUTING` picks the owner. Missing and disposable emails are rejected.\n4. A respond-by time is counted in the region's business hours from `RESPONSE_SLA_HOURS`, so a Friday evening request is due Monday morning, not Saturday.\n5. The requester gets a confirmation, the owner of a sales-led tier gets a heads-up with the deadline, and Airtable gets a new record or an update to the earlier one.\n\n**How to set up**\n1. Run it once from `Run manually`. It routes a sample request against sample Airtable history and stops at `STOP: preview - nothing sent`.\n2. In Typeform, set a ref on each question that matches `FIELD_REFS`, then add the production URL of `Typeform demo request` as a webhook.\n3. Add an Airtable token credential to the three Airtable nodes and fill `AIRTABLE_BASE_ID`. The table needs Email, Owner, Submitted at and Typeform event fields. Connect Gmail.\n4. Put your address in `TEST_EMAIL` to receive both emails yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Typeform account with webhooks\n- An Airtable base with a Demo requests table\n- A Gmail account\n\n**How to customize**\n- `SIZE_TIERS`, `REGIONS` and `ROUTING` change the cut-offs, country lists and owners.\n- `BUSINESS_HOURS`, `WORK_DAYS` and `RESPONSE_SLA_HOURS` set the deadline maths. A tier with no SLA gets no owner alert.\n- `REPEAT_WINDOW_DAYS` sets how long a repeat request stays with the same owner.",
+        "height": 1232,
         "width": 520,
         "color": 4
       },
@@ -19,9 +19,9 @@
     },
     {
       "parameters": {
-        "content": "## 1. Start and settings\n\nTypeform posts to the webhook on each submission; `Run manually` replays a sample. Tiers, regions and the routing table all live in `config`.",
-        "height": 512,
-        "width": 416,
+        "content": "## 1. Start and settings\n\nTypeform posts to the webhook on each submission; `Run manually` replays a sample. Tiers, regions, routing, working hours and SLAs all live in `config`.",
+        "height": 848,
+        "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -35,15 +35,15 @@
     },
     {
       "parameters": {
-        "content": "## 2. Read and route\n\nAnswers are matched by field ref, so the form can be reworded without touching the workflow. `Valid request?` rejects missing and disposable emails before anything is sent.",
-        "height": 512,
-        "width": 864,
+        "content": "## 2. Check for repeats\n\nTypeform retries a delivery it thinks failed, and people submit twice. `Check for repeats` stops a retried event and marks a repeat inside `REPEAT_WINDOW_DAYS`. `Find earlier requests in Airtable` carries on after an error, so a lookup failure becomes a flag, not a lost lead.",
+        "height": 848,
+        "width": 1296,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        464,
+        688,
         0
       ],
       "id": "e5786f07-5717-4c4e-9a00-e5786f071001",
@@ -51,15 +51,15 @@
     },
     {
       "parameters": {
-        "content": "## 3. Confirm to the requester\n\nThe email names the next step for that tier, a group demo for SMB or a named owner for larger teams. A test send goes to `TEST_EMAIL` with the real address in the subject.",
-        "height": 512,
+        "content": "## 3. Route and set a deadline\n\nAnswers decide tier and region; a repeat keeps its earlier owner if that owner still covers the tier. `Work out the respond-by time` counts only working minutes in the region's timezone, so weekends and nights do not eat the SLA.",
+        "height": 848,
         "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1376,
+        2032,
         0
       ],
       "id": "e678709a-5717-4c4e-9a00-e678709a1002",
@@ -67,19 +67,35 @@
     },
     {
       "parameters": {
-        "content": "## 4. Record in Airtable\n\nOnly a live run writes to Airtable, and only when `AIRTABLE_BASE_ID` is set. Typecast lets Airtable create new select options such as a new region.",
-        "height": 512,
+        "content": "## 4. Confirm and alert the owner\n\nThe requester hears the next step for their tier. Sales-led tiers also email the owner with the deadline in their own timezone. A test send goes to `TEST_EMAIL` with the real recipient in the subject.",
+        "height": 848,
+        "width": 1072,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        0
+      ],
+      "id": "e778722d-5717-4c4e-9a00-e778722d1003",
+      "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Add or update in Airtable\n\nOnly a live run writes, and only with `AIRTABLE_BASE_ID` set. A repeat updates the earlier record instead of adding a second row for the same person, so the table stays one row per open request.",
+        "height": 848,
         "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2064,
+        3840,
         0
       ],
-      "id": "e778722d-5717-4c4e-9a00-e778722d1003",
-      "name": "Section 4 note"
+      "id": "e0786728-5717-4c4e-9a00-e07867281004",
+      "name": "Section 5 note"
     },
     {
       "id": "236a82bf-cd79-4d0f-ac67-9c67f206236a",
@@ -87,7 +103,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// ROUTE TYPEFORM DEMO REQUESTS TO AIRTABLE BY COMPANY SIZE AND REGION - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE submission. AIRTABLE_BASE_ID blank -> nothing is written to Airtable.\n// Routing is a table lookup on tier and region; * matches any region.\n\n// our field -> Typeform question ref\nconst FIELD_REFS = {\n  first_name: \"first_name\",\n  last_name: \"last_name\",\n  email: \"work_email\",\n  company: \"company\",\n  size: \"company_size\",\n  country: \"country\",\n  use_case: \"use_case\"\n};\n// checked top to bottom on the lower bound of the size answer\nconst SIZE_TIERS = [\n  {\n    tier: \"Enterprise\",\n    min: 1000\n  },\n  {\n    tier: \"Mid-market\",\n    min: 50\n  },\n  {\n    tier: \"SMB\",\n    min: 0\n  }\n];\n// region -> country names as they appear in the form\nconst REGIONS = {\n  AMER: [\n    \"US\",\n    \"United States\",\n    \"Canada\",\n    \"Mexico\",\n    \"Brazil\",\n    \"Argentina\",\n    \"Chile\",\n    \"Colombia\"\n  ],\n  EMEA: [\n    \"United Kingdom\",\n    \"Ireland\",\n    \"Germany\",\n    \"France\",\n    \"Spain\",\n    \"Italy\",\n    \"Netherlands\",\n    \"Sweden\",\n    \"Norway\",\n    \"Denmark\",\n    \"Poland\",\n    \"Austria\",\n    \"Switzerland\",\n    \"South Africa\",\n    \"United Arab Emirates\",\n    \"Israel\"\n  ],\n  APAC: [\n    \"Australia\",\n    \"New Zealand\",\n    \"Japan\",\n    \"Singapore\",\n    \"India\",\n    \"South Korea\",\n    \"Indonesia\",\n    \"Philippines\"\n  ]\n};\n// 'tier|region' -> owner; 'tier|*' is the fallback for that tier\nconst ROUTING = {\n  \"Enterprise|AMER\": {\n    owner: \"Maya Ortiz\",\n    email: \"maya@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/maya\"\n  },\n  \"Enterprise|EMEA\": {\n    owner: \"Lena Fox\",\n    email: \"lena@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/lena\"\n  },\n  \"Enterprise|*\": {\n    owner: \"Ravi Shah\",\n    email: \"ravi@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/ravi\"\n  },\n  \"Mid-market|*\": {\n    owner: \"Theo Grant\",\n    email: \"theo@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/theo\"\n  },\n  \"SMB|*\": {\n    owner: \"Self-serve team\",\n    email: \"hello@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/group-demo\"\n  }\n};\n// accepted but flagged as personal\nconst FREE_EMAIL_DOMAINS = [\n  \"gmail.com\",\n  \"outlook.com\",\n  \"yahoo.com\",\n  \"hotmail.com\",\n  \"icloud.com\",\n  \"proton.me\"\n];\n// disposable domains; the request is rejected\nconst BLOCKED_DOMAINS = [\n  \"mailinator.com\",\n  \"tempmail.dev\",\n  \"guerrillamail.com\"\n];\n// Airtable base id (starts with app); blank skips the write\nconst AIRTABLE_BASE_ID = '';\n// table that receives each request\nconst AIRTABLE_TABLE = 'Demo requests';\n// sign-off on the confirmation\nconst SENDER_NAME = 'The Fieldnote team';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    field_refs: FIELD_REFS,\n    size_tiers: SIZE_TIERS,\n    regions: REGIONS,\n    routing: ROUTING,\n    free_email_domains: FREE_EMAIL_DOMAINS,\n    blocked_domains: BLOCKED_DOMAINS,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// ROUTE TYPEFORM DEMO REQUESTS TO AIRTABLE BY COMPANY SIZE AND REGION - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses a SAMPLE submission. AIRTABLE_BASE_ID blank -> SAMPLE request history and nothing is written to Airtable.\n// Routing is a table lookup on tier and region; * matches any region. Respond-by times count only business hours.\n\n// our field -> Typeform question ref\nconst FIELD_REFS = {\n  first_name: \"first_name\",\n  last_name: \"last_name\",\n  email: \"work_email\",\n  company: \"company\",\n  size: \"company_size\",\n  country: \"country\",\n  use_case: \"use_case\"\n};\n// checked top to bottom on the lower bound of the size answer\nconst SIZE_TIERS = [\n  {\n    tier: \"Enterprise\",\n    min: 1000\n  },\n  {\n    tier: \"Mid-market\",\n    min: 50\n  },\n  {\n    tier: \"SMB\",\n    min: 0\n  }\n];\n// region -> country names as they appear in the form\nconst REGIONS = {\n  AMER: [\n    \"US\",\n    \"United States\",\n    \"Canada\",\n    \"Mexico\",\n    \"Brazil\",\n    \"Argentina\",\n    \"Chile\",\n    \"Colombia\"\n  ],\n  EMEA: [\n    \"United Kingdom\",\n    \"Ireland\",\n    \"Germany\",\n    \"France\",\n    \"Spain\",\n    \"Italy\",\n    \"Netherlands\",\n    \"Sweden\",\n    \"Norway\",\n    \"Denmark\",\n    \"Poland\",\n    \"Austria\",\n    \"Switzerland\",\n    \"South Africa\",\n    \"United Arab Emirates\",\n    \"Israel\"\n  ],\n  APAC: [\n    \"Australia\",\n    \"New Zealand\",\n    \"Japan\",\n    \"Singapore\",\n    \"India\",\n    \"South Korea\",\n    \"Indonesia\",\n    \"Philippines\"\n  ]\n};\n// 'tier|region' -> owner; 'tier|*' is the fallback for that tier\nconst ROUTING = {\n  \"Enterprise|AMER\": {\n    owner: \"Maya Ortiz\",\n    email: \"maya@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/maya\"\n  },\n  \"Enterprise|EMEA\": {\n    owner: \"Lena Fox\",\n    email: \"lena@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/lena\"\n  },\n  \"Enterprise|*\": {\n    owner: \"Ravi Shah\",\n    email: \"ravi@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/ravi\"\n  },\n  \"Mid-market|*\": {\n    owner: \"Theo Grant\",\n    email: \"theo@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/theo\"\n  },\n  \"SMB|*\": {\n    owner: \"Self-serve team\",\n    email: \"hello@yourcompany.example\",\n    link: \"https://calendly.com/yourcompany/group-demo\"\n  }\n};\n// business hours the owner has to reply, per tier; a tier not listed gets no owner alert\nconst RESPONSE_SLA_HOURS = {\n  Enterprise: 2,\n  \"Mid-market\": 8\n};\n// region -> timezone and working hours used for the respond-by time\nconst BUSINESS_HOURS = {\n  AMER: {\n    tz: \"America/New_York\",\n    start: 9,\n    end: 17\n  },\n  EMEA: {\n    tz: \"Europe/Berlin\",\n    start: 9,\n    end: 17\n  },\n  APAC: {\n    tz: \"Asia/Singapore\",\n    start: 9,\n    end: 17\n  },\n  Other: {\n    tz: \"UTC\",\n    start: 9,\n    end: 17\n  }\n};\n// working weekdays, 1 = Monday ... 7 = Sunday\nconst WORK_DAYS = [\n  1,\n  2,\n  3,\n  4,\n  5\n];\n// a new request from an email seen in Airtable within this many days stays with the same owner and updates that record\nconst REPEAT_WINDOW_DAYS = 30;\n// accepted but flagged as personal\nconst FREE_EMAIL_DOMAINS = [\n  \"gmail.com\",\n  \"outlook.com\",\n  \"yahoo.com\",\n  \"hotmail.com\",\n  \"icloud.com\",\n  \"proton.me\"\n];\n// disposable domains; the request is rejected\nconst BLOCKED_DOMAINS = [\n  \"mailinator.com\",\n  \"tempmail.dev\",\n  \"guerrillamail.com\"\n];\n// Airtable base id (starts with app); blank uses sample history and skips the write\nconst AIRTABLE_BASE_ID = '';\n// table that receives each request\nconst AIRTABLE_TABLE = 'Demo requests';\n// sign-off on the confirmation\nconst SENDER_NAME = 'The Fieldnote team';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    field_refs: FIELD_REFS,\n    size_tiers: SIZE_TIERS,\n    regions: REGIONS,\n    routing: ROUTING,\n    response_sla_hours: RESPONSE_SLA_HOURS,\n    business_hours: BUSINESS_HOURS,\n    work_days: WORK_DAYS,\n    repeat_window_days: REPEAT_WINDOW_DAYS,\n    free_email_domains: FREE_EMAIL_DOMAINS,\n    blocked_domains: BLOCKED_DOMAINS,\n    airtable_base_id: AIRTABLE_BASE_ID,\n    airtable_table: AIRTABLE_TABLE,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    airtable_enabled: AIRTABLE_BASE_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
@@ -127,11 +143,164 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Typeform answers are typed (text, email, choice, number...). Each is read by its\n// field ref through FIELD_REFS, so question order and wording can change freely.\nconst cfg = $('config').first().json;\nlet body = null;\ntry { body = $('Typeform demo request').first().json.body; } catch (e) { body = null; }\nif (!body) body = { event_id: 'sample', form_response: { submitted_at: new Date().toISOString(), hidden: { utm_source: 'newsletter' }, answers: [\n  { type: 'text', text: 'Dana', field: { ref: 'first_name' } }, { type: 'text', text: 'Cole', field: { ref: 'last_name' } },\n  { type: 'email', email: 'dana@pinecrest-health.example', field: { ref: 'work_email' } }, { type: 'text', text: 'Pinecrest Health', field: { ref: 'company' } },\n  { type: 'choice', choice: { label: '201-1000' }, field: { ref: 'company_size' } }, { type: 'choice', choice: { label: 'Canada' }, field: { ref: 'country' } },\n  { type: 'long_text', text: 'Scheduling for 14 clinics, currently on paper', field: { ref: 'use_case' } },\n] } };\nconst fr = body.form_response || {};\nconst byRef = {};\nfor (const a of fr.answers || []) {\n  const v = a.type === 'choice' ? a.choice?.label ?? a.choice?.other : a.type === 'choices' ? (a.choices?.labels || []).join(', ') : a[a.type] ?? a.text;\n  byRef[a.field?.ref] = v;\n}\nconst get = k => String(byRef[cfg.field_refs[k]] ?? '').trim();\nreturn [{ json: { event_id: body.event_id || '', submitted_at: fr.submitted_at, first_name: get('first_name'), last_name: get('last_name'), email: get('email').toLowerCase(),\n  company: get('company'), size_answer: get('size'), country: get('country'), use_case: get('use_case'), utm_source: fr.hidden?.utm_source || '' } }];\n"
+        "jsCode": "// Typeform answers are typed (text, email, choice, number...). Each is read by its\n// field ref through FIELD_REFS, so question order and wording can change freely.\nconst cfg = $('config').first().json;\nlet body = null;\ntry { body = $('Typeform demo request').first().json.body; } catch (e) { body = null; }\nif (!body) body = { event_id: 'sample', form_response: { submitted_at: new Date().toISOString(), hidden: { utm_source: 'newsletter' }, answers: [\n  { type: 'text', text: 'Dana', field: { ref: 'first_name' } }, { type: 'text', text: 'Cole', field: { ref: 'last_name' } },\n  { type: 'email', email: 'dana@pinecrest-health.example', field: { ref: 'work_email' } }, { type: 'text', text: 'Pinecrest Health', field: { ref: 'company' } },\n  { type: 'choice', choice: { label: '201-1000' }, field: { ref: 'company_size' } }, { type: 'choice', choice: { label: 'Canada' }, field: { ref: 'country' } },\n  { type: 'long_text', text: 'Scheduling for 14 clinics, currently on paper', field: { ref: 'use_case' } },\n] } };\nconst fr = body.form_response || {};\nconst byRef = {};\nfor (const a of fr.answers || []) {\n  const v = a.type === 'choice' ? a.choice?.label ?? a.choice?.other : a.type === 'choices' ? (a.choices?.labels || []).join(', ') : a[a.type] ?? a.text;\n  byRef[a.field?.ref] = v;\n}\nconst get = k => String(byRef[cfg.field_refs[k]] ?? '').trim();\nreturn [{ json: { event_id: body.event_id || '', submitted_at: fr.submitted_at || new Date().toISOString(), first_name: get('first_name'), last_name: get('last_name'), email: get('email').toLowerCase(),\n  company: get('company'), size_answer: get('size'), country: get('country'), use_case: get('use_case'), utm_source: fr.hidden?.utm_source || '' } }];\n"
       },
       "position": [
-        512,
+        496,
         176
+      ]
+    },
+    {
+      "id": "0912b2cb-d00c-415b-aa5c-5a5ca5320912",
+      "name": "Airtable connected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4bc42a59-21c4-4889-a384-e384f8d44bc4",
+              "leftValue": "={{ $('config').first().json.airtable_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        736,
+        176
+      ]
+    },
+    {
+      "id": "0c316f8d-c932-457d-a3ff-73ff9f280c31",
+      "name": "Find earlier requests in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"LOWER(Email) = '\" + $json.email.replace(/'/g, '') + \"'\" }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "20"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "position": [
+        960,
+        176
+      ]
+    },
+    {
+      "id": "bf1771b9-d0b5-41e9-a895-b895d974bf17",
+      "name": "Load sample earlier requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until AIRTABLE_BASE_ID is set: one earlier request from someone else, in Airtable's shape.\nconst at = new Date(Date.now() - 12 * 864e5).toISOString();\nreturn [{ json: { records: [\n  { id: 'recSample1', createdTime: at, fields: { Email: 'olu@harbourline.example', Owner: 'Theo Grant', 'Typeform event': '01JWSAMPLE', 'Submitted at': at } },\n] } }];\n"
+      },
+      "position": [
+        960,
+        352
+      ]
+    },
+    {
+      "id": "70d65853-87c7-4c63-ae5f-fe5f658a70d6",
+      "name": "Combine request history",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        1184,
+        176
+      ]
+    },
+    {
+      "id": "aaf39e4c-4296-4e8c-a45f-145fad9faaf3",
+      "name": "Check for repeats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Same Typeform event already recorded -> a retried delivery, stop. Same email inside\n// REPEAT_WINDOW_DAYS -> a repeat: keep the earlier owner and update that record.\n// A failed lookup arrives as an error item; it becomes a flag so the lead is still routed.\nconst cfg = $('config').first().json;\nconst r = $('Read answers by field ref').first().json;\nconst j = $input.first()?.json || {};\nconst h = j.error ? { records: [], lookup_failed: String(j.error.message || j.error).slice(0, 120) } : { lookup_failed: '',\n  records: (j.records || []).map(x => ({ id: x.id, email: String(x.fields?.Email || '').toLowerCase(), owner: x.fields?.Owner || '',\n    event: x.fields?.['Typeform event'] || '', submitted_at: x.fields?.['Submitted at'] || x.createdTime || '' })) };\nconst mine = h.records.filter(x => x.email === r.email).sort((a, b) => String(b.submitted_at).localeCompare(String(a.submitted_at)));\nconst duplicate = Boolean(r.event_id) && r.event_id !== 'sample' && mine.some(x => x.event === r.event_id);\nconst recent = mine.find(x => x.submitted_at && (Date.now() - new Date(x.submitted_at).getTime()) / 864e5 <= cfg.repeat_window_days);\nreturn [{ json: { ...r, duplicate, repeat_of: recent && !duplicate ? recent.id : '', previous_owner: recent ? recent.owner : '',\n  previous_at: recent ? recent.submitted_at : '', lookup_failed: h.lookup_failed } }];\n"
+      },
+      "position": [
+        1392,
+        176
+      ]
+    },
+    {
+      "id": "880788b0-9aa0-41b0-a303-d303b4f38807",
+      "name": "New submission?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "014cbce8-f130-4468-a290-929083db014c",
+              "leftValue": "={{ !$json.duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1616,
+        176
+      ]
+    },
+    {
+      "id": "b06b30d5-97f4-4045-a73a-f73a2cc0b06b",
+      "name": "STOP: duplicate delivery - already recorded",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1840,
+        352
       ]
     },
     {
@@ -140,10 +309,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Size answers look like \"51-200\", \"1000+\" or a bare number; the lower bound decides\n// the tier. Region comes from the country list, owner from ROUTING with a * fallback.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst low = (() => { const m = r.size_answer.replace(/,/g, '').match(/\\d+/); return m ? Number(m[0]) : null; })();\nconst tier = low === null ? 'SMB' : cfg.size_tiers.find(t => low >= t.min).tier;\nconst region = Object.keys(cfg.regions).find(k => cfg.regions[k].some(c => c.toLowerCase() === r.country.toLowerCase())) || 'Other';\nconst route = cfg.routing[tier + '|' + region] || cfg.routing[tier + '|*'];\nconst domain = r.email.split('@')[1] || '';\nconst flags = [];\nif (low === null) flags.push('no company size, treated as SMB');\nif (region === 'Other') flags.push('country not in REGIONS');\nif (cfg.free_email_domains.includes(domain)) flags.push('personal email address');\nconst reject = !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(r.email) ? 'no valid email' : cfg.blocked_domains.includes(domain) ? 'disposable email domain' : '';\nreturn [{ json: { ...r, tier, region, owner: route.owner, owner_email: route.email, meeting_link: route.link, flags, reject } }];\n"
+        "jsCode": "// Size answers look like \"51-200\", \"1000+\" or a bare number; the lower bound decides\n// the tier. Region comes from the country list, owner from ROUTING with a * fallback.\n// A repeat stays with its earlier owner while that owner still covers the tier.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst low = (() => { const m = r.size_answer.replace(/,/g, '').match(/\\d+/); return m ? Number(m[0]) : null; })();\nconst tier = low === null ? 'SMB' : cfg.size_tiers.find(t => low >= t.min).tier;\nconst region = Object.keys(cfg.regions).find(k => cfg.regions[k].some(c => c.toLowerCase() === r.country.toLowerCase())) || 'Other';\nlet route = cfg.routing[tier + '|' + region] || cfg.routing[tier + '|*'];\nconst domain = r.email.split('@')[1] || '';\nconst flags = [];\nif (r.repeat_of) {\n  const kept = Object.entries(cfg.routing).find(([k, x]) => k.startsWith(tier + '|') && x.owner === r.previous_owner);\n  if (kept && kept[1].owner !== route.owner) { route = kept[1]; flags.push('repeat request, kept with ' + route.owner); }\n  else flags.push('repeat request');\n}\nif (r.lookup_failed) flags.push('Airtable lookup failed, repeat check skipped');\nif (low === null) flags.push('no company size, treated as SMB');\nif (region === 'Other') flags.push('country not in REGIONS');\nif (cfg.free_email_domains.includes(domain)) flags.push('personal email address');\nconst reject = !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(r.email) ? 'no valid email' : cfg.blocked_domains.includes(domain) ? 'disposable email domain' : '';\nreturn [{ json: { ...r, tier, region, owner: route.owner, owner_email: route.email, meeting_link: route.link, flags, reject } }];\n"
       },
       "position": [
-        736,
+        2080,
         176
       ]
     },
@@ -177,7 +346,7 @@
         "options": {}
       },
       "position": [
-        960,
+        2304,
         176
       ]
     },
@@ -188,8 +357,21 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        1184,
+        2528,
         352
+      ]
+    },
+    {
+      "id": "5a2859e9-8774-4b19-a791-879172a45a28",
+      "name": "Work out the respond-by time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Walks forward from the submission in 15-minute steps, counting only steps inside the\n// region's working hours and WORK_DAYS, until RESPONSE_SLA_HOURS are used up.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst hours = Number(cfg.response_sla_hours[r.tier] || 0);\nconst bh = cfg.business_hours[r.region] || cfg.business_hours.Other;\nconst fmt = new Intl.DateTimeFormat('en-US', { timeZone: bh.tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });\nconst isOpen = t => {\n  const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map(x => [x.type, x.value]));\n  const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(p.weekday) + 1;\n  const mins = (Number(p.hour) % 24) * 60 + Number(p.minute);\n  return cfg.work_days.includes(dow) && mins >= bh.start * 60 && mins < bh.end * 60;\n};\nconst STEP = 15 * 60e3;\nconst submitted = new Date(r.submitted_at).getTime();\nlet t = Math.ceil(submitted / STEP) * STEP, left = hours * 4, guard = 0;\nwhile (left > 0 && guard++ < 4 * 24 * 21) { if (isOpen(t)) left--; t += STEP; }\nconst respond_by = hours > 0 ? new Date(t).toISOString() : '';\nconst local = respond_by ? new Date(t).toLocaleString('en-US', { timeZone: bh.tz, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) + ' ' + bh.tz : '';\nreturn [{ json: { ...r, sla_hours: hours, respond_by, respond_by_local: local, arrived_out_of_hours: !isOpen(submitted) } }];\n"
+      },
+      "position": [
+        2528,
+        176
       ]
     },
     {
@@ -198,10 +380,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// SMB gets a group demo link straight away; larger tiers are told who will reach out.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst next = r.tier === 'SMB'\n  ? 'The quickest way to see it is our live group demo. Pick a slot that suits you: ' + r.meeting_link\n  : r.owner + ' looks after ' + r.tier.toLowerCase() + ' teams in ' + r.region + ' and will be in touch within one business day. If you would rather pick a time now: ' + r.meeting_link;\nconst body = ['Hi ' + (r.first_name || 'there') + ',', '', 'Thanks for asking for a demo' + (r.company ? ' for ' + r.company : '') + '.', '', next, '', cfg.sender_name].join('\\n');\nreturn [{ json: { ...r, subject: 'Your demo request' + (r.company ? ' for ' + r.company : ''), body, send_to: cfg.mode === 'test' ? cfg.test_email : r.email } }];\n"
+        "jsCode": "// SMB gets a group demo link straight away; larger tiers are told who will reach out.\n// The owner heads-up carries the deadline in the owner's own timezone.\nconst cfg = $('config').first().json;\nconst r = $input.first().json;\nconst next = r.tier === 'SMB'\n  ? 'The quickest way to see it is our live group demo. Pick a slot that suits you: ' + r.meeting_link\n  : r.owner + ' looks after ' + r.tier.toLowerCase() + ' teams in ' + r.region + ' and will be in touch within one business day. If you would rather pick a time now: ' + r.meeting_link;\nconst body = ['Hi ' + (r.first_name || 'there') + ',', '', 'Thanks for asking for a demo' + (r.company ? ' for ' + r.company : '') + '.', '', next, '', cfg.sender_name].join('\\n');\nconst owner_body = [\n  r.tier + ' demo request routed to you' + (r.repeat_of ? ' (repeat, earlier request ' + String(r.previous_at).slice(0, 10) + ')' : '') + '.', '',\n  'Reply by: ' + (r.respond_by_local || 'no SLA for this tier') + (r.arrived_out_of_hours ? ' (arrived outside working hours)' : ''), '',\n  'Name: ' + (r.first_name + ' ' + r.last_name).trim(), 'Email: ' + r.email, 'Company: ' + (r.company || '-') + ' (' + (r.size_answer || 'size not given') + ')',\n  'Country: ' + r.country + ' / ' + r.region, 'Use case: ' + (r.use_case || '-'), 'Source: ' + (r.utm_source || '-'),\n  ...(r.flags.length ? ['', 'Flags: ' + r.flags.join('; ')] : []),\n].join('\\n');\nconst test = cfg.mode === 'test';\nreturn [{ json: { ...r, subject: 'Your demo request' + (r.company ? ' for ' + r.company : ''), body, send_to: test ? cfg.test_email : r.email,\n  owner_subject: (test ? '[TEST to ' + r.owner_email + '] ' : '') + r.tier + ' demo: ' + (r.company || r.email) + (r.respond_by_local ? ', reply by ' + r.respond_by_local : ''),\n  owner_body, owner_send_to: test ? cfg.test_email : r.owner_email } }];\n"
       },
       "position": [
-        1424,
+        2768,
         176
       ]
     },
@@ -235,7 +417,7 @@
         "options": {}
       },
       "position": [
-        1648,
+        2992,
         176
       ]
     },
@@ -246,7 +428,7 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        1872,
+        3200,
         352
       ]
     },
@@ -268,8 +450,75 @@
         }
       },
       "position": [
-        1872,
+        3200,
         176
+      ]
+    },
+    {
+      "id": "e66193ff-9633-4a4f-ac77-ac77b8c6e661",
+      "name": "Owner reply due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4ab55cd5-c808-4c45-a480-e48070c04ab5",
+              "leftValue": "={{ $('Write the confirmation email').first().json.sla_hours > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3424,
+        352
+      ]
+    },
+    {
+      "id": "5b51cc17-d7f5-4ae7-a2ae-32ae4aee5b51",
+      "name": "Email the owner a heads-up",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "parameters": {
+        "sendTo": "={{ $('Write the confirmation email').first().json.owner_send_to }}",
+        "subject": "={{ $('Write the confirmation email').first().json.owner_subject }}",
+        "emailType": "text",
+        "message": "={{ $('Write the confirmation email').first().json.owner_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "position": [
+        3648,
+        512
+      ]
+    },
+    {
+      "id": "7517a1b4-f670-4174-ad1d-6d1ddd177517",
+      "name": "STOP: self-serve tier - no owner alert",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3648,
+        688
       ]
     },
     {
@@ -302,7 +551,7 @@
         "options": {}
       },
       "position": [
-        2112,
+        3424,
         176
       ]
     },
@@ -313,7 +562,7 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2336,
+        3648,
         352
       ]
     },
@@ -347,7 +596,7 @@
         "options": {}
       },
       "position": [
-        2336,
+        3888,
         176
       ]
     },
@@ -358,8 +607,67 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2560,
+        4112,
         352
+      ]
+    },
+    {
+      "id": "eb9263d4-5bf2-4994-add6-8dd6d1f7eb92",
+      "name": "Repeat of an earlier request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "10e99e94-8746-4854-a294-02942f3710e9",
+              "leftValue": "={{ $('Write the confirmation email').first().json.repeat_of !== '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        4112,
+        176
+      ]
+    },
+    {
+      "id": "c406c8b3-5602-4ec3-adad-1dad932ac406",
+      "name": "Update the earlier request in Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('config').first().json.airtable_base_id + '/' + encodeURIComponent($('config').first().json.airtable_table) + '/' + $('Write the confirmation email').first().json.repeat_of }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: (r => ({ Owner: r.owner, 'Use case': r.use_case, Flags: r.flags.join('; '), 'Respond by': r.respond_by || null, 'Last requested at': r.submitted_at, 'Typeform event': r.event_id }))($('Write the confirmation email').first().json) }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        4336,
+        176
       ]
     },
     {
@@ -374,7 +682,7 @@
         "nodeCredentialType": "airtableTokenApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ typecast: true, records: [{ fields: (r => ({ Name: (r.first_name + ' ' + r.last_name).trim(), Email: r.email, Company: r.company, 'Company size': r.size_answer, Tier: r.tier, Country: r.country, Region: r.region, Owner: r.owner, 'Use case': r.use_case, Source: r.utm_source, Flags: r.flags.join('; '), 'Submitted at': r.submitted_at, 'Typeform event': r.event_id }))($('Write the confirmation email').first().json) }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, records: [{ fields: (r => ({ Name: (r.first_name + ' ' + r.last_name).trim(), Email: r.email, Company: r.company, 'Company size': r.size_answer, Tier: r.tier, Country: r.country, Region: r.region, Owner: r.owner, 'Use case': r.use_case, Source: r.utm_source, Flags: r.flags.join('; '), 'Respond by': r.respond_by || null, 'Submitted at': r.submitted_at, 'Typeform event': r.event_id }))($('Write the confirmation email').first().json) }] }) }}",
         "options": {
           "timeout": 20000
         }
@@ -383,8 +691,8 @@
       "maxTries": 3,
       "waitBetweenTries": 2000,
       "position": [
-        2560,
-        176
+        4336,
+        352
       ]
     }
   ],
@@ -426,7 +734,87 @@
       "main": [
         [
           {
+            "node": "Airtable connected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable connected?": {
+      "main": [
+        [
+          {
+            "node": "Find earlier requests in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample earlier requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find earlier requests in Airtable": {
+      "main": [
+        [
+          {
+            "node": "Combine request history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample earlier requests": {
+      "main": [
+        [
+          {
+            "node": "Combine request history",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine request history": {
+      "main": [
+        [
+          {
+            "node": "Check for repeats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for repeats": {
+      "main": [
+        [
+          {
+            "node": "New submission?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New submission?": {
+      "main": [
+        [
+          {
             "node": "Route by size and region",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: duplicate delivery - already recorded",
             "type": "main",
             "index": 0
           }
@@ -448,7 +836,7 @@
       "main": [
         [
           {
-            "node": "Write the confirmation email",
+            "node": "Work out the respond-by time",
             "type": "main",
             "index": 0
           }
@@ -456,6 +844,17 @@
         [
           {
             "node": "STOP: rejected request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out the respond-by time": {
+      "main": [
+        [
+          {
+            "node": "Write the confirmation email",
             "type": "main",
             "index": 0
           }
@@ -495,7 +894,30 @@
       "main": [
         [
           {
+            "node": "Owner reply due?",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner reply due?": {
+      "main": [
+        [
+          {
+            "node": "Email the owner a heads-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: self-serve tier - no owner alert",
             "type": "main",
             "index": 0
           }
@@ -524,7 +946,7 @@
       "main": [
         [
           {
-            "node": "Add the request to Airtable",
+            "node": "Repeat of an earlier request?",
             "type": "main",
             "index": 0
           }
@@ -532,6 +954,24 @@
         [
           {
             "node": "STOP: no Airtable base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Repeat of an earlier request?": {
+      "main": [
+        [
+          {
+            "node": "Update the earlier request in Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add the request to Airtable",
             "type": "main",
             "index": 0
           }

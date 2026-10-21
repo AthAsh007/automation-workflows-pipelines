@@ -5,7 +5,7 @@
 // up, which is a setup task, not a recruitment result — and it stops the number being read
 // as a zero in a meeting.
 const cfg = $('config').first().json;
-const k = $('compute the KPIs').first().json;
+const k = $('compare with last week').first().json;
 const stored = $json.written !== false;
 
 function n(v, suffix) {
@@ -33,6 +33,29 @@ lines.push('• ' + n(k.referrals_sent) + ' referrals → ' + n(k.prescreen_qual
 lines.push('• ' + n(k.screened) + ' screened → ' + n(k.randomized) + ' randomised');
 lines.push('• referral → screen ' + n(k.referral_to_screen, '%') +
   ' · screen → randomised ' + n(k.screen_to_random, '%'));
+
+// Week over week. Only numbers both weeks actually have; "not captured" is never a delta.
+lines.push('');
+lines.push('*Against last week* — ' + k.baseline_source);
+const moved = (k.deltas || []).filter(function (d) { return d.delta !== null; });
+if (moved.length) {
+  moved.forEach(function (d) {
+    const sign = d.delta > 0 ? '+' : '';
+    const mark = d.direction === 'worse' ? ' :small_red_triangle_down:'
+      : d.direction === 'better' ? ' :white_check_mark:' : '';
+    lines.push('• ' + d.label + ': ' + d.was + ' -> ' + d.now + ' (' + sign + d.delta + ')' + mark);
+  });
+} else {
+  lines.push('• no comparable numbers yet — the trend starts with the next weekly run');
+}
+
+if ((k.coaching || []).length) {
+  lines.push('');
+  lines.push('*Worth a conversation*');
+  k.coaching.forEach(function (c) {
+    lines.push('• ' + c.rep + ' — ' + c.flag + ': ' + c.detail);
+  });
+}
 
 if ((k.results_not_captured || []).length) {
   lines.push('');

@@ -13,7 +13,7 @@ if (cfg.pipedrive_enabled) {
   throw new Error('demo pipeline reached with Pipedrive configured — check the IF gate');
 }
 if (!cfg.demo_data) {
-  return [{ json: { source: 'none', read_at: new Date().toISOString(), failures: [],
+  return [{ json: { source: 'none', read_at: new Date().toISOString(), read_ok: true, failures: [],
     deals: [], activities: [], deal_fields: [],
     _note: 'No API token and DEMO_PIPELINE is off. Nothing to work on.' } }];
 }
@@ -46,6 +46,7 @@ function pick(list) { return list[Math.floor(rnd() * list.length)]; }
 
 const deals = [];
 const activities = [];
+const managerTierIds = [];
 let dealId = 3000;
 let actId = 9000;
 
@@ -92,10 +93,14 @@ cfg.stages.forEach(function (stage, si) {
       // No open activity at all — this is what the guard exists to catch.
     } else if (roll < 0.5) {
       // Open but overdue. The guard escalates rather than stacking another task on top.
+      // Odd deal ids are a few days late (owner tier); even ones are two weeks late
+      // (manager tier), so both escalation tiers have something to do.
+      const lateDays = id % 2 === 0 ? cfg.manager_after_days * 2 : cfg.overdue_days + 2;
+      if (id % 2 === 0) managerTierIds.push(id);
       activities.push({
         id: ++actId, deal_id: id, type: stage.next_type || 'follow_up_call',
         subject: stage.subject || 'Next step', note: '',
-        done: false, due_date: date(now - (cfg.overdue_days + 2) * DAY), due_time: '09:00',
+        done: false, due_date: date(now - lateDays * DAY), due_time: '09:00',
         marked_done_time: null, add_time: iso(now - 10 * DAY), owner_id: rep.id
       });
     } else if (roll < 0.6) {
@@ -181,11 +186,42 @@ deals.forEach(function (d, i) {
   }
 });
 
+// The guard's memory, seeded so the demo shows de-duplication on its very first run:
+// one manager-tier deal was escalated yesterday (not repeated today), one was escalated
+// nine days ago and is still open (a reminder), and one has since been resolved.
+const byId = {};
+deals.forEach(function (d) { byId[d.id] = d; });
+const demoMemory = { escalated: {}, runs: [
+  { date: date(now - 8 * DAY), coverage_pct: 41, uncovered: 14, overdue: 6 },
+  { date: date(now - 1 * DAY), coverage_pct: 48, uncovered: 13, overdue: 5 }
+] };
+if (managerTierIds[0]) {
+  demoMemory.escalated[managerTierIds[0]] = { first: date(now - DAY), last: date(now - DAY),
+    organisation: byId[managerTierIds[0]].organisation };
+}
+if (managerTierIds[1]) {
+  demoMemory.escalated[managerTierIds[1]] = { first: date(now - 9 * DAY),
+    last: date(now - 9 * DAY), organisation: byId[managerTierIds[1]].organisation };
+}
+demoMemory.escalated['999'] = { first: date(now - 6 * DAY), last: date(now - 6 * DAY),
+  organisation: 'Old Mill Pain Clinic' };
+
+// Last week's Dashboard row, as workflow 02 would read it back from the sheet, so the
+// week-over-week comparison has something to compare with before a sheet exists.
+const demoBaseline = {
+  run_at: iso(now - 7 * DAY), open_deals: deals.length - 2, covered: 10, gaps: 11,
+  coverage_pct: 48, overdue: 7, outreach_attempts: 9, conversations: 3, meetings: 1,
+  new_partners: 0, active_partners: null, stalled: 9, high_priority: 3
+};
+
 return [{
   json: {
     source: 'demo',
     read_at: new Date().toISOString(),
+    read_ok: true,
     failures: [],
+    _demo_memory: demoMemory,
+    _demo_baseline: demoBaseline,
     deals: deals,
     activities: activities,
     // Field names only, which is all the PHI check needs. Deliberately clean — see the

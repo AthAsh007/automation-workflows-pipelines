@@ -1,28 +1,23 @@
-# Create next activities for uncovered open deals in Pipedrive
+# Schedule missing next activities for open Pipedrive deals with Slack escalation
 
-**Who's it for**
-Sales and partnership teams running a referral or business-development pipeline in Pipedrive who
-need one rule enforced without exception: **no open deal should exist without a next activity.**
+For sales and partnership teams who want one rule enforced in Pipedrive: no open deal without a next activity.
 
 **How it works**
-Pipedrive's own automations fire on an event — a stage change, a deal created. They cannot answer
-*"which deals have nothing scheduled right now"*, because that is a question about absence, and
-nothing happens when nothing happens. This runs every weekday morning, asks that question of every
-open deal, and schedules the activity the deal's stage calls for. A deal counts as covered only when
-it has an activity that is not done **and** due inside the horizon, so a task parked eleven months
-out reads as uncovered rather than as compliance. Deals whose next activity is already overdue are
-escalated to a manager instead of having a second task piled on top. A daily cap keeps a bad morning
-from flooding a rep's task list.
+1. Every weekday it reads all open deals and activities, page by page. A failed or cut-short read raises an alert and fails the run instead of passing as a clean day.
+2. Fields named like patient or medical data are blocked before anything is read.
+3. A deal counts as covered only by an open activity due within `HORIZON_DAYS`.
+4. Uncovered deals get the activity their stage calls for, due in business days and moved to a lighter day when the rep is already full.
+5. Overdue deals never get a second task: 3 business days late goes to the rep, 7 to the manager, who hears about each deal once plus a reminder if it stays open.
+6. A team summary with the coverage trend, a manager escalation and one Slack DM per rep are sent.
 
-**How to set up**
-1. Open **`config`** and set `COMPANY_DOMAIN`, `HORIZON_DAYS`, `DAILY_CAP` and the stage-to-activity map.
-2. Add your Pipedrive `API_TOKEN` when you are ready to read a real account.
-3. Leave `TEST_RUN = true` and `TEST_OWNER_ID` blank for the first run — it writes nothing.
+**Setup**
+1. Run it as imported: a demo pipeline runs end to end and nothing is written.
+2. In `config` set `COMPANY_DOMAIN`, `API_TOKEN` and the stage map.
+3. Add Slack webhook URLs; for rep DMs add a Slack credential, `SLACK_DMS` and `OWNER_SLACK_IDS`.
+4. Set `TEST_OWNER_ID` to test on one user, then `TEST_RUN = false` to go live.
 
 **Requirements**
-A Pipedrive account with API access. The alert and escalation webhooks (Slack or Discord) are
-optional; blank means that branch is skipped, not that the run fails.
+A Pipedrive API token. Slack is optional; a blank setting skips that branch.
 
 **How to customize**
-The stage-to-activity map and the horizon live in `config`. To change what gets scheduled, edit
-**`decide the next activity`** — everything downstream is unchanged.
+Stage rules, escalation tiers, `HOLIDAYS`, `MAX_PER_OWNER_PER_DAY` and `DAILY_CAP` are all in `config`.

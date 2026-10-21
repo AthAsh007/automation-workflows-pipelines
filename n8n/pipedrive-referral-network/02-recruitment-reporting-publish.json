@@ -1,95 +1,143 @@
 {
-  "name": "Report a referral pipeline funnel from Pipedrive to Google Sheets",
+  "name": "Report a weekly Pipedrive referral funnel to Google Sheets with trends",
   "nodes": [
     {
       "parameters": {
-        "content": "## Report a referral pipeline funnel from Pipedrive to Google Sheets\n\nFor managers of a referral or business-development pipeline in Pipedrive who need a weekly funnel that spans deals, activities and custom fields.\n\n### How it works\n1. Every Monday it reads the open pipeline, its activities and the deal fields.\n2. Sensitive CRM fields are blocked, and the same coverage rule as the companion activity workflow is applied.\n3. The funnel is computed: outreach, conversation, meeting, partner, referrals, pre-screen, screened.\n4. Four tabs are written to Google Sheets: dashboard, coverage gaps, by rep and by practice.\n5. A custom field that is not mapped shows as **not captured**, never 0, so a gap in setup is not mistaken for zero results.\n6. The same digest is posted to Slack or Discord.\n\n### Setup\n1. Open `config` and set `RESULT_FIELDS` to your Pipedrive custom-field keys and `REPORT_WINDOW_DAYS` to your period.\n2. Add your Pipedrive API token and a Google Sheet id with four tabs.\n3. Run it once on the built-in demo pipeline first: it writes nothing.\n4. Optional: add a Slack or Discord webhook for the digest.\n\n### Customization tips\nFunnel stages and field mapping are in `config`. To add a tab, copy one `rows for ...` and `Sheets - write ...` pair.",
-        "height": 738,
+        "content": "## Report a weekly Pipedrive referral funnel to Google Sheets with trends\n\nFor managers of a referral or partnership pipeline in Pipedrive who need a weekly funnel that Insights cannot build.\n\n### How it works\n1. Every Monday it reads every page of open deals, activities and deal fields. A failed read alerts and fails the run.\n2. Medical-looking fields are blocked, and coverage uses the same definition as the companion activity guard.\n3. The funnel is computed: attempts, conversations, meetings, partners, referrals, screened, enrolled.\n4. Last week's row is read back from the Dashboard tab, so every headline number shows its week-over-week change.\n5. Reps are flagged for coaching: many attempts but few conversations, or too many deals without a next step.\n6. Four tabs are written and a digest is posted to Slack. Unmapped fields read **not captured**, never 0.\n\n### Setup\n1. Run it as imported: a demo pipeline and a sample last-week row produce the full digest, and nothing is written.\n2. In `config` set `COMPANY_DOMAIN`, `API_TOKEN` and `RESULT_FIELDS`.\n3. Create a Google Sheet with the four tabs, put its id in `SHEET_ID` and add a Google Sheets credential.\n4. Add a Slack webhook URL for the digest.\n\n### Requirements\nA Pipedrive API token and a Google Sheet. Slack is optional.\n\n### How to customize\n`REPORT_WINDOW_DAYS`, the `COACH_*` thresholds and the funnel field map are in `config`.",
+        "height": 814,
         "width": 560,
         "color": 1
       },
+      "id": "3cceee4f-ceaf-4b9f-ae83-4e833bd63cce",
+      "name": "Overview",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         -660,
-        -112
-      ],
-      "id": "31255c72-75ad-418b-9956-1f4c81002200",
-      "name": "Overview"
+        28
+      ]
     },
     {
       "parameters": {
-        "content": "## 1. Read the pipeline\nOpen deals, activities and deal fields, joined into one shape. Uses a demo pipeline until you add an API token.",
-        "height": 442,
-        "width": 2140,
+        "content": "## 1. Start and settings\nMonday schedule or the Run button. Every setting lives in `config`; no token means the demo pipeline.",
+        "height": 474,
+        "width": 660,
         "color": 7
       },
+      "id": "1b12b37e-e2d6-481e-ac15-7c15927d1b12",
+      "name": "Section 1",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         -40,
-        -112
-      ],
-      "id": "b8d2a7ac-bff0-4805-a115-86ef93b3c97b",
-      "name": "Section 1"
+        66
+      ]
     },
     {
       "parameters": {
-        "content": "## 2. Check and compute the funnel\nSensitive fields blocked, coverage rule applied, funnel KPIs computed.",
-        "height": 252,
-        "width": 740,
+        "content": "## 2. Read every page\nOpen deals and activities, 500 a page until Pipedrive says there is no more. A partial read counts as a failed read.",
+        "height": 572,
+        "width": 1380,
         "color": 7
       },
+      "id": "5dcfcb62-41da-40c2-aa0d-ea0df5115dcf",
+      "name": "Section 2",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2200,
-        -112
-      ],
-      "id": "45c96b35-6bdf-4295-a94b-7f3aa46d5f5b",
-      "name": "Section 2"
+        680,
+        28
+      ]
     },
     {
       "parameters": {
-        "content": "## 3. Write the four tabs\nDashboard, gaps, by rep and by practice. Unmapped fields read \"not captured\", never 0.",
-        "height": 442,
-        "width": 2700,
+        "content": "## 3. If the read fails\nAlert with the call that failed, then fail the execution. A broken token never looks like a clean pipeline.",
+        "height": 432,
+        "width": 900,
         "color": 7
       },
+      "id": "256efb60-982c-4d60-a8c0-28c048a3256e",
+      "name": "Section 3",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        3040,
-        -112
-      ],
-      "id": "290636d1-b45d-49f2-99af-f3af313757ef",
-      "name": "Section 3"
+        2120,
+        408
+      ]
     },
     {
       "parameters": {
-        "content": "## 4. Send the management digest\nOne summary to Slack or Discord. A blank webhook skips it.",
-        "height": 442,
-        "width": 1020,
+        "content": "## 4. Check and compute the funnel\nMedical-looking fields blocked, the guard's coverage rule applied, funnel KPIs computed.",
+        "height": 274,
+        "width": 660,
         "color": 7
       },
+      "id": "214afc25-77f8-4295-aeb4-0eb448d0214a",
+      "name": "Section 4",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        5840,
-        -112
-      ],
-      "id": "ad67cfc8-9c50-48c3-bb4d-4fbe3a042bdd",
-      "name": "Section 4"
+        3080,
+        166
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Compare with last week\nLast week's Dashboard row is read back for week-over-week changes. Reps are flagged for coaching.",
+        "height": 572,
+        "width": 1140,
+        "color": 7
+      },
+      "id": "3747e0a4-ad1b-4564-ade8-ede837873747",
+      "name": "Section 5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3800,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Write the four tabs\nDashboard, gaps, by rep and by practice. Unmapped fields read \"not captured\", never 0. Demo numbers are never written.",
+        "height": 572,
+        "width": 2340,
+        "color": 7
+      },
+      "id": "47c76b1d-cbbc-440d-ad65-ed65fb3847c7",
+      "name": "Section 6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5000,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 7. Send the digest\nCoverage, funnel, week-over-week and coaching flags in one Slack message. A blank webhook skips it.",
+        "height": 572,
+        "width": 900,
+        "color": 7
+      },
+      "id": "c9680090-681c-4390-a3c2-43c22613c968",
+      "name": "Section 7",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7400,
+        28
+      ]
     },
     {
       "parameters": {},
-      "id": "manual",
+      "id": "9b5cab2b-8836-4bbb-ad8a-8d8a9ad29b5c",
       "name": "Run it now",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
         0,
-        190
+        200
       ]
     },
     {
@@ -103,26 +151,26 @@
           ]
         }
       },
-      "id": "sched",
+      "id": "fd211426-6e8e-4446-aa5a-9a5afb75fd21",
       "name": "Every Monday, 08:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
         0,
-        0
+        400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// PIPEDRIVE REFERRAL NETWORK — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows and is generated from one file, so the\n// activity guard and the reporting run can never disagree about a stage name.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single credential exists.\n\n// ---------------------------------------------------------------- Your Pipedrive account\n// COMPANY_DOMAIN is the first part of your Pipedrive web address:\n//   https://<THIS BIT>.pipedrive.com\n// API_TOKEN is Settings -> Personal preferences -> API. Blank = nothing is read or written\n// and the run falls back to the built-in demo pipeline (see DEMO_PIPELINE).\nconst COMPANY_DOMAIN = '';\nconst API_TOKEN      = '';\n\n// The pipeline this runs against. Leave PIPELINE_ID blank to work every open deal in the\n// account; set it once you have more than one pipeline.\nconst PIPELINE_ID = '';\n\n// ---------------------------------------------------------------- The pipeline's stages\n// In order. `id` is Pipedrive's numeric stage id — read it off the URL when you open the\n// stage's settings. The rest is this workflow's rule for that stage.\n//\n//   next_type    the activity type key created when a deal in this stage has no next step\n//   due_in_days  how far ahead that activity is scheduled\n//   subject      what the activity is called, so a rep reads it and knows what to do\n//   stale_days   no activity of ANY kind for this long -> the deal is reported as stalling\n//\n// A stage with next_type '' is one where the guard deliberately does nothing.\nconst STAGES = [\n  { id: 1, name: 'Target Identified',      next_type: 'initial_call',\n    due_in_days: 1,  stale_days: 14,\n    subject: 'First outreach call — introduce your company and the referral network' },\n  { id: 2, name: 'Outreach Started',       next_type: 'follow_up_call',\n    due_in_days: 3,  stale_days: 10,\n    subject: 'Follow-up call — no answer yet on the first attempt' },\n  { id: 3, name: 'Contact Made',           next_type: 'follow_up_call',\n    due_in_days: 5,  stale_days: 14,\n    subject: 'Follow up — find the decision maker for referrals' },\n  { id: 4, name: 'Decision Maker Engaged', next_type: 'physician_meeting',\n    due_in_days: 7,  stale_days: 14,\n    subject: 'Book the physician meeting' },\n  { id: 5, name: 'Meeting Scheduled',      next_type: 'materials_drop_off',\n    due_in_days: 2,  stale_days: 21,\n    subject: 'Confirm the meeting and drop off study materials' },\n  { id: 6, name: 'Interested / Follow-Up', next_type: 'referral_follow_up',\n    due_in_days: 7,  stale_days: 21,\n    subject: 'Follow up with an interested practice — do not let this go quiet' },\n  { id: 7, name: 'Referral Partner',       next_type: 'thank_you_call',\n    due_in_days: 3,  stale_days: 30,\n    subject: 'Thank-you call — confirm the referral process is working for them' },\n  { id: 8, name: 'Actively Referring',     next_type: 'referral_follow_up',\n    due_in_days: 30, stale_days: 45,\n    subject: 'Monthly referral partner check-in' }\n];\n\n// A referral partner with no activity of any kind for this long gets a re-engagement\n// activity instead of the routine check-in. This is the \"inactive referral partner\"\n// automation.\n//\n// It is measured on activity, not on referrals, because referral counts only exist once\n// RESULT_FIELDS are wired up and this has to work on day one. Once they are wired, the\n// weekly report's \"Last referral\" column is the sharper signal — read both.\nconst REENGAGE_AFTER_DAYS = 60;\nconst REENGAGE_TYPE       = 're_engagement';\nconst REENGAGE_SUBJECT    = 'Re-engagement — no referrals from this practice recently';\n\n// Activity type keys, exactly as they appear in Pipedrive (Settings -> Activity types ->\n// each type has a key, not the label). The guard creates activities of these types only.\nconst ACTIVITY_TYPES = {\n  initial_call:       'initial_call',\n  follow_up_call:     'follow_up_call',\n  email:              'email',\n  office_visit:       'office_visit',\n  materials_drop_off: 'materials_drop_off',\n  physician_meeting:  'physician_meeting',\n  practice_manager:   'practice_manager_meeting',\n  lunch_meeting:      'lunch_meeting',\n  referral_follow_up: 'referral_follow_up',\n  thank_you_call:     'thank_you_call',\n  re_engagement:      're_engagement'\n};\n\n// ---------------------------------------------------------------- The rule\n// NO OPEN OPPORTUNITY SHOULD EXIST WITHOUT A NEXT ACTIVITY.\n//\n// A deal counts as covered when it has at least one activity that is not done and is due\n// no later than HORIZON_DAYS from now. An activity scheduled eleven months out is not a\n// next step, it is a way of passing the check.\nconst HORIZON_DAYS = 45;\n\n// A deal created in the last GRACE_HOURS is left alone — the rep is probably still typing.\nconst GRACE_HOURS = 4;\n\n// Hard ceiling on activities created per run. A misconfigured stage list should cost you\n// forty stray activities, not two thousand.\nconst DAILY_CAP = 40;\n\n// An activity already overdue by this many days is escalated in the summary rather than\n// having another one stacked on top of it. Stacking is how a rep ends up with 60 open\n// tasks and stops reading any of them.\nconst OVERDUE_DAYS = 3;\n\n// Deals worth more than this that have gone stale are called out separately, which is the\n// \"management notification for high-priority opportunities\" automation.\nconst HIGH_PRIORITY_VALUE = 25000;\n\n// ---------------------------------------------------------------- The PHI boundary\n// Pipedrive is your company's physician/practice business-development CRM. It is NOT the\n// patient clinical database. Patient screening and clinical information live elsewhere.\n//\n// This workflow refuses to read or write any field whose name contains one of these words.\n// It is a hard stop, not a warning: the run fails loudly rather than quietly moving a\n// diagnosis into a CRM that was never scoped to hold one.\nconst FORBIDDEN_FIELD_WORDS = [\n  'diagnosis', 'diagnoses', 'medication', 'prescription', 'symptom', 'medical record',\n  'mrn', 'chart number', 'date of birth', 'dob', 'ssn', 'social security', 'insurance id',\n  'member id', 'screening response', 'screening answer', 'eligibility answer', 'lab result',\n  'patient name', 'patient email', 'patient phone', 'patient address', 'phi'\n];\n\n// Aggregate recruitment results ARE in scope — counts, never people. These are Pipedrive\n// deal custom-field keys (Settings -> Data fields -> the 40-character key).\n// Blank means that number is not tracked yet and is reported as \"not captured\" rather than\n// silently as a zero.\nconst RESULT_FIELDS = {\n  referrals_sent:      '',   // patient referrals from this practice\n  prescreen_qualified: '',   // referrals that passed pre-screen\n  sent_to_site:        '',   // patients sent on to a research site\n  screened:            '',   // patients screened at the site\n  randomized:          ''    // patients randomised / enrolled\n};\n\n// Deal custom fields the guard is allowed to read for context. Same key format.\nconst CONTEXT_FIELDS = {\n  specialty:     '',\n  territory:     '',\n  study_code:    '',\n  practice_size: ''\n};\n\n// ---------------------------------------------------------------- Reporting (workflow 02)\n// The management dashboard. Pipedrive Insights covers the single-object counts; this covers\n// the funnel that spans deals, activities and aggregate results, which Insights cannot.\n// Blank sheet id = the numbers are computed and posted to chat, but nothing is written down.\nconst SHEET_ID        = '';\nconst DASHBOARD_TAB   = 'Dashboard';    // one row per run, so the trend is the sheet history\nconst GAPS_TAB        = 'Gaps';         // active deals with no future activity, one row each\nconst BY_REP_TAB      = 'By rep';       // results by marketing representative\nconst BY_PRACTICE_TAB = 'By practice';  // results by physician / practice\n\nconst DASHBOARD_COLUMNS = {\n  run_at:              'Run at',\n  open_deals:          'Open deals',\n  covered:             'With a next activity',\n  gaps:                'Without a next activity',\n  coverage_pct:        'Coverage %',\n  overdue:             'Overdue activities',\n  outreach_attempts:   'Outreach attempts',\n  conversations:       'Meaningful conversations',\n  meetings:            'Meetings',\n  new_partners:        'New referral partners',\n  active_partners:     'Actively referring practices',\n  referrals_sent:      'Patient referrals',\n  prescreen_qualified: 'Pre-screen qualified',\n  sent_to_site:        'Sent to site',\n  screened:            'Screened',\n  randomized:          'Randomised / enrolled',\n  referral_to_screen:  'Referral to screen %',\n  screen_to_random:    'Screen to randomised %',\n  stalled:             'Stalled deals',\n  high_priority:       'High-priority stalled'\n};\n\nconst GAP_COLUMNS = {\n  deal_id:       'Deal id',\n  deal:          'Deal',\n  organisation:  'Practice',\n  person:        'Physician / contact',\n  stage:         'Stage',\n  owner:         'Rep',\n  value:         'Value',\n  last_activity: 'Last activity',\n  days_quiet:    'Days quiet',\n  action:        'What the guard did',\n  run_at:        'Run at'\n};\n\nconst BY_REP_COLUMNS = {\n  rep:               'Rep',\n  open_deals:        'Open deals',\n  gaps:              'Without a next activity',\n  overdue:           'Overdue activities',\n  outreach_attempts: 'Outreach attempts',\n  conversations:     'Meaningful conversations',\n  meetings:          'Meetings',\n  new_partners:      'New referral partners',\n  referrals_sent:    'Patient referrals',\n  run_at:            'Run at'\n};\n\nconst BY_PRACTICE_COLUMNS = {\n  organisation:        'Practice',\n  stage:               'Stage',\n  owner:               'Rep',\n  referrals_sent:      'Patient referrals',\n  prescreen_qualified: 'Pre-screen qualified',\n  sent_to_site:        'Sent to site',\n  screened:            'Screened',\n  randomized:          'Randomised / enrolled',\n  last_referral:       'Last referral',\n  run_at:              'Run at'\n};\n\n// Which activity types count as which KPI. An \"outreach attempt\" is any attempt; a\n// \"meaningful conversation\" is one that was marked done with an outcome that was not a\n// no-answer. The distinction is the whole point of the dashboard — attempts are effort,\n// conversations are progress.\nconst OUTREACH_TYPES     = ['initial_call', 'follow_up_call', 'email', 'office_visit',\n                            'materials_drop_off', 're_engagement'];\nconst CONVERSATION_TYPES = ['initial_call', 'follow_up_call', 'referral_follow_up',\n                            'thank_you_call', 'practice_manager_meeting'];\nconst MEETING_TYPES      = ['physician_meeting', 'practice_manager_meeting', 'lunch_meeting',\n                            'office_visit'];\n\n// Activity notes that mean \"nobody was reached\", so the attempt is not counted as a\n// conversation. Matched case-insensitively against the note and the subject.\nconst NO_ANSWER_WORDS = ['no answer', 'voicemail', 'left message', 'left a message',\n                         'gatekeeper', 'not available', 'call back later', 'busy signal'];\n\n// Stages that mean the practice is a partner, for the \"new referral partners\" count.\nconst PARTNER_STAGES = ['Referral Partner', 'Actively Referring'];\n\nconst REPORT_WINDOW_DAYS = 7;   // the reporting period. 7 = the weekly management report.\n\n// ---------------------------------------------------------------- Notifications\nconst ALERT_WEBHOOK_URL   = '';   // Slack incoming webhook, the rep-facing run summary.\nconst MANAGER_WEBHOOK_URL = '';   // Optional second webhook for management escalations.\n                                  // Blank = escalations go to ALERT_WEBHOOK_URL instead.\n\n// ---------------------------------------------------------------- Demo mode\n// With no API token set, builds a deterministic fake pipeline — eight stages, twenty-odd\n// deals, a realistic spread of covered, uncovered, overdue and stalled — so the whole rule\n// can be watched end to end before an account exists. While this is on the run is FORCED\n// into preview: a fabricated deal can never produce a real Pipedrive write.\nconst DEMO_PIPELINE = true;\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_OWNER_ID blank -> PREVIEW. Every activity the guard would create\n//                                          is listed with its deal, stage and due date, and\n//                                          nothing is written to Pipedrive. Ships this way.\n//   TEST_RUN true,  TEST_OWNER_ID set   -> TEST. Activities really are created, but all\n//                                          assigned to that one user, so a real rep's task\n//                                          list is not touched while you are testing.\n//   TEST_RUN false                      -> LIVE. Activities are created and assigned to the\n//                                          deal's own owner.\nconst TEST_RUN      = true;\nconst TEST_OWNER_ID = '';\n\nconst DEMO_DATA = DEMO_PIPELINE === true && API_TOKEN.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (String(TEST_OWNER_ID).trim() !== '' ? 'test' : 'preview');\n\n// Demo deals are not evidence. They cannot open the write gate, whatever TEST_RUN says.\nconst FORCED_PREVIEW = DEMO_DATA && MODE !== 'preview';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst BASE_URL = 'https://' + (COMPANY_DOMAIN.trim() || 'api') + '.pipedrive.com/api/v1';\n\n// Every field key this workflow is configured to touch, gathered here so the PHI check runs\n// in one place rather than at each use.\nconst TOUCHED_FIELDS = []\n  .concat(Object.keys(RESULT_FIELDS).map(function (k) {\n    return { role: 'result', name: k, key: RESULT_FIELDS[k] };\n  }))\n  .concat(Object.keys(CONTEXT_FIELDS).map(function (k) {\n    return { role: 'context', name: k, key: CONTEXT_FIELDS[k] };\n  }))\n  .filter(function (f) { return String(f.key || '').trim() !== ''; });\n\nreturn [{\n  json: {\n    base_url:       BASE_URL,\n    api_token:      API_TOKEN.trim(),\n    company_domain: COMPANY_DOMAIN.trim(),\n    pipeline_id:    String(PIPELINE_ID || '').trim(),\n\n    stages:              STAGES,\n    activity_types:      ACTIVITY_TYPES,\n    reengage_after_days: Number(REENGAGE_AFTER_DAYS) || 60,\n    reengage_type:       REENGAGE_TYPE,\n    reengage_subject:    REENGAGE_SUBJECT,\n\n    horizon_days:        Number(HORIZON_DAYS) || 45,\n    grace_hours:         Number(GRACE_HOURS) || 0,\n    daily_cap:           Number(DAILY_CAP) || 0,\n    overdue_days:        Number(OVERDUE_DAYS) || 0,\n    high_priority_value: Number(HIGH_PRIORITY_VALUE) || 0,\n\n    forbidden_field_words: FORBIDDEN_FIELD_WORDS.map(function (w) {\n      return String(w).toLowerCase();\n    }),\n    result_fields:  RESULT_FIELDS,\n    context_fields: CONTEXT_FIELDS,\n    touched_fields: TOUCHED_FIELDS,\n\n    sheet_id:        SHEET_ID.trim(),\n    dashboard_tab:   DASHBOARD_TAB,\n    gaps_tab:        GAPS_TAB,\n    by_rep_tab:      BY_REP_TAB,\n    by_practice_tab: BY_PRACTICE_TAB,\n    dashboard_columns:   DASHBOARD_COLUMNS,\n    gap_columns:         GAP_COLUMNS,\n    by_rep_columns:      BY_REP_COLUMNS,\n    by_practice_columns: BY_PRACTICE_COLUMNS,\n\n    outreach_types:     OUTREACH_TYPES,\n    conversation_types: CONVERSATION_TYPES,\n    meeting_types:      MEETING_TYPES,\n    no_answer_words:    NO_ANSWER_WORDS.map(function (w) { return String(w).toLowerCase(); }),\n    partner_stages:     PARTNER_STAGES,\n    report_window_days: Number(REPORT_WINDOW_DAYS) || 7,\n\n    alert_webhook_url:   ALERT_WEBHOOK_URL.trim(),\n    manager_webhook_url: MANAGER_WEBHOOK_URL.trim(),\n    test_owner_id:       String(TEST_OWNER_ID || '').trim(),\n\n    // derived flags — the gates read these, never the raw constants\n    mode:         MODE,\n    preview_only: MODE === 'preview',\n    test_write:   MODE === 'test',\n    live_write:   MODE === 'live',\n\n    pipedrive_enabled: API_TOKEN.trim() !== '' && COMPANY_DOMAIN.trim() !== '',\n    write_enabled:     MODE !== 'preview' && API_TOKEN.trim() !== ''\n                       && COMPANY_DOMAIN.trim() !== '',\n    sheet_enabled:   SHEET_ID.trim() !== '',\n    alert_enabled:   ALERT_WEBHOOK_URL.trim() !== '',\n    manager_enabled: (MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim()) !== '',\n    manager_url:     MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim(),\n    demo_data:       DEMO_DATA,\n    forced_preview:  FORCED_PREVIEW\n  }\n}];"
+        "jsCode": "// PIPEDRIVE REFERRAL NETWORK — CONFIG\n// Everything you might want to change lives in this one node. Nothing else in either\n// workflow needs editing.\n//\n// The same config node ships in BOTH workflows and is generated from one file, so the\n// activity guard and the reporting run can never disagree about a stage name.\n//\n// Any key left blank means that step is SKIPPED, not that the run fails. That is what lets\n// this be demonstrated on a screen-share before a single credential exists.\n\n// ---------------------------------------------------------------- Your Pipedrive account\n// COMPANY_DOMAIN is the first part of your Pipedrive web address:\n//   https://<THIS BIT>.pipedrive.com\n// API_TOKEN is Settings -> Personal preferences -> API. Blank = nothing is read or written\n// and the run falls back to the built-in demo pipeline (see DEMO_PIPELINE).\nconst COMPANY_DOMAIN = '';\nconst API_TOKEN      = '';\n\n// The pipeline this runs against. Leave PIPELINE_ID blank to work every open deal in the\n// account; set it once you have more than one pipeline.\nconst PIPELINE_ID = '';\n\n// Every read is paginated (500 per page, Pipedrive's maximum). MAX_PAGES is a safety stop:\n// 20 pages = 10,000 open deals. If a read is cut off by it, the run is reported as a FAILED\n// read, never as a smaller pipeline — a half-read pipeline reads as \"covered\" by omission.\nconst MAX_PAGES = 20;\n\n// ---------------------------------------------------------------- The pipeline's stages\n// In order. `id` is Pipedrive's numeric stage id — read it off the URL when you open the\n// stage's settings. The rest is this workflow's rule for that stage.\n//\n//   next_type    the activity type key created when a deal in this stage has no next step\n//   due_in_days  how far ahead that activity is scheduled\n//   subject      what the activity is called, so a rep reads it and knows what to do\n//   stale_days   no activity of ANY kind for this long -> the deal is reported as stalling\n//\n// A stage with next_type '' is one where the guard deliberately does nothing.\nconst STAGES = [\n  { id: 1, name: 'Target Identified',      next_type: 'initial_call',\n    due_in_days: 1,  stale_days: 14,\n    subject: 'First outreach call — introduce your company and the referral network' },\n  { id: 2, name: 'Outreach Started',       next_type: 'follow_up_call',\n    due_in_days: 3,  stale_days: 10,\n    subject: 'Follow-up call — no answer yet on the first attempt' },\n  { id: 3, name: 'Contact Made',           next_type: 'follow_up_call',\n    due_in_days: 5,  stale_days: 14,\n    subject: 'Follow up — find the decision maker for referrals' },\n  { id: 4, name: 'Decision Maker Engaged', next_type: 'physician_meeting',\n    due_in_days: 7,  stale_days: 14,\n    subject: 'Book the physician meeting' },\n  { id: 5, name: 'Meeting Scheduled',      next_type: 'materials_drop_off',\n    due_in_days: 2,  stale_days: 21,\n    subject: 'Confirm the meeting and drop off study materials' },\n  { id: 6, name: 'Interested / Follow-Up', next_type: 'referral_follow_up',\n    due_in_days: 7,  stale_days: 21,\n    subject: 'Follow up with an interested practice — do not let this go quiet' },\n  { id: 7, name: 'Referral Partner',       next_type: 'thank_you_call',\n    due_in_days: 3,  stale_days: 30,\n    subject: 'Thank-you call — confirm the referral process is working for them' },\n  { id: 8, name: 'Actively Referring',     next_type: 'referral_follow_up',\n    due_in_days: 30, stale_days: 45,\n    subject: 'Monthly referral partner check-in' }\n];\n\n// A referral partner with no activity of any kind for this long gets a re-engagement\n// activity instead of the routine check-in. This is the \"inactive referral partner\"\n// automation.\n//\n// It is measured on activity, not on referrals, because referral counts only exist once\n// RESULT_FIELDS are wired up and this has to work on day one. Once they are wired, the\n// weekly report's \"Last referral\" column is the sharper signal — read both.\nconst REENGAGE_AFTER_DAYS = 60;\nconst REENGAGE_TYPE       = 're_engagement';\nconst REENGAGE_SUBJECT    = 'Re-engagement — no referrals from this practice recently';\n\n// Activity type keys, exactly as they appear in Pipedrive (Settings -> Activity types ->\n// each type has a key, not the label). The guard creates activities of these types only.\nconst ACTIVITY_TYPES = {\n  initial_call:       'initial_call',\n  follow_up_call:     'follow_up_call',\n  email:              'email',\n  office_visit:       'office_visit',\n  materials_drop_off: 'materials_drop_off',\n  physician_meeting:  'physician_meeting',\n  practice_manager:   'practice_manager_meeting',\n  lunch_meeting:      'lunch_meeting',\n  referral_follow_up: 'referral_follow_up',\n  thank_you_call:     'thank_you_call',\n  re_engagement:      're_engagement'\n};\n\n// ---------------------------------------------------------------- The rule\n// NO OPEN OPPORTUNITY SHOULD EXIST WITHOUT A NEXT ACTIVITY.\n//\n// A deal counts as covered when it has at least one activity that is not done and is due\n// no later than HORIZON_DAYS from now. An activity scheduled eleven months out is not a\n// next step, it is a way of passing the check.\nconst HORIZON_DAYS = 45;\n\n// A deal created in the last GRACE_HOURS is left alone — the rep is probably still typing.\nconst GRACE_HOURS = 4;\n\n// Hard ceiling on activities created per run. A misconfigured stage list should cost you\n// forty stray activities, not two thousand.\nconst DAILY_CAP = 40;\n\n// ---------------------------------------------------------------- Business days\n// Every \"days\" setting in this node is counted in BUSINESS days: due dates never land on a\n// weekend or a holiday, and a task due on Friday is not \"3 days overdue\" on Monday morning.\n// WORK_DAYS uses 0 = Sunday ... 6 = Saturday. HOLIDAYS are 'YYYY-MM-DD' strings.\nconst WORK_DAYS = [1, 2, 3, 4, 5];\nconst HOLIDAYS  = [];\n\n// ---------------------------------------------------------------- Escalation tiers\n// A deal whose next activity is overdue does NOT get another one stacked on top of it.\n// Stacking is how a rep ends up with 60 open tasks and stops reading any of them. Instead:\n//\n//   overdue OVERDUE_DAYS or more        -> tier \"owner\":   the rep's own morning DM\n//   overdue MANAGER_AFTER_DAYS or more  -> tier \"manager\": the management escalation\n//\n// The manager is told about a deal ONCE, then again only if it is still open after\n// REMIND_MANAGER_AFTER_DAYS — a daily repeat of the same twelve deals is how an escalation\n// channel gets muted. Memory lives in the workflow's own static data; nothing to set up.\nconst OVERDUE_DAYS              = 3;\nconst MANAGER_AFTER_DAYS        = 7;\nconst REMIND_MANAGER_AFTER_DAYS = 5;\n\n// ---------------------------------------------------------------- Rep workload\n// New activities are load-levelled: if a rep already has MAX_PER_OWNER_PER_DAY open\n// activities due on the target day, the new one moves to the next business day with room,\n// up to LEVEL_WITHIN_DAYS later. Forty tasks dumped on one Monday get done on none of them.\nconst MAX_PER_OWNER_PER_DAY = 8;\nconst LEVEL_WITHIN_DAYS     = 3;\n\n// Deals worth more than this that have gone stale are called out separately, which is the\n// \"management notification for high-priority opportunities\" automation.\nconst HIGH_PRIORITY_VALUE = 25000;\n\n// ---------------------------------------------------------------- The PHI boundary\n// Pipedrive is your company's physician/practice business-development CRM. It is NOT the\n// patient clinical database. Patient screening and clinical information live elsewhere.\n//\n// This workflow refuses to read or write any field whose name contains one of these words.\n// It is a hard stop, not a warning: the run fails loudly rather than quietly moving a\n// diagnosis into a CRM that was never scoped to hold one.\nconst FORBIDDEN_FIELD_WORDS = [\n  'diagnosis', 'diagnoses', 'medication', 'prescription', 'symptom', 'medical record',\n  'mrn', 'chart number', 'date of birth', 'dob', 'ssn', 'social security', 'insurance id',\n  'member id', 'screening response', 'screening answer', 'eligibility answer', 'lab result',\n  'patient name', 'patient email', 'patient phone', 'patient address', 'phi'\n];\n\n// Aggregate recruitment results ARE in scope — counts, never people. These are Pipedrive\n// deal custom-field keys (Settings -> Data fields -> the 40-character key).\n// Blank means that number is not tracked yet and is reported as \"not captured\" rather than\n// silently as a zero.\nconst RESULT_FIELDS = {\n  referrals_sent:      '',   // patient referrals from this practice\n  prescreen_qualified: '',   // referrals that passed pre-screen\n  sent_to_site:        '',   // patients sent on to a research site\n  screened:            '',   // patients screened at the site\n  randomized:          ''    // patients randomised / enrolled\n};\n\n// Deal custom fields the guard is allowed to read for context. Same key format.\nconst CONTEXT_FIELDS = {\n  specialty:     '',\n  territory:     '',\n  study_code:    '',\n  practice_size: ''\n};\n\n// ---------------------------------------------------------------- Reporting (workflow 02)\n// The management dashboard. Pipedrive Insights covers the single-object counts; this covers\n// the funnel that spans deals, activities and aggregate results, which Insights cannot.\n// Blank sheet id = the numbers are computed and posted to chat, but nothing is written down.\nconst SHEET_ID        = '';\nconst DASHBOARD_TAB   = 'Dashboard';    // one row per run, so the trend is the sheet history\nconst GAPS_TAB        = 'Gaps';         // active deals with no future activity, one row each\nconst BY_REP_TAB      = 'By rep';       // results by marketing representative\nconst BY_PRACTICE_TAB = 'By practice';  // results by physician / practice\n\nconst DASHBOARD_COLUMNS = {\n  run_at:              'Run at',\n  open_deals:          'Open deals',\n  covered:             'With a next activity',\n  gaps:                'Without a next activity',\n  coverage_pct:        'Coverage %',\n  overdue:             'Overdue activities',\n  outreach_attempts:   'Outreach attempts',\n  conversations:       'Meaningful conversations',\n  meetings:            'Meetings',\n  new_partners:        'New referral partners',\n  active_partners:     'Actively referring practices',\n  referrals_sent:      'Patient referrals',\n  prescreen_qualified: 'Pre-screen qualified',\n  sent_to_site:        'Sent to site',\n  screened:            'Screened',\n  randomized:          'Randomised / enrolled',\n  referral_to_screen:  'Referral to screen %',\n  screen_to_random:    'Screen to randomised %',\n  stalled:             'Stalled deals',\n  high_priority:       'High-priority stalled'\n};\n\nconst GAP_COLUMNS = {\n  deal_id:       'Deal id',\n  deal:          'Deal',\n  organisation:  'Practice',\n  person:        'Physician / contact',\n  stage:         'Stage',\n  owner:         'Rep',\n  value:         'Value',\n  last_activity: 'Last activity',\n  days_quiet:    'Days quiet',\n  action:        'What the guard did',\n  run_at:        'Run at'\n};\n\nconst BY_REP_COLUMNS = {\n  rep:               'Rep',\n  open_deals:        'Open deals',\n  gaps:              'Without a next activity',\n  overdue:           'Overdue activities',\n  outreach_attempts: 'Outreach attempts',\n  conversations:     'Meaningful conversations',\n  meetings:          'Meetings',\n  new_partners:      'New referral partners',\n  referrals_sent:    'Patient referrals',\n  run_at:            'Run at'\n};\n\nconst BY_PRACTICE_COLUMNS = {\n  organisation:        'Practice',\n  stage:               'Stage',\n  owner:               'Rep',\n  referrals_sent:      'Patient referrals',\n  prescreen_qualified: 'Pre-screen qualified',\n  sent_to_site:        'Sent to site',\n  screened:            'Screened',\n  randomized:          'Randomised / enrolled',\n  last_referral:       'Last referral',\n  run_at:              'Run at'\n};\n\n// Which activity types count as which KPI. An \"outreach attempt\" is any attempt; a\n// \"meaningful conversation\" is one that was marked done with an outcome that was not a\n// no-answer. The distinction is the whole point of the dashboard — attempts are effort,\n// conversations are progress.\nconst OUTREACH_TYPES     = ['initial_call', 'follow_up_call', 'email', 'office_visit',\n                            'materials_drop_off', 're_engagement'];\nconst CONVERSATION_TYPES = ['initial_call', 'follow_up_call', 'referral_follow_up',\n                            'thank_you_call', 'practice_manager_meeting'];\nconst MEETING_TYPES      = ['physician_meeting', 'practice_manager_meeting', 'lunch_meeting',\n                            'office_visit'];\n\n// Activity notes that mean \"nobody was reached\", so the attempt is not counted as a\n// conversation. Matched case-insensitively against the note and the subject.\nconst NO_ANSWER_WORDS = ['no answer', 'voicemail', 'left message', 'left a message',\n                         'gatekeeper', 'not available', 'call back later', 'busy signal'];\n\n// Stages that mean the practice is a partner, for the \"new referral partners\" count.\nconst PARTNER_STAGES = ['Referral Partner', 'Actively Referring'];\n\nconst REPORT_WINDOW_DAYS = 7;   // the reporting period. 7 = the weekly management report.\n\n// Week-over-week: the report compares itself with the newest Dashboard row that is at least\n// BASELINE_MIN_DAYS old, read back from the sheet. No sheet = no comparison, said so.\nconst BASELINE_MIN_DAYS = 5;\n\n// Rep coaching flags in the weekly report. A rep is flagged when:\n//   - COACH_MIN_ATTEMPTS+ attempts but under COACH_MIN_CONVERSATION_PCT% became\n//     conversations (effort without progress — a list or a script problem), or\n//   - over COACH_MAX_GAP_PCT% of their open deals have no next activity (follow-up slipping).\nconst COACH_MIN_ATTEMPTS         = 6;\nconst COACH_MIN_CONVERSATION_PCT = 40;\nconst COACH_MAX_GAP_PCT          = 30;\n\n// ---------------------------------------------------------------- Notifications\nconst ALERT_WEBHOOK_URL   = '';   // Slack incoming webhook, the team run summary. Also\n                                  // where a FAILED Pipedrive read is reported.\nconst MANAGER_WEBHOOK_URL = '';   // Optional second webhook for management escalations.\n                                  // Blank = escalations go to ALERT_WEBHOOK_URL instead.\n\n// Per-rep morning DMs in Slack: each owner gets only their own deals — what was scheduled\n// for them, what they are overdue on. Needs a Slack credential on \"[cred] Slack - DM each\n// owner\" (bot scope chat:write), SLACK_DMS = true, and the map below.\n// OWNER_SLACK_IDS maps a Pipedrive user id to a Slack member id: { 11: 'U01ABCDEF' }.\n// Reps not in the map are simply not DM'd — they are still in the team summary.\nconst SLACK_DMS       = false;\nconst OWNER_SLACK_IDS = {};\n\n// ---------------------------------------------------------------- Demo mode\n// With no API token set, builds a deterministic fake pipeline — eight stages, twenty-odd\n// deals, a realistic spread of covered, uncovered, overdue and stalled — so the whole rule\n// can be watched end to end before an account exists. While this is on the run is FORCED\n// into preview: a fabricated deal can never produce a real Pipedrive write.\nconst DEMO_PIPELINE = true;\n\n// ---------------------------------------------------------------- Safety switch\n//   TEST_RUN true,  TEST_OWNER_ID blank -> PREVIEW. Every activity the guard would create\n//                                          is listed with its deal, stage and due date, and\n//                                          nothing is written to Pipedrive. Ships this way.\n//   TEST_RUN true,  TEST_OWNER_ID set   -> TEST. Activities really are created, but all\n//                                          assigned to that one user, so a real rep's task\n//                                          list is not touched while you are testing.\n//   TEST_RUN false                      -> LIVE. Activities are created and assigned to the\n//                                          deal's own owner.\nconst TEST_RUN      = true;\nconst TEST_OWNER_ID = '';\n\nconst DEMO_DATA = DEMO_PIPELINE === true && API_TOKEN.trim() === '';\n\nlet MODE = TEST_RUN !== true ? 'live'\n  : (String(TEST_OWNER_ID).trim() !== '' ? 'test' : 'preview');\n\n// Demo deals are not evidence. They cannot open the write gate, whatever TEST_RUN says.\nconst FORCED_PREVIEW = DEMO_DATA && MODE !== 'preview';\nif (FORCED_PREVIEW) MODE = 'preview';\n\nconst OWNER_SLACK = {};\nObject.keys(OWNER_SLACK_IDS || {}).forEach(function (k) {\n  const v = String(OWNER_SLACK_IDS[k] || '').trim();\n  if (v) OWNER_SLACK[String(k)] = v;\n});\n\nconst BASE_URL = 'https://' + (COMPANY_DOMAIN.trim() || 'api') + '.pipedrive.com/api/v1';\n\n// Every field key this workflow is configured to touch, gathered here so the PHI check runs\n// in one place rather than at each use.\nconst TOUCHED_FIELDS = []\n  .concat(Object.keys(RESULT_FIELDS).map(function (k) {\n    return { role: 'result', name: k, key: RESULT_FIELDS[k] };\n  }))\n  .concat(Object.keys(CONTEXT_FIELDS).map(function (k) {\n    return { role: 'context', name: k, key: CONTEXT_FIELDS[k] };\n  }))\n  .filter(function (f) { return String(f.key || '').trim() !== ''; });\n\nreturn [{\n  json: {\n    base_url:       BASE_URL,\n    api_token:      API_TOKEN.trim(),\n    company_domain: COMPANY_DOMAIN.trim(),\n    pipeline_id:    String(PIPELINE_ID || '').trim(),\n    max_pages:      Math.max(1, Number(MAX_PAGES) || 20),\n\n    stages:              STAGES,\n    activity_types:      ACTIVITY_TYPES,\n    reengage_after_days: Number(REENGAGE_AFTER_DAYS) || 60,\n    reengage_type:       REENGAGE_TYPE,\n    reengage_subject:    REENGAGE_SUBJECT,\n\n    horizon_days:        Number(HORIZON_DAYS) || 45,\n    grace_hours:         Number(GRACE_HOURS) || 0,\n    daily_cap:           Number(DAILY_CAP) || 0,\n    overdue_days:        Number(OVERDUE_DAYS) || 0,\n    manager_after_days:  Number(MANAGER_AFTER_DAYS) || 0,\n    remind_manager_after_days: Number(REMIND_MANAGER_AFTER_DAYS) || 0,\n    max_per_owner_per_day: Number(MAX_PER_OWNER_PER_DAY) || 0,\n    level_within_days:   Number(LEVEL_WITHIN_DAYS) || 0,\n    work_days:           (WORK_DAYS || []).map(Number),\n    holidays:            (HOLIDAYS || []).map(function (h) { return String(h).slice(0, 10); }),\n    high_priority_value: Number(HIGH_PRIORITY_VALUE) || 0,\n\n    forbidden_field_words: FORBIDDEN_FIELD_WORDS.map(function (w) {\n      return String(w).toLowerCase();\n    }),\n    result_fields:  RESULT_FIELDS,\n    context_fields: CONTEXT_FIELDS,\n    touched_fields: TOUCHED_FIELDS,\n\n    sheet_id:        SHEET_ID.trim(),\n    dashboard_tab:   DASHBOARD_TAB,\n    gaps_tab:        GAPS_TAB,\n    by_rep_tab:      BY_REP_TAB,\n    by_practice_tab: BY_PRACTICE_TAB,\n    dashboard_columns:   DASHBOARD_COLUMNS,\n    gap_columns:         GAP_COLUMNS,\n    by_rep_columns:      BY_REP_COLUMNS,\n    by_practice_columns: BY_PRACTICE_COLUMNS,\n\n    outreach_types:     OUTREACH_TYPES,\n    conversation_types: CONVERSATION_TYPES,\n    meeting_types:      MEETING_TYPES,\n    no_answer_words:    NO_ANSWER_WORDS.map(function (w) { return String(w).toLowerCase(); }),\n    partner_stages:     PARTNER_STAGES,\n    report_window_days: Number(REPORT_WINDOW_DAYS) || 7,\n    baseline_min_days:  Number(BASELINE_MIN_DAYS) || 5,\n    coach_min_attempts:         Number(COACH_MIN_ATTEMPTS) || 0,\n    coach_min_conversation_pct: Number(COACH_MIN_CONVERSATION_PCT) || 0,\n    coach_max_gap_pct:          Number(COACH_MAX_GAP_PCT) || 100,\n\n    alert_webhook_url:   ALERT_WEBHOOK_URL.trim(),\n    manager_webhook_url: MANAGER_WEBHOOK_URL.trim(),\n    test_owner_id:       String(TEST_OWNER_ID || '').trim(),\n    owner_slack_ids:     OWNER_SLACK,\n\n    // derived flags — the gates read these, never the raw constants\n    mode:         MODE,\n    preview_only: MODE === 'preview',\n    test_write:   MODE === 'test',\n    live_write:   MODE === 'live',\n\n    pipedrive_enabled: API_TOKEN.trim() !== '' && COMPANY_DOMAIN.trim() !== '',\n    write_enabled:     MODE !== 'preview' && API_TOKEN.trim() !== ''\n                       && COMPANY_DOMAIN.trim() !== '',\n    sheet_enabled:   SHEET_ID.trim() !== '',\n    // Fabricated demo numbers never land in a real sheet, and are never compared with it.\n    sheet_live:      SHEET_ID.trim() !== '' && !DEMO_DATA,\n    slack_dm_enabled: SLACK_DMS === true && Object.keys(OWNER_SLACK).length > 0,\n    failure_alert_enabled: (ALERT_WEBHOOK_URL.trim() || MANAGER_WEBHOOK_URL.trim()) !== '',\n    failure_url:     ALERT_WEBHOOK_URL.trim() || MANAGER_WEBHOOK_URL.trim(),\n    alert_enabled:   ALERT_WEBHOOK_URL.trim() !== '',\n    manager_enabled: (MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim()) !== '',\n    manager_url:     MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim(),\n    demo_data:       DEMO_DATA,\n    forced_preview:  FORCED_PREVIEW\n  }\n}];"
       },
-      "id": "cfg",
+      "id": "23ff66c7-81eb-4e97-ae75-8e75669e23ff",
       "name": "config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        280,
-        0
+        240,
+        300
       ]
     },
     {
@@ -136,7 +184,7 @@
           },
           "conditions": [
             {
-              "id": "pd-on-c",
+              "id": "54d6b602-7ae8-4962-a794-c794bb7154d6",
               "leftValue": "={{ $('config').first().json.pipedrive_enabled }}",
               "rightValue": "true",
               "operator": {
@@ -151,13 +199,13 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "pd-on",
+      "id": "8d30005a-edb0-483a-a8d6-98d6fd798d30",
       "name": "Pipedrive configured?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        560,
-        0
+        480,
+        300
       ]
     },
     {
@@ -165,7 +213,26 @@
         "method": "GET",
         "url": "={{ $('config').first().json.base_url }}/deals",
         "options": {
-          "timeout": 30000
+          "timeout": 30000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "start",
+                    "value": "={{ $response.body.additional_data.pagination.next_start }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !($response.body.additional_data && $response.body.additional_data.pagination && $response.body.additional_data.pagination.more_items_in_collection) }}",
+              "limitPagesFetched": true,
+              "maxRequests": "={{ $('config').first().json.max_pages }}",
+              "requestInterval": 250
+            }
+          }
         },
         "sendQuery": true,
         "queryParameters": {
@@ -185,27 +252,46 @@
           ]
         }
       },
-      "id": "deals",
+      "id": "a6b7dc69-54dc-4599-a647-86472124a6b7",
       "name": "[cred] Pipedrive - open deals",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        840,
-        0
+        720,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
       "alwaysOutputData": true,
-      "notes": "Pipedrive v1 GET /deals. Over 500 open deals: add a pagination loop on 'start' — additional_data.pagination.more_items_in_collection says when there is another page."
+      "notes": "Pipedrive v1 GET /deals, every page: start = additional_data.pagination.next_start until more_items_in_collection is false, at most MAX_PAGES pages. One item per page."
     },
     {
       "parameters": {
         "method": "GET",
         "url": "={{ $('config').first().json.base_url }}/activities",
         "options": {
-          "timeout": 30000
+          "timeout": 30000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "start",
+                    "value": "={{ $response.body.additional_data.pagination.next_start }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !($response.body.additional_data && $response.body.additional_data.pagination && $response.body.additional_data.pagination.more_items_in_collection) }}",
+              "limitPagesFetched": true,
+              "maxRequests": "={{ $('config').first().json.max_pages }}",
+              "requestInterval": 250
+            }
+          }
         },
         "sendQuery": true,
         "queryParameters": {
@@ -229,20 +315,21 @@
           ]
         }
       },
-      "id": "acts",
+      "id": "c2c0575b-7ed3-48eb-a693-d6932242c2c0",
       "name": "[cred] Pipedrive - activities",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1120,
-        0
+        960,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
       "alwaysOutputData": true,
-      "notes": "user_id=0 means every user, not 'no user'. The lookback is derived from REENGAGE_AFTER_DAYS so a partner cannot go quiet outside the window the workflow can see."
+      "executeOnce": true,
+      "notes": "user_id=0 means every user. Execute Once: the deals node hands over one item per page, and this read must happen once, not once per page."
     },
     {
       "parameters": {
@@ -265,45 +352,46 @@
           ]
         }
       },
-      "id": "fields",
+      "id": "7e29eef1-20b5-4da1-acd9-3cd94e7c7e29",
       "name": "[cred] Pipedrive - deal fields",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1400,
-        0
+        1200,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
       "alwaysOutputData": true,
+      "executeOnce": true,
       "notes": "Field NAMES, which is what the PHI check reads. A custom field's 40-character key says nothing about what is in it."
     },
     {
       "parameters": {
-        "jsCode": "// Folds the three Pipedrive reads into ONE item shaped {deals, activities, deal_fields}.\n//\n// Everything downstream — the guard, the KPIs, the dashboard — reads this shape and never\n// touches a Pipedrive response directly, so the demo pipeline and the real account are\n// interchangeable from here on.\nconst cfg = $('config').first().json;\n\nconst deals = $('[cred] Pipedrive - open deals').first().json || {};\nconst acts = $('[cred] Pipedrive - activities').first().json || {};\nconst fields = $('[cred] Pipedrive - deal fields').first().json || {};\n\n// A Pipedrive call that 402s, times out or is rate-limited comes through here as an object\n// with success:false, or as nothing at all. Say which call failed rather than reporting an\n// empty pipeline as \"every deal is covered\" — that reading is the one dangerous mistake\n// this workflow can make.\nconst failures = [];\nfunction rows(payload, what) {\n  if (!payload || payload.success === false) {\n    failures.push(what + ': ' + (payload && payload.error ? payload.error : 'no response'));\n    return [];\n  }\n  return Array.isArray(payload.data) ? payload.data : [];\n}\n\nconst dealRows = rows(deals, 'deals');\nconst actRows = rows(acts, 'activities');\nconst fieldRows = rows(fields, 'deal fields');\n\nconst stageById = {};\ncfg.stages.forEach(function (s) { stageById[String(s.id)] = s; });\n\nfunction normaliseDeal(d) {\n  const stage = stageById[String(d.stage_id)] || { name: 'Unknown stage', next_type: '',\n    due_in_days: 7, stale_days: 30, subject: 'Next step' };\n  return {\n    id: d.id,\n    title: d.title || ('Deal ' + d.id),\n    stage_id: d.stage_id,\n    stage: stage.name,\n    status: d.status || 'open',\n    value: Number(d.value || 0),\n    currency: d.currency || '',\n    owner_id: (d.user_id && d.user_id.id) || d.user_id || null,\n    owner: (d.user_id && d.user_id.name) || 'Unassigned',\n    org_id: (d.org_id && d.org_id.value) || d.org_id || null,\n    organisation: (d.org_id && d.org_id.name) || d.org_name || '',\n    person_id: (d.person_id && d.person_id.value) || d.person_id || null,\n    person: (d.person_id && d.person_id.name) || d.person_name || '',\n    add_time: d.add_time || null,\n    stage_change_time: d.stage_change_time || d.add_time || null,\n    // Kept whole so the result fields can be read by key later, once the PHI check has\n    // said which keys are allowed.\n    raw: d\n  };\n}\n\nfunction normaliseActivity(a) {\n  return {\n    id: a.id,\n    deal_id: a.deal_id || null,\n    type: a.type || '',\n    subject: a.subject || '',\n    note: a.note || '',\n    done: a.done === true || a.done === 1,\n    due_date: a.due_date || null,\n    due_time: a.due_time || '',\n    marked_done_time: a.marked_done_time || null,\n    add_time: a.add_time || null,\n    owner_id: a.user_id || null\n  };\n}\n\nconst out = {\n  source: 'pipedrive',\n  read_at: new Date().toISOString(),\n  failures: failures,\n  deals: dealRows.filter(function (d) {\n    if (String(d.status || 'open') !== 'open') return false;\n    if (!cfg.pipeline_id) return true;\n    return String(d.pipeline_id) === String(cfg.pipeline_id);\n  }).map(normaliseDeal),\n  activities: actRows.map(normaliseActivity),\n  deal_fields: fieldRows.map(function (f) {\n    return { key: f.key, name: f.name || '' };\n  })\n};\n\n// An empty read that did not error is a real, reportable state. An empty read that DID\n// error must not be allowed to look like one.\nif (failures.length && out.deals.length === 0) {\n  throw new Error('Pipedrive returned nothing usable (' + failures.join('; ') +\n    '). Refusing to report an empty pipeline as fully covered.');\n}\n\nreturn [{ json: out }];"
+        "jsCode": "// Folds every page of the three Pipedrive reads into ONE item shaped\n// {deals, activities, deal_fields, read_ok, failures}.\n//\n// The reads are paginated by the HTTP nodes themselves (500 rows a page, Pipedrive's\n// maximum), so each node hands over one item PER PAGE. Everything downstream — the guard,\n// the KPIs, the dashboard — reads this shape and never touches a Pipedrive response\n// directly, so the demo pipeline and the real account are interchangeable from here on.\n//\n// The one dangerous mistake this workflow can make is reporting a pipeline it failed to\n// read as a pipeline with nothing wrong in it. So a read is only OK when EVERY page came\n// back success:true AND the last page says there is nothing more. A 402, a timeout, a\n// rate limit, or MAX_PAGES cutting the read short all set read_ok = false, and the run is\n// routed to the failure alert instead of the rule.\nconst cfg = $('config').first().json;\n\nconst failures = [];\n\nfunction pagesOf(nodeName) {\n  try { return $(nodeName).all().map(function (i) { return i.json || {}; }); }\n  catch (e) { return []; }\n}\n\nfunction rows(nodeName, what, paginated) {\n  const pages = pagesOf(nodeName);\n  if (!pages.length) { failures.push(what + ': no response'); return []; }\n  const out = [];\n  let bad = 0;\n  pages.forEach(function (p) {\n    if (!p || p.success !== true) {\n      bad++;\n      const msg = p && (p.error && (p.error.message || p.error)) || (p && p.error_info) ||\n        'no usable response';\n      if (bad === 1) failures.push(what + ': ' + String(msg).slice(0, 200));\n      return;\n    }\n    (Array.isArray(p.data) ? p.data : []).forEach(function (r) { out.push(r); });\n  });\n  const last = pages[pages.length - 1] || {};\n  const more = last.additional_data && last.additional_data.pagination &&\n    last.additional_data.pagination.more_items_in_collection === true;\n  if (!bad && more) {\n    failures.push(what + ': stopped at ' + pages.length + ' page(s) with more still to read' +\n      (paginated ? ' — raise MAX_PAGES in config' : ''));\n  }\n  return out;\n}\n\nconst dealRows = rows('[cred] Pipedrive - open deals', 'deals', true);\nconst actRows = rows('[cred] Pipedrive - activities', 'activities', true);\nconst fieldRows = rows('[cred] Pipedrive - deal fields', 'deal fields', false);\n\nconst stageById = {};\ncfg.stages.forEach(function (s) { stageById[String(s.id)] = s; });\n\nfunction normaliseDeal(d) {\n  const stage = stageById[String(d.stage_id)] || { name: 'Unknown stage', next_type: '',\n    due_in_days: 7, stale_days: 30, subject: 'Next step' };\n  return {\n    id: d.id,\n    title: d.title || ('Deal ' + d.id),\n    stage_id: d.stage_id,\n    stage: stage.name,\n    status: d.status || 'open',\n    value: Number(d.value || 0),\n    currency: d.currency || '',\n    owner_id: (d.user_id && d.user_id.id) || d.user_id || null,\n    owner: (d.user_id && d.user_id.name) || 'Unassigned',\n    org_id: (d.org_id && d.org_id.value) || d.org_id || null,\n    organisation: (d.org_id && d.org_id.name) || d.org_name || '',\n    person_id: (d.person_id && d.person_id.value) || d.person_id || null,\n    person: (d.person_id && d.person_id.name) || d.person_name || '',\n    add_time: d.add_time || null,\n    stage_change_time: d.stage_change_time || d.add_time || null,\n    // Kept whole so the result fields can be read by key later, once the PHI check has\n    // said which keys are allowed.\n    raw: d\n  };\n}\n\nfunction normaliseActivity(a) {\n  return {\n    id: a.id,\n    deal_id: a.deal_id || null,\n    type: a.type || '',\n    subject: a.subject || '',\n    note: a.note || '',\n    done: a.done === true || a.done === 1,\n    due_date: a.due_date || null,\n    due_time: a.due_time || '',\n    marked_done_time: a.marked_done_time || null,\n    add_time: a.add_time || null,\n    owner_id: a.user_id || null\n  };\n}\n\n// Pagination by offset can return the same row twice if a deal changes while the pages are\n// being read. De-duplicate by id so a deal is never counted, or acted on, twice.\nfunction uniqueById(list) {\n  const seen = {};\n  return list.filter(function (r) {\n    const k = String(r && r.id);\n    if (seen[k]) return false;\n    seen[k] = true;\n    return true;\n  });\n}\n\nconst deals = uniqueById(dealRows).filter(function (d) {\n  if (String(d.status || 'open') !== 'open') return false;\n  if (!cfg.pipeline_id) return true;\n  return String(d.pipeline_id) === String(cfg.pipeline_id);\n}).map(normaliseDeal);\n\nreturn [{\n  json: {\n    source: 'pipedrive',\n    read_at: new Date().toISOString(),\n    read_ok: failures.length === 0,\n    failures: failures,\n    pages: {\n      deals: pagesOf('[cred] Pipedrive - open deals').length,\n      activities: pagesOf('[cred] Pipedrive - activities').length\n    },\n    deals: deals,\n    activities: uniqueById(actRows).map(normaliseActivity),\n    deal_fields: fieldRows.map(function (f) {\n      return { key: f.key, name: f.name || '' };\n    })\n  }\n}];"
       },
-      "id": "read",
+      "id": "d6f03438-ecca-42b8-a917-3917662bd6f0",
       "name": "read the pipeline",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1680,
-        0
+        1440,
+        140
       ]
     },
     {
       "parameters": {
-        "jsCode": "// STOP: Pipedrive is not configured — build the demo pipeline instead.\n//\n// Deterministic, so the same run produces the same couple of dozen deals every time and a\n// screen-share can be rehearsed. The spread is deliberate: roughly a third of the deals are\n// missing a next activity, a few are overdue rather than missing, one referral partner has\n// gone quiet past the re-engagement threshold, and one high-value deal has stalled — every\n// branch of the guard has something to do.\n//\n// Nothing here can reach Pipedrive: `demo_data` forces the run into preview in config.\nconst cfg = $('config').first().json;\n\nif (cfg.pipedrive_enabled) {\n  throw new Error('demo pipeline reached with Pipedrive configured — check the IF gate');\n}\nif (!cfg.demo_data) {\n  return [{ json: { source: 'none', read_at: new Date().toISOString(), failures: [],\n    deals: [], activities: [], deal_fields: [],\n    _note: 'No API token and DEMO_PIPELINE is off. Nothing to work on.' } }];\n}\n\nconst DAY = 86400000;\nconst now = Date.now();\nfunction iso(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' '); }\nfunction date(ms) { return new Date(ms).toISOString().slice(0, 10); }\n\nconst PRACTICES = [\n  ['Riverbend Pain & Spine', 'Dr. A. Whitfield', 'Pain management'],\n  ['Northgate Neurology Associates', 'Dr. P. Iyer', 'Neurology'],\n  ['Cedar Hollow Orthopaedics', 'Dr. M. Okonkwo', 'Orthopaedics'],\n  ['Lakeshore Rehabilitation Group', 'Dr. S. Duval', 'Physical medicine'],\n  ['Fairview Family Practice', 'Dr. R. Castellanos', 'Primary care'],\n  ['Summit Pain Institute', 'Dr. K. Baruah', 'Pain management'],\n  ['Harbour Point Rheumatology', 'Dr. J. Lindqvist', 'Rheumatology'],\n  ['Westfield Sports Medicine', 'Dr. T. Nakamura', 'Sports medicine']\n];\nconst REPS = [\n  { id: 11, name: 'Dana Reyes' },\n  { id: 12, name: 'Marcus Hale' },\n  { id: 13, name: 'Priya Venn' }\n];\n\n// A tiny deterministic PRNG so the fixture never shifts between runs.\nlet seed = 20260902;\nfunction rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }\nfunction pick(list) { return list[Math.floor(rnd() * list.length)]; }\n\nconst deals = [];\nconst activities = [];\nlet dealId = 3000;\nlet actId = 9000;\n\ncfg.stages.forEach(function (stage, si) {\n  const count = si < 3 ? 4 : 2;   // top of the funnel is wider, as a real pipeline is\n  for (let i = 0; i < count; i++) {\n    const practice = PRACTICES[(si * 3 + i) % PRACTICES.length];\n    const rep = REPS[(si + i) % REPS.length];\n    const age = Math.floor(rnd() * 40) + 2;\n    const id = ++dealId;\n\n    deals.push({\n      id: id,\n      title: practice[0] + ' — CRPS referral network',\n      stage_id: stage.id,\n      stage: stage.name,\n      status: 'open',\n      value: si >= 6 ? 40000 : Math.floor(rnd() * 20000) + 3000,\n      currency: 'USD',\n      owner_id: rep.id,\n      owner: rep.name,\n      org_id: 500 + ((si * 3 + i) % PRACTICES.length),\n      organisation: practice[0],\n      person_id: 700 + ((si * 3 + i) % PRACTICES.length),\n      person: practice[1],\n      add_time: iso(now - age * DAY),\n      stage_change_time: iso(now - Math.floor(age / 2) * DAY),\n      raw: { id: id, specialty: practice[2] }\n    });\n\n    // A past activity, always. This is what \"days quiet\" is measured from.\n    const quiet = Math.floor(rnd() * (stage.stale_days + 20));\n    activities.push({\n      id: ++actId, deal_id: id, type: 'initial_call',\n      subject: 'Outreach call', note: rnd() < 0.35 ? 'No answer, left message' : 'Spoke with the practice manager',\n      done: true, due_date: date(now - quiet * DAY), due_time: '',\n      marked_done_time: iso(now - quiet * DAY), add_time: iso(now - quiet * DAY),\n      owner_id: rep.id\n    });\n\n    // The interesting part: who has a next step and who does not.\n    const roll = rnd();\n    if (roll < 0.34) {\n      // No open activity at all — this is what the guard exists to catch.\n    } else if (roll < 0.5) {\n      // Open but overdue. The guard escalates rather than stacking another task on top.\n      activities.push({\n        id: ++actId, deal_id: id, type: stage.next_type || 'follow_up_call',\n        subject: stage.subject || 'Next step', note: '',\n        done: false, due_date: date(now - (cfg.overdue_days + 2) * DAY), due_time: '09:00',\n        marked_done_time: null, add_time: iso(now - 10 * DAY), owner_id: rep.id\n      });\n    } else if (roll < 0.6) {\n      // Open, but parked so far out it is not a next step in any meaningful sense.\n      activities.push({\n        id: ++actId, deal_id: id, type: 'follow_up_call',\n        subject: 'Check back next year', note: '',\n        done: false, due_date: date(now + (cfg.horizon_days + 60) * DAY), due_time: '09:00',\n        marked_done_time: null, add_time: iso(now - 3 * DAY), owner_id: rep.id\n      });\n    } else {\n      // Properly covered.\n      activities.push({\n        id: ++actId, deal_id: id, type: stage.next_type || 'follow_up_call',\n        subject: stage.subject || 'Next step', note: '',\n        done: false, due_date: date(now + Math.floor(rnd() * 10 + 1) * DAY), due_time: '10:00',\n        marked_done_time: null, add_time: iso(now - 2 * DAY), owner_id: rep.id\n      });\n    }\n  }\n});\n\n// One referral partner that has gone quiet well past the re-engagement threshold, built\n// explicitly rather than left to the random spread — the re-engagement branch has to have\n// something to do every single time this is demonstrated.\nconst quietStage = cfg.stages.filter(function (s) {\n  return cfg.partner_stages.indexOf(s.name) !== -1;\n}).pop() || cfg.stages[cfg.stages.length - 1];\nconst quietAge = cfg.reengage_after_days + 15;\nconst quietId = ++dealId;\ndeals.push({\n  id: quietId,\n  title: 'Marchetti Interventional Pain — CRPS referral network',\n  stage_id: quietStage.id,\n  stage: quietStage.name,\n  status: 'open',\n  value: 38000,\n  currency: 'USD',\n  owner_id: REPS[0].id,\n  owner: REPS[0].name,\n  org_id: 599,\n  organisation: 'Marchetti Interventional Pain',\n  person_id: 799,\n  person: 'Dr. L. Marchetti',\n  add_time: iso(now - 400 * DAY),\n  stage_change_time: iso(now - 300 * DAY),\n  raw: { id: quietId, specialty: 'Pain management' }\n});\nactivities.push({\n  id: ++actId, deal_id: quietId, type: 'referral_follow_up',\n  subject: 'Referral check-in', note: 'Practice has not referred since the spring',\n  done: true, due_date: date(now - quietAge * DAY), due_time: '',\n  marked_done_time: iso(now - quietAge * DAY), add_time: iso(now - quietAge * DAY),\n  owner_id: REPS[0].id\n});\n\n// Activity inside the reporting window, so the weekly dashboard has real numbers rather\n// than the two that happen to fall inside seven days by chance. Roughly a third of these\n// are no-answers, which is what makes \"attempts\" and \"conversations\" different columns.\ndeals.forEach(function (d, i) {\n  if (d.id === quietId) return;   // the whole point of that one is that it is quiet\n  if (i % 2 !== 0) return;\n  const daysAgo = (i % Number(cfg.report_window_days || 7));\n  const noAnswer = i % 3 === 0;\n  activities.push({\n    id: ++actId, deal_id: d.id,\n    type: i % 4 === 0 ? 'follow_up_call' : 'email',\n    subject: i % 4 === 0 ? 'Follow-up call' : 'Study information email',\n    note: noAnswer ? 'No answer, left message with the front desk'\n                   : 'Spoke with the practice manager about the CRPS protocol',\n    done: true, due_date: date(now - daysAgo * DAY), due_time: '',\n    marked_done_time: iso(now - daysAgo * DAY), add_time: iso(now - daysAgo * DAY),\n    owner_id: d.owner_id\n  });\n  if (i % 6 === 0) {\n    activities.push({\n      id: ++actId, deal_id: d.id, type: 'physician_meeting',\n      subject: 'Physician meeting', note: 'Reviewed inclusion criteria',\n      done: true, due_date: date(now - daysAgo * DAY), due_time: '',\n      marked_done_time: iso(now - daysAgo * DAY), add_time: iso(now - daysAgo * DAY),\n      owner_id: d.owner_id\n    });\n  }\n});\n\nreturn [{\n  json: {\n    source: 'demo',\n    read_at: new Date().toISOString(),\n    failures: [],\n    deals: deals,\n    activities: activities,\n    // Field names only, which is all the PHI check needs. Deliberately clean — see the\n    // README for how to prove the check bites by pointing a config key at a bad field.\n    deal_fields: [\n      { key: 'title', name: 'Title' },\n      { key: 'value', name: 'Value' },\n      { key: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', name: 'Specialty' },\n      { key: 'b2c3d4e5f60718293a4b5c6d7e8f90123456789a', name: 'Territory' },\n      { key: 'c3d4e5f60718293a4b5c6d7e8f90123456789ab2', name: 'Study code' },\n      { key: 'd4e5f60718293a4b5c6d7e8f90123456789ab2c3', name: 'Referrals sent (count)' }\n    ],\n    _note: 'DEMO PIPELINE — ' + deals.length + ' fabricated deals. The run is forced into ' +\n           'preview; nothing here can reach a Pipedrive account.'\n  }\n}];"
+        "jsCode": "// STOP: Pipedrive is not configured — build the demo pipeline instead.\n//\n// Deterministic, so the same run produces the same couple of dozen deals every time and a\n// screen-share can be rehearsed. The spread is deliberate: roughly a third of the deals are\n// missing a next activity, a few are overdue rather than missing, one referral partner has\n// gone quiet past the re-engagement threshold, and one high-value deal has stalled — every\n// branch of the guard has something to do.\n//\n// Nothing here can reach Pipedrive: `demo_data` forces the run into preview in config.\nconst cfg = $('config').first().json;\n\nif (cfg.pipedrive_enabled) {\n  throw new Error('demo pipeline reached with Pipedrive configured — check the IF gate');\n}\nif (!cfg.demo_data) {\n  return [{ json: { source: 'none', read_at: new Date().toISOString(), read_ok: true, failures: [],\n    deals: [], activities: [], deal_fields: [],\n    _note: 'No API token and DEMO_PIPELINE is off. Nothing to work on.' } }];\n}\n\nconst DAY = 86400000;\nconst now = Date.now();\nfunction iso(ms) { return new Date(ms).toISOString().slice(0, 19).replace('T', ' '); }\nfunction date(ms) { return new Date(ms).toISOString().slice(0, 10); }\n\nconst PRACTICES = [\n  ['Riverbend Pain & Spine', 'Dr. A. Whitfield', 'Pain management'],\n  ['Northgate Neurology Associates', 'Dr. P. Iyer', 'Neurology'],\n  ['Cedar Hollow Orthopaedics', 'Dr. M. Okonkwo', 'Orthopaedics'],\n  ['Lakeshore Rehabilitation Group', 'Dr. S. Duval', 'Physical medicine'],\n  ['Fairview Family Practice', 'Dr. R. Castellanos', 'Primary care'],\n  ['Summit Pain Institute', 'Dr. K. Baruah', 'Pain management'],\n  ['Harbour Point Rheumatology', 'Dr. J. Lindqvist', 'Rheumatology'],\n  ['Westfield Sports Medicine', 'Dr. T. Nakamura', 'Sports medicine']\n];\nconst REPS = [\n  { id: 11, name: 'Dana Reyes' },\n  { id: 12, name: 'Marcus Hale' },\n  { id: 13, name: 'Priya Venn' }\n];\n\n// A tiny deterministic PRNG so the fixture never shifts between runs.\nlet seed = 20260902;\nfunction rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }\nfunction pick(list) { return list[Math.floor(rnd() * list.length)]; }\n\nconst deals = [];\nconst activities = [];\nconst managerTierIds = [];\nlet dealId = 3000;\nlet actId = 9000;\n\ncfg.stages.forEach(function (stage, si) {\n  const count = si < 3 ? 4 : 2;   // top of the funnel is wider, as a real pipeline is\n  for (let i = 0; i < count; i++) {\n    const practice = PRACTICES[(si * 3 + i) % PRACTICES.length];\n    const rep = REPS[(si + i) % REPS.length];\n    const age = Math.floor(rnd() * 40) + 2;\n    const id = ++dealId;\n\n    deals.push({\n      id: id,\n      title: practice[0] + ' — CRPS referral network',\n      stage_id: stage.id,\n      stage: stage.name,\n      status: 'open',\n      value: si >= 6 ? 40000 : Math.floor(rnd() * 20000) + 3000,\n      currency: 'USD',\n      owner_id: rep.id,\n      owner: rep.name,\n      org_id: 500 + ((si * 3 + i) % PRACTICES.length),\n      organisation: practice[0],\n      person_id: 700 + ((si * 3 + i) % PRACTICES.length),\n      person: practice[1],\n      add_time: iso(now - age * DAY),\n      stage_change_time: iso(now - Math.floor(age / 2) * DAY),\n      raw: { id: id, specialty: practice[2] }\n    });\n\n    // A past activity, always. This is what \"days quiet\" is measured from.\n    const quiet = Math.floor(rnd() * (stage.stale_days + 20));\n    activities.push({\n      id: ++actId, deal_id: id, type: 'initial_call',\n      subject: 'Outreach call', note: rnd() < 0.35 ? 'No answer, left message' : 'Spoke with the practice manager',\n      done: true, due_date: date(now - quiet * DAY), due_time: '',\n      marked_done_time: iso(now - quiet * DAY), add_time: iso(now - quiet * DAY),\n      owner_id: rep.id\n    });\n\n    // The interesting part: who has a next step and who does not.\n    const roll = rnd();\n    if (roll < 0.34) {\n      // No open activity at all — this is what the guard exists to catch.\n    } else if (roll < 0.5) {\n      // Open but overdue. The guard escalates rather than stacking another task on top.\n      // Odd deal ids are a few days late (owner tier); even ones are two weeks late\n      // (manager tier), so both escalation tiers have something to do.\n      const lateDays = id % 2 === 0 ? cfg.manager_after_days * 2 : cfg.overdue_days + 2;\n      if (id % 2 === 0) managerTierIds.push(id);\n      activities.push({\n        id: ++actId, deal_id: id, type: stage.next_type || 'follow_up_call',\n        subject: stage.subject || 'Next step', note: '',\n        done: false, due_date: date(now - lateDays * DAY), due_time: '09:00',\n        marked_done_time: null, add_time: iso(now - 10 * DAY), owner_id: rep.id\n      });\n    } else if (roll < 0.6) {\n      // Open, but parked so far out it is not a next step in any meaningful sense.\n      activities.push({\n        id: ++actId, deal_id: id, type: 'follow_up_call',\n        subject: 'Check back next year', note: '',\n        done: false, due_date: date(now + (cfg.horizon_days + 60) * DAY), due_time: '09:00',\n        marked_done_time: null, add_time: iso(now - 3 * DAY), owner_id: rep.id\n      });\n    } else {\n      // Properly covered.\n      activities.push({\n        id: ++actId, deal_id: id, type: stage.next_type || 'follow_up_call',\n        subject: stage.subject || 'Next step', note: '',\n        done: false, due_date: date(now + Math.floor(rnd() * 10 + 1) * DAY), due_time: '10:00',\n        marked_done_time: null, add_time: iso(now - 2 * DAY), owner_id: rep.id\n      });\n    }\n  }\n});\n\n// One referral partner that has gone quiet well past the re-engagement threshold, built\n// explicitly rather than left to the random spread — the re-engagement branch has to have\n// something to do every single time this is demonstrated.\nconst quietStage = cfg.stages.filter(function (s) {\n  return cfg.partner_stages.indexOf(s.name) !== -1;\n}).pop() || cfg.stages[cfg.stages.length - 1];\nconst quietAge = cfg.reengage_after_days + 15;\nconst quietId = ++dealId;\ndeals.push({\n  id: quietId,\n  title: 'Marchetti Interventional Pain — CRPS referral network',\n  stage_id: quietStage.id,\n  stage: quietStage.name,\n  status: 'open',\n  value: 38000,\n  currency: 'USD',\n  owner_id: REPS[0].id,\n  owner: REPS[0].name,\n  org_id: 599,\n  organisation: 'Marchetti Interventional Pain',\n  person_id: 799,\n  person: 'Dr. L. Marchetti',\n  add_time: iso(now - 400 * DAY),\n  stage_change_time: iso(now - 300 * DAY),\n  raw: { id: quietId, specialty: 'Pain management' }\n});\nactivities.push({\n  id: ++actId, deal_id: quietId, type: 'referral_follow_up',\n  subject: 'Referral check-in', note: 'Practice has not referred since the spring',\n  done: true, due_date: date(now - quietAge * DAY), due_time: '',\n  marked_done_time: iso(now - quietAge * DAY), add_time: iso(now - quietAge * DAY),\n  owner_id: REPS[0].id\n});\n\n// Activity inside the reporting window, so the weekly dashboard has real numbers rather\n// than the two that happen to fall inside seven days by chance. Roughly a third of these\n// are no-answers, which is what makes \"attempts\" and \"conversations\" different columns.\ndeals.forEach(function (d, i) {\n  if (d.id === quietId) return;   // the whole point of that one is that it is quiet\n  if (i % 2 !== 0) return;\n  const daysAgo = (i % Number(cfg.report_window_days || 7));\n  const noAnswer = i % 3 === 0;\n  activities.push({\n    id: ++actId, deal_id: d.id,\n    type: i % 4 === 0 ? 'follow_up_call' : 'email',\n    subject: i % 4 === 0 ? 'Follow-up call' : 'Study information email',\n    note: noAnswer ? 'No answer, left message with the front desk'\n                   : 'Spoke with the practice manager about the CRPS protocol',\n    done: true, due_date: date(now - daysAgo * DAY), due_time: '',\n    marked_done_time: iso(now - daysAgo * DAY), add_time: iso(now - daysAgo * DAY),\n    owner_id: d.owner_id\n  });\n  if (i % 6 === 0) {\n    activities.push({\n      id: ++actId, deal_id: d.id, type: 'physician_meeting',\n      subject: 'Physician meeting', note: 'Reviewed inclusion criteria',\n      done: true, due_date: date(now - daysAgo * DAY), due_time: '',\n      marked_done_time: iso(now - daysAgo * DAY), add_time: iso(now - daysAgo * DAY),\n      owner_id: d.owner_id\n    });\n  }\n});\n\n// The guard's memory, seeded so the demo shows de-duplication on its very first run:\n// one manager-tier deal was escalated yesterday (not repeated today), one was escalated\n// nine days ago and is still open (a reminder), and one has since been resolved.\nconst byId = {};\ndeals.forEach(function (d) { byId[d.id] = d; });\nconst demoMemory = { escalated: {}, runs: [\n  { date: date(now - 8 * DAY), coverage_pct: 41, uncovered: 14, overdue: 6 },\n  { date: date(now - 1 * DAY), coverage_pct: 48, uncovered: 13, overdue: 5 }\n] };\nif (managerTierIds[0]) {\n  demoMemory.escalated[managerTierIds[0]] = { first: date(now - DAY), last: date(now - DAY),\n    organisation: byId[managerTierIds[0]].organisation };\n}\nif (managerTierIds[1]) {\n  demoMemory.escalated[managerTierIds[1]] = { first: date(now - 9 * DAY),\n    last: date(now - 9 * DAY), organisation: byId[managerTierIds[1]].organisation };\n}\ndemoMemory.escalated['999'] = { first: date(now - 6 * DAY), last: date(now - 6 * DAY),\n  organisation: 'Old Mill Pain Clinic' };\n\n// Last week's Dashboard row, as workflow 02 would read it back from the sheet, so the\n// week-over-week comparison has something to compare with before a sheet exists.\nconst demoBaseline = {\n  run_at: iso(now - 7 * DAY), open_deals: deals.length - 2, covered: 10, gaps: 11,\n  coverage_pct: 48, overdue: 7, outreach_attempts: 9, conversations: 3, meetings: 1,\n  new_partners: 0, active_partners: null, stalled: 9, high_priority: 3\n};\n\nreturn [{\n  json: {\n    source: 'demo',\n    read_at: new Date().toISOString(),\n    read_ok: true,\n    failures: [],\n    _demo_memory: demoMemory,\n    _demo_baseline: demoBaseline,\n    deals: deals,\n    activities: activities,\n    // Field names only, which is all the PHI check needs. Deliberately clean — see the\n    // README for how to prove the check bites by pointing a config key at a bad field.\n    deal_fields: [\n      { key: 'title', name: 'Title' },\n      { key: 'value', name: 'Value' },\n      { key: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', name: 'Specialty' },\n      { key: 'b2c3d4e5f60718293a4b5c6d7e8f90123456789a', name: 'Territory' },\n      { key: 'c3d4e5f60718293a4b5c6d7e8f90123456789ab2', name: 'Study code' },\n      { key: 'd4e5f60718293a4b5c6d7e8f90123456789ab2c3', name: 'Referrals sent (count)' }\n    ],\n    _note: 'DEMO PIPELINE — ' + deals.length + ' fabricated deals. The run is forced into ' +\n           'preview; nothing here can reach a Pipedrive account.'\n  }\n}];"
       },
-      "id": "demo",
+      "id": "bb633ac2-d20f-4222-a4db-a4db19b1bb63",
       "name": "STOP: demo pipeline",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        840,
-        190
+        960,
+        460
       ]
     },
     {
@@ -311,52 +399,13 @@
         "mode": "append",
         "numberInputs": 2
       },
-      "id": "merge-pipe",
+      "id": "579f189b-baee-462b-adbc-5dbc6e02579f",
       "name": "one pipeline",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        1960,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// The compliance requirement, enforced rather than documented.\n//\n// \"Do not create fields for identifiable patient medical information, diagnoses,\n//  medications, screening responses, medical records or other patient PHI.\"\n//\n// Two different things can go wrong, and they deserve two different reactions:\n//\n//   1. The CRM already contains a field whose NAME looks like PHI. That is not this\n//      workflow's doing. It is reported, loudly, in every run summary — and the field is\n//      added to a blocklist so nothing here ever reads it.\n//\n//   2. This workflow is CONFIGURED to read one of those fields. That is our mistake, and\n//      the run stops. A misconfiguration that quietly copies a diagnosis into a dashboard\n//      is exactly the failure this requirement exists to prevent.\n//\n// Aggregate recruitment results — counts of referrals, screens, enrolments — are in scope\n// and are not caught by this: a number of patients is not a patient.\nconst cfg = $('config').first().json;\nconst pipeline = $json;\n\nconst words = cfg.forbidden_field_words || [];\nconst fields = pipeline.deal_fields || [];\n\nfunction looksLikePhi(name) {\n  const n = String(name || '').toLowerCase();\n  for (let i = 0; i < words.length; i++) {\n    const w = words[i];\n    // Short keys like 'dob', 'mrn', 'phi' and 'ssn' are matched as whole words, so a field\n    // called \"Method of introduction\" is not flagged for containing \"dob\"... it does not,\n    // but \"Doctor of birth cohort\" style names and abbreviations inside longer words are a\n    // real source of false positives, and a check that cries wolf gets switched off.\n    const whole = w.length <= 4;\n    const hit = whole\n      ? new RegExp('(^|[^a-z])' + w + '([^a-z]|$)').test(n)\n      : n.indexOf(w) !== -1;\n    if (hit) return w;\n  }\n  return '';\n}\n\nconst violations = [];\nconst blocked = {};\nfields.forEach(function (f) {\n  const word = looksLikePhi(f.name);\n  if (word) {\n    blocked[f.key] = true;\n    violations.push({ key: f.key, name: f.name, matched: word });\n  }\n});\n\n// The second check: is this workflow pointed at one of them?\nconst misconfigured = [];\n(cfg.touched_fields || []).forEach(function (t) {\n  const field = fields.filter(function (f) { return f.key === t.key; })[0];\n  const name = field ? field.name : '';\n  const word = looksLikePhi(name || t.name);\n  if (word) {\n    misconfigured.push(t.role + '.' + t.name + ' -> \"' + (name || t.key) +\n      '\" (matched \"' + word + '\")');\n  }\n});\n\nif (misconfigured.length) {\n  throw new Error(\n    'PHI boundary: this workflow is configured to read ' + misconfigured.length +\n    ' field(s) that look like patient clinical data — ' + misconfigured.join('; ') +\n    '. Pipedrive is the physician/practice CRM, not the patient database. Fix ' +\n    'RESULT_FIELDS / CONTEXT_FIELDS in config before running again.');\n}\n\n// Which result fields are actually captured. A blank key is reported as \"not captured\",\n// never as a zero — a zero is a finding, an absence is a gap in the CRM setup.\nconst resultFields = {};\nconst notCaptured = [];\nObject.keys(cfg.result_fields || {}).forEach(function (name) {\n  const key = String(cfg.result_fields[name] || '').trim();\n  if (!key) { notCaptured.push(name); return; }\n  if (blocked[key]) { notCaptured.push(name + ' (blocked: field name looks like PHI)'); return; }\n  resultFields[name] = key;\n});\n\nreturn [{\n  json: Object.assign({}, pipeline, {\n    phi_violations: violations,\n    phi_blocked_keys: Object.keys(blocked),\n    result_field_keys: resultFields,\n    results_not_captured: notCaptured,\n    phi_ok: true\n  })\n}];"
-      },
-      "id": "phi",
-      "name": "check the PHI boundary",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2240,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// THE RULE: no open opportunity should exist without a next activity.\n//\n// Fans the one pipeline item out into one item per open deal, each carrying the verdict.\n// A deal is COVERED when it has at least one activity that is:\n//\n//   - not done, and\n//   - due on or before HORIZON_DAYS from today.\n//\n// The horizon is the part that matters. Without it, \"next activity\" is satisfied by a task\n// parked eleven months out, and the report says 100% while the pipeline rots. With it, a\n// parked task reads as uncovered, which is the truth.\nconst cfg = $('config').first().json;\nconst pipeline = $json;\n\nconst DAY = 86400000;\nconst now = Date.now();\nconst horizon = now + Number(cfg.horizon_days || 45) * DAY;\nconst graceFrom = now - Number(cfg.grace_hours || 0) * 3600000;\nconst overdueBefore = now - Number(cfg.overdue_days || 0) * DAY;\n\nfunction parseDate(d, t) {\n  if (!d) return null;\n  const stamp = String(d).slice(0, 10) + 'T' + (String(t || '').slice(0, 5) || '00:00') + ':00Z';\n  const ms = Date.parse(stamp);\n  return isNaN(ms) ? null : ms;\n}\n\nfunction parseStamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s).replace(' ', 'T') + (String(s).indexOf('Z') === -1 ? 'Z' : ''));\n  return isNaN(ms) ? null : ms;\n}\n\nconst byDeal = {};\n(pipeline.activities || []).forEach(function (a) {\n  if (!a.deal_id) return;\n  const k = String(a.deal_id);\n  if (!byDeal[k]) byDeal[k] = [];\n  byDeal[k].push(a);\n});\n\nconst stageByName = {};\n(cfg.stages || []).forEach(function (s) { stageByName[s.name] = s; });\n\nconst out = [];\nlet covered = 0;\nlet uncovered = 0;\nlet parked = 0;\nlet overdueOnly = 0;\n\n(pipeline.deals || []).forEach(function (deal) {\n  const acts = byDeal[String(deal.id)] || [];\n  const open = acts.filter(function (a) { return !a.done; });\n\n  let nextDue = null;\n  let parkedDue = null;\n  let overdueDue = null;\n  open.forEach(function (a) {\n    const due = parseDate(a.due_date, a.due_time);\n    if (due === null) return;\n    if (due <= horizon) {\n      if (nextDue === null || due < nextDue) nextDue = due;\n      if (due < overdueBefore && (overdueDue === null || due < overdueDue)) overdueDue = due;\n    } else if (parkedDue === null || due < parkedDue) {\n      parkedDue = due;\n    }\n  });\n\n  // An activity with no due date at all is not a next step either — it never surfaces on\n  // anyone's day. Counted with the parked ones.\n  const undated = open.filter(function (a) { return !a.due_date; }).length;\n  if (undated && parkedDue === null) parkedDue = horizon + DAY;\n\n  const done = acts.filter(function (a) { return a.done; })\n    .map(function (a) { return parseStamp(a.marked_done_time) || parseDate(a.due_date, a.due_time); })\n    .filter(function (ms) { return ms !== null; })\n    .sort(function (a, b) { return b - a; });\n  const lastActivity = done.length ? done[0] : parseStamp(deal.add_time);\n  const daysQuiet = lastActivity ? Math.floor((now - lastActivity) / DAY) : null;\n\n  const stage = stageByName[deal.stage] || {};\n  const added = parseStamp(deal.add_time);\n  const inGrace = added !== null && added > graceFrom;\n\n  const isCovered = nextDue !== null;\n  if (isCovered) covered++; else uncovered++;\n  if (!isCovered && parkedDue !== null) parked++;\n  if (isCovered && overdueDue !== null) overdueOnly++;\n\n  out.push({\n    json: Object.assign({}, deal, {\n      _has_gaps: true,\n      covered: isCovered,\n      in_grace: inGrace,\n      next_due: nextDue ? new Date(nextDue).toISOString().slice(0, 10) : '',\n      parked_due: parkedDue ? new Date(parkedDue).toISOString().slice(0, 10) : '',\n      overdue_due: overdueDue ? new Date(overdueDue).toISOString().slice(0, 10) : '',\n      overdue: overdueDue !== null,\n      open_activities: open.length,\n      last_activity: lastActivity ? new Date(lastActivity).toISOString().slice(0, 10) : '',\n      days_quiet: daysQuiet,\n      stale: daysQuiet !== null && daysQuiet >= Number(stage.stale_days || 30),\n      high_priority: Number(deal.value || 0) >= Number(cfg.high_priority_value || 0),\n      _pipeline: {\n        read_at: pipeline.read_at, source: pipeline.source,\n        phi_violations: pipeline.phi_violations || [],\n        results_not_captured: pipeline.results_not_captured || []\n      }\n    })\n  });\n});\n\nconst totals = {\n  open_deals: (pipeline.deals || []).length,\n  covered: covered,\n  uncovered: uncovered,\n  parked: parked,\n  overdue_but_covered: overdueOnly\n};\n\n// Every open deal already has a real next step. That is the outcome the rule exists to\n// produce, and it still needs a run summary — silence would be indistinguishable from a\n// workflow that stopped working.\nif (!out.length || uncovered === 0) {\n  return [{\n    json: {\n      _has_gaps: false,\n      totals: totals,\n      source: pipeline.source,\n      read_at: pipeline.read_at,\n      phi_violations: pipeline.phi_violations || [],\n      results_not_captured: pipeline.results_not_captured || [],\n      _note: out.length\n        ? 'Every one of ' + totals.open_deals + ' open deals has an activity due within ' +\n          cfg.horizon_days + ' days.'\n        : 'No open deals in this pipeline.'\n    }\n  }];\n}\n\nout.forEach(function (item) { item.json._totals = totals; });\nreturn out;"
-      },
-      "id": "verdict",
-      "name": "check every deal for a next activity",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2520,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// The management dashboard, computed once per run.\n//\n// Pipedrive Insights already counts deals by stage and activities by type. What it cannot\n// do is the recruitment funnel, because that spans three objects and a set of aggregate\n// custom fields: outreach -> conversation -> meeting -> referral partner -> referrals ->\n// pre-screen -> site -> screened -> randomised. That funnel is this node.\n//\n// Two rules run through all of it:\n//\n//   A number that is not captured is reported as \"not captured\", never as zero. A zero\n//   means the practice referred nobody; a blank means nobody wired the field up. Printing\n//   the second as the first is how a dashboard loses a manager's trust in week two.\n//\n//   Nothing here reads a field the PHI check blocked. Counts only — a number of patients\n//   is not a patient.\nconst cfg = $('config').first().json;\nconst items = $input.all().map(function (i) { return i.json; });\n\nconst DAY = 86400000;\nconst now = Date.now();\nconst windowStart = now - Number(cfg.report_window_days || 7) * DAY;\nconst runAt = new Date().toISOString().slice(0, 19).replace('T', ' ');\n\nconst clean = items.filter(function (j) { return j._has_gaps === false; })[0];\nconst deals = items.filter(function (j) { return j._has_gaps !== false && j.id; });\nconst pipeline = (deals[0] && deals[0]._pipeline) || {\n  read_at: clean && clean.read_at, source: clean && clean.source,\n  phi_violations: (clean && clean.phi_violations) || [],\n  results_not_captured: (clean && clean.results_not_captured) || []\n};\n\n// Activities have to be re-read from the pipeline item: the per-deal fan-out above carries\n// verdicts, not the raw activity list.\nconst upstream = $('check the PHI boundary').first().json;\nconst activities = upstream.activities || [];\nconst resultKeys = upstream.result_field_keys || {};\nconst notCaptured = upstream.results_not_captured || [];\n\nfunction stamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s).replace(' ', 'T') +\n    (String(s).indexOf('Z') === -1 ? 'Z' : ''));\n  return isNaN(ms) ? null : ms;\n}\n\nfunction inWindow(a) {\n  const t = stamp(a.marked_done_time) || stamp(a.add_time);\n  return t !== null && t >= windowStart;\n}\n\nconst noAnswer = cfg.no_answer_words || [];\nfunction isConversation(a) {\n  if (!a.done) return false;\n  if (cfg.conversation_types.indexOf(a.type) === -1) return false;\n  const text = (String(a.subject || '') + ' ' + String(a.note || '')).toLowerCase();\n  for (let i = 0; i < noAnswer.length; i++) {\n    if (text.indexOf(noAnswer[i]) !== -1) return false;\n  }\n  return true;\n}\n\nconst dealById = {};\ndeals.forEach(function (d) { dealById[String(d.id)] = d; });\n\n// ------------------------------------------------------------------ activity-based counts\nconst recent = activities.filter(inWindow);\nconst outreach = recent.filter(function (a) {\n  return a.done && cfg.outreach_types.indexOf(a.type) !== -1;\n});\nconst conversations = recent.filter(isConversation);\nconst meetings = recent.filter(function (a) {\n  return a.done && cfg.meeting_types.indexOf(a.type) !== -1;\n});\nconst overdue = activities.filter(function (a) {\n  if (a.done || !a.due_date) return false;\n  const due = Date.parse(String(a.due_date).slice(0, 10) + 'T00:00:00Z');\n  return !isNaN(due) && due < now - Number(cfg.overdue_days || 0) * DAY;\n});\n\n// ------------------------------------------------------------------ result-field counts\n// A deal contributes a number only when the field is configured AND present on the deal.\nfunction resultOf(deal, name) {\n  const key = resultKeys[name];\n  if (!key) return null;\n  const raw = deal.raw ? deal.raw[key] : undefined;\n  if (raw === undefined || raw === null || raw === '') return null;\n  const n = Number(raw);\n  return isNaN(n) ? null : n;\n}\n\nconst RESULTS = ['referrals_sent', 'prescreen_qualified', 'sent_to_site', 'screened',\n  'randomized'];\nconst totals = {};\nconst captured = {};\nRESULTS.forEach(function (r) { totals[r] = 0; captured[r] = 0; });\n\ndeals.forEach(function (d) {\n  RESULTS.forEach(function (r) {\n    const v = resultOf(d, r);\n    if (v !== null) { totals[r] += v; captured[r]++; }\n  });\n});\n\nfunction reported(r) { return captured[r] > 0 ? totals[r] : null; }\nfunction pct(a, b) {\n  if (a === null || b === null || !b) return null;\n  return Math.round((a / b) * 100);\n}\n\n// ------------------------------------------------------------------ deal-based counts\nconst open = deals.length;\nconst covered = deals.filter(function (d) { return d.covered; }).length;\nconst gaps = deals.filter(function (d) { return !d.covered; });\nconst stalled = deals.filter(function (d) { return d.stale; });\nconst partners = deals.filter(function (d) {\n  return cfg.partner_stages.indexOf(d.stage) !== -1;\n});\nconst newPartners = partners.filter(function (d) {\n  const t = stamp(d.stage_change_time);\n  return t !== null && t >= windowStart;\n});\nconst activePartners = partners.filter(function (d) {\n  const v = resultOf(d, 'referrals_sent');\n  return v !== null && v > 0;\n});\n\n// ------------------------------------------------------------------ by rep\nconst byRep = {};\ndeals.forEach(function (d) {\n  const k = d.owner || 'Unassigned';\n  if (!byRep[k]) {\n    byRep[k] = { rep: k, open_deals: 0, gaps: 0, overdue: 0, outreach_attempts: 0,\n      conversations: 0, meetings: 0, new_partners: 0, referrals_sent: 0,\n      referrals_captured: 0 };\n  }\n  const r = byRep[k];\n  r.open_deals++;\n  if (!d.covered) r.gaps++;\n  if (cfg.partner_stages.indexOf(d.stage) !== -1 &&\n      stamp(d.stage_change_time) >= windowStart) r.new_partners++;\n  const v = resultOf(d, 'referrals_sent');\n  if (v !== null) { r.referrals_sent += v; r.referrals_captured++; }\n});\n\nfunction repOf(activity) {\n  const d = dealById[String(activity.deal_id)];\n  return d ? (d.owner || 'Unassigned') : null;\n}\noutreach.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.outreach_attempts++; });\nconversations.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.conversations++; });\nmeetings.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.meetings++; });\noverdue.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.overdue++; });\n\n// ------------------------------------------------------------------ by practice\nconst byPractice = deals.map(function (d) {\n  const row = { organisation: d.organisation || d.title, stage: d.stage,\n    owner: d.owner, last_referral: '' };\n  RESULTS.forEach(function (r) {\n    const v = resultOf(d, r);\n    row[r] = v === null ? '' : v;\n  });\n  const acts = activities.filter(function (a) {\n    return String(a.deal_id) === String(d.id) && a.done &&\n      a.type === cfg.activity_types.referral_follow_up;\n  }).map(function (a) { return stamp(a.marked_done_time); })\n    .filter(function (t) { return t !== null; }).sort(function (a, b) { return b - a; });\n  row.last_referral = acts.length ? new Date(acts[0]).toISOString().slice(0, 10) : '';\n  return row;\n}).sort(function (a, b) { return Number(b.referrals_sent || 0) - Number(a.referrals_sent || 0); });\n\nreturn [{\n  json: {\n    run_at: runAt,\n    window_days: Number(cfg.report_window_days || 7),\n    source: pipeline.source,\n    phi_violations: pipeline.phi_violations || [],\n    results_not_captured: notCaptured,\n\n    open_deals: open,\n    covered: covered,\n    gaps: gaps.length,\n    coverage_pct: open ? Math.round((covered / open) * 100) : 100,\n    overdue: overdue.length,\n\n    outreach_attempts: outreach.length,\n    conversations: conversations.length,\n    meetings: meetings.length,\n    new_partners: newPartners.length,\n    active_partners: activePartners.length,\n\n    referrals_sent: reported('referrals_sent'),\n    prescreen_qualified: reported('prescreen_qualified'),\n    sent_to_site: reported('sent_to_site'),\n    screened: reported('screened'),\n    randomized: reported('randomized'),\n    referral_to_screen: pct(reported('screened'), reported('referrals_sent')),\n    screen_to_random: pct(reported('randomized'), reported('screened')),\n\n    stalled: stalled.length,\n    high_priority: stalled.filter(function (d) { return d.high_priority; }).length,\n\n    gap_rows: gaps.map(function (d) {\n      return { deal_id: d.id, deal: d.title, organisation: d.organisation,\n        person: d.person, stage: d.stage, owner: d.owner, value: d.value,\n        last_activity: d.last_activity, days_quiet: d.days_quiet,\n        action: d.parked_due ? 'only activity parked at ' + d.parked_due\n          : 'no open activity' };\n    }).sort(function (a, b) { return Number(b.days_quiet || 0) - Number(a.days_quiet || 0); }),\n    by_rep: Object.keys(byRep).map(function (k) { return byRep[k]; })\n      .sort(function (a, b) { return b.open_deals - a.open_deals; }),\n    by_practice: byPractice\n  }\n}];"
-      },
-      "id": "kpis",
-      "name": "compute the KPIs",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2800,
-        0
+        1680,
+        300
       ]
     },
     {
@@ -370,8 +419,8 @@
           },
           "conditions": [
             {
-              "id": "sheet-on-c",
-              "leftValue": "={{ $('config').first().json.sheet_enabled }}",
+              "id": "3898855d-4578-4a4d-a5e9-a5e9cef83898",
+              "leftValue": "={{ $json.read_ok === true }}",
               "rightValue": "true",
               "operator": {
                 "type": "boolean",
@@ -385,26 +434,320 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "sheet-on",
+      "id": "51186b89-4525-4ab9-af98-af983c045118",
+      "name": "read succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Pipedrive read failed, or was cut short. This is NOT a quiet day, and it must never\n// look like one.\n//\n// Without this branch the guard's worst failure is invisible: a 401 or a rate limit comes\n// back as an empty list, the rule finds \"no uncovered deals\", and the summary says the\n// pipeline is fully covered. So a failed read gets its own message, naming the call that\n// failed and what Pipedrive said, and the run then ends as a FAILED execution so n8n's\n// own error workflow (if you have one) sees it too.\nconst cfg = $('config').first().json;\nconst p = $json;\nconst failures = p.failures || ['unknown read failure'];\n\nconst lines = [];\nlines.push(':x: *Pipedrive read FAILED — the rule was not checked today*');\nfailures.forEach(function (f) { lines.push('• ' + f); });\nlines.push('');\nlines.push('Nothing was created, escalated or reported. This is not a clean pipeline — it is ' +\n  'a pipeline nobody looked at. Check the API token and COMPANY_DOMAIN in config, then run ' +\n  'it again.');\nif (p.pages) {\n  lines.push('Pages read before it stopped: deals ' + (p.pages.deals || 0) + ', activities ' +\n    (p.pages.activities || 0) + '.');\n}\n\nreturn [{\n  json: {\n    read_ok: false,\n    failures: failures,\n    read_at: p.read_at,\n    mode: cfg.mode,\n    _failure_body: { text: lines.join('\\n') },\n    summary: lines.join('\\n')\n  }\n}];"
+      },
+      "id": "81ec8e4d-bc5b-483d-a948-c9489f6881ec",
+      "name": "build the read-failure alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "86d30fb6-ae74-42d6-a5a9-45a90b8586d3",
+              "leftValue": "={{ $('config').first().json.failure_alert_enabled }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a98c4e26-c91b-4e46-af9f-df9f8175a98c",
+      "name": "failure alert configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('config').first().json.failure_url }}",
+        "options": {
+          "timeout": 15000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._failure_body) }}"
+      },
+      "id": "f1ca4119-2ffa-4349-adf7-9df79e14f1ca",
+      "name": "Post the read-failure alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        520
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "notes": "ALERT_WEBHOOK_URL, or MANAGER_WEBHOOK_URL if that is the only one set."
+    },
+    {
+      "parameters": {},
+      "id": "d7ef4a9b-1802-482b-aa17-ca17ac02d7ef",
+      "name": "STOP: no failure webhook",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: end the execution as FAILED.\n//\n// The alert (if a webhook is set) has already gone out. Throwing here marks the execution\n// red in n8n's list and triggers the instance's error workflow, so a broken token cannot\n// hide behind a run history full of green ticks.\nconst f = $('build the read-failure alert').first().json;\nthrow new Error('Pipedrive read failed — rule not checked: ' + (f.failures || []).join('; '));"
+      },
+      "id": "fb02d59e-4cdf-403e-ac70-ec70b05dfb02",
+      "name": "STOP: fail the run on a bad read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The compliance requirement, enforced rather than documented.\n//\n// \"Do not create fields for identifiable patient medical information, diagnoses,\n//  medications, screening responses, medical records or other patient PHI.\"\n//\n// Two different things can go wrong, and they deserve two different reactions:\n//\n//   1. The CRM already contains a field whose NAME looks like PHI. That is not this\n//      workflow's doing. It is reported, loudly, in every run summary — and the field is\n//      added to a blocklist so nothing here ever reads it.\n//\n//   2. This workflow is CONFIGURED to read one of those fields. That is our mistake, and\n//      the run stops. A misconfiguration that quietly copies a diagnosis into a dashboard\n//      is exactly the failure the client wrote the requirement to prevent.\n//\n// Aggregate recruitment results — counts of referrals, screens, enrolments — are in scope\n// and are not caught by this: a number of patients is not a patient.\nconst cfg = $('config').first().json;\nconst pipeline = $json;\n\nconst words = cfg.forbidden_field_words || [];\nconst fields = pipeline.deal_fields || [];\n\nfunction looksLikePhi(name) {\n  const n = String(name || '').toLowerCase();\n  for (let i = 0; i < words.length; i++) {\n    const w = words[i];\n    // Short keys like 'dob', 'mrn', 'phi' and 'ssn' are matched as whole words, so a field\n    // called \"Method of introduction\" is not flagged for containing \"dob\"... it does not,\n    // but \"Doctor of birth cohort\" style names and abbreviations inside longer words are a\n    // real source of false positives, and a check that cries wolf gets switched off.\n    const whole = w.length <= 4;\n    const hit = whole\n      ? new RegExp('(^|[^a-z])' + w + '([^a-z]|$)').test(n)\n      : n.indexOf(w) !== -1;\n    if (hit) return w;\n  }\n  return '';\n}\n\nconst violations = [];\nconst blocked = {};\nfields.forEach(function (f) {\n  const word = looksLikePhi(f.name);\n  if (word) {\n    blocked[f.key] = true;\n    violations.push({ key: f.key, name: f.name, matched: word });\n  }\n});\n\n// The second check: is this workflow pointed at one of them?\nconst misconfigured = [];\n(cfg.touched_fields || []).forEach(function (t) {\n  const field = fields.filter(function (f) { return f.key === t.key; })[0];\n  const name = field ? field.name : '';\n  const word = looksLikePhi(name || t.name);\n  if (word) {\n    misconfigured.push(t.role + '.' + t.name + ' -> \"' + (name || t.key) +\n      '\" (matched \"' + word + '\")');\n  }\n});\n\nif (misconfigured.length) {\n  throw new Error(\n    'PHI boundary: this workflow is configured to read ' + misconfigured.length +\n    ' field(s) that look like patient clinical data — ' + misconfigured.join('; ') +\n    '. Pipedrive is the physician/practice CRM, not the patient database. Fix ' +\n    'RESULT_FIELDS / CONTEXT_FIELDS in config before running again.');\n}\n\n// Which result fields are actually captured. A blank key is reported as \"not captured\",\n// never as a zero — a zero is a finding, an absence is a gap in the CRM setup.\nconst resultFields = {};\nconst notCaptured = [];\nObject.keys(cfg.result_fields || {}).forEach(function (name) {\n  const key = String(cfg.result_fields[name] || '').trim();\n  if (!key) { notCaptured.push(name); return; }\n  if (blocked[key]) { notCaptured.push(name + ' (blocked: field name looks like PHI)'); return; }\n  resultFields[name] = key;\n});\n\nreturn [{\n  json: Object.assign({}, pipeline, {\n    phi_violations: violations,\n    phi_blocked_keys: Object.keys(blocked),\n    result_field_keys: resultFields,\n    results_not_captured: notCaptured,\n    phi_ok: true\n  })\n}];"
+      },
+      "id": "211fa6ff-1f99-4d4f-a756-b7567bc6211f",
+      "name": "check the PHI boundary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// THE RULE: no open opportunity should exist without a next activity.\n//\n// Fans the one pipeline item out into one item per open deal, each carrying the verdict.\n// A deal is COVERED when it has at least one activity that is:\n//\n//   - not done, and\n//   - due on or before HORIZON_DAYS from today.\n//\n// The horizon is the part that matters. Without it, \"next activity\" is satisfied by a task\n// parked eleven months out, and the report says 100% while the pipeline rots. With it, a\n// parked task reads as uncovered, which is the truth.\n//\n// Overdue is measured in BUSINESS days (WORK_DAYS + HOLIDAYS), so a task due on Friday is\n// one day late on Monday, not three, and the escalation tiers do not fire on weekends.\nconst cfg = $('config').first().json;\nconst pipeline = $json;\n\n// ---- business-day calendar (WORK_DAYS + HOLIDAYS from config). Inlined by build/build.mjs\n// into every node that counts days, so \"3 days overdue\" means the same thing everywhere.\nfunction businessCalendar(c) {\n  const DAY = 86400000;\n  const work = (c.work_days && c.work_days.length) ? c.work_days : [1, 2, 3, 4, 5];\n  const holidays = {};\n  (c.holidays || []).forEach(function (h) { holidays[String(h).slice(0, 10)] = true; });\n  function ymd(ms) { return new Date(ms).toISOString().slice(0, 10); }\n  function dayStart(ms) { return Date.parse(ymd(ms) + 'T00:00:00Z'); }\n  function isWorkday(ms) {\n    return work.indexOf(new Date(ms).getUTCDay()) !== -1 && !holidays[ymd(ms)];\n  }\n  // n business days after the day of `ms`. n = 0 means \"today, or the next workday\".\n  function add(ms, n) {\n    let t = dayStart(ms);\n    let left = Math.max(0, Math.round(Number(n) || 0));\n    let guard = 0;\n    while (left > 0 && guard++ < 3660) { t += DAY; if (isWorkday(t)) left--; }\n    while (!isWorkday(t) && guard++ < 3660) t += DAY;\n    return t;\n  }\n  // Business days that have passed between the day of `from` and the day of `to`.\n  // Due Friday, asked Monday = 1, not 3.\n  function between(from, to) {\n    let t = dayStart(from);\n    const end = dayStart(to);\n    let n = 0;\n    let guard = 0;\n    while (t < end && guard++ < 3660) { t += DAY; if (isWorkday(t)) n++; }\n    return n;\n  }\n  return { DAY: DAY, ymd: ymd, dayStart: dayStart, isWorkday: isWorkday, add: add,\n    between: between };\n}\nconst cal = businessCalendar(cfg);\n\nconst DAY = 86400000;\nconst now = Date.now();\nconst today = cal.dayStart(now);\nconst horizon = now + Number(cfg.horizon_days || 45) * DAY;\nconst graceFrom = now - Number(cfg.grace_hours || 0) * 3600000;\n\nfunction parseDate(d, t) {\n  if (!d) return null;\n  const stamp = String(d).slice(0, 10) + 'T' + (String(t || '').slice(0, 5) || '00:00') + ':00Z';\n  const ms = Date.parse(stamp);\n  return isNaN(ms) ? null : ms;\n}\n\nfunction parseStamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s).replace(' ', 'T') + (String(s).indexOf('Z') === -1 ? 'Z' : ''));\n  return isNaN(ms) ? null : ms;\n}\n\nconst byDeal = {};\n(pipeline.activities || []).forEach(function (a) {\n  if (!a.deal_id) return;\n  const k = String(a.deal_id);\n  if (!byDeal[k]) byDeal[k] = [];\n  byDeal[k].push(a);\n});\n\nconst stageByName = {};\n(cfg.stages || []).forEach(function (s) { stageByName[s.name] = s; });\n\nconst out = [];\nlet covered = 0;\nlet uncovered = 0;\nlet parked = 0;\nlet overdueOnly = 0;\nlet highStalled = 0;\n\n(pipeline.deals || []).forEach(function (deal) {\n  const acts = byDeal[String(deal.id)] || [];\n  const open = acts.filter(function (a) { return !a.done; });\n\n  let nextDue = null;\n  let parkedDue = null;\n  let lateDue = null;   // earliest open activity whose due DAY is already behind us\n  open.forEach(function (a) {\n    const due = parseDate(a.due_date, a.due_time);\n    if (due === null) return;\n    if (due <= horizon) {\n      if (nextDue === null || due < nextDue) nextDue = due;\n      if (cal.dayStart(due) < today && (lateDue === null || due < lateDue)) lateDue = due;\n    } else if (parkedDue === null || due < parkedDue) {\n      parkedDue = due;\n    }\n  });\n\n  // An activity with no due date at all is not a next step either — it never surfaces on\n  // anyone's day. Counted with the parked ones.\n  const undated = open.filter(function (a) { return !a.due_date; }).length;\n  if (undated && parkedDue === null) parkedDue = horizon + DAY;\n\n  const overdueBdays = lateDue === null ? 0 : cal.between(lateDue, now);\n  const isOverdue = lateDue !== null && overdueBdays >= Number(cfg.overdue_days || 0);\n\n  const done = acts.filter(function (a) { return a.done; })\n    .map(function (a) { return parseStamp(a.marked_done_time) || parseDate(a.due_date, a.due_time); })\n    .filter(function (ms) { return ms !== null; })\n    .sort(function (a, b) { return b - a; });\n  const lastActivity = done.length ? done[0] : parseStamp(deal.add_time);\n  const daysQuiet = lastActivity ? Math.floor((now - lastActivity) / DAY) : null;\n\n  const stage = stageByName[deal.stage] || {};\n  const added = parseStamp(deal.add_time);\n  const inGrace = added !== null && added > graceFrom;\n\n  const isCovered = nextDue !== null;\n  const stale = daysQuiet !== null && daysQuiet >= Number(stage.stale_days || 30);\n  const highValue = Number(deal.value || 0) >= Number(cfg.high_priority_value || 0);\n  if (isCovered) covered++; else uncovered++;\n  if (!isCovered && parkedDue !== null) parked++;\n  if (isCovered && isOverdue) overdueOnly++;\n  if (stale && highValue) highStalled++;\n\n  out.push({\n    json: Object.assign({}, deal, {\n      covered: isCovered,\n      in_grace: inGrace,\n      next_due: nextDue ? new Date(nextDue).toISOString().slice(0, 10) : '',\n      parked_due: parkedDue ? new Date(parkedDue).toISOString().slice(0, 10) : '',\n      overdue_due: lateDue ? new Date(lateDue).toISOString().slice(0, 10) : '',\n      overdue_business_days: overdueBdays,\n      overdue: isOverdue,\n      open_activities: open.length,\n      last_activity: lastActivity ? new Date(lastActivity).toISOString().slice(0, 10) : '',\n      days_quiet: daysQuiet,\n      stale: stale,\n      high_priority: highValue,\n      _pipeline: {\n        read_at: pipeline.read_at, source: pipeline.source,\n        phi_violations: pipeline.phi_violations || [],\n        results_not_captured: pipeline.results_not_captured || []\n      }\n    })\n  });\n});\n\nconst totals = {\n  open_deals: (pipeline.deals || []).length,\n  covered: covered,\n  uncovered: uncovered,\n  parked: parked,\n  overdue_but_covered: overdueOnly,\n  high_value_stalled: highStalled\n};\n\n// Anything for the guard to do: a gap to fill, an overdue deal to escalate, or a\n// high-value deal gone stale. Every deal item carries the same flag, so the IF after this\n// node routes the whole batch one way.\nconst hasWork = uncovered > 0 || overdueOnly > 0 || highStalled > 0;\n\n// No open deals at all is still a run, and still needs a summary — silence would be\n// indistinguishable from a workflow that stopped working.\nif (!out.length) {\n  return [{\n    json: {\n      _has_work: false,\n      _totals: totals,\n      source: pipeline.source,\n      read_at: pipeline.read_at,\n      phi_violations: pipeline.phi_violations || [],\n      results_not_captured: pipeline.results_not_captured || [],\n      _note: 'No open deals in this pipeline.'\n    }\n  }];\n}\n\nout.forEach(function (item) {\n  item.json._has_work = hasWork;\n  item.json._totals = totals;\n});\nreturn out;"
+      },
+      "id": "35b4e808-6d78-4588-aeb2-0eb23ebb35b4",
+      "name": "check every deal for a next activity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The management dashboard, computed once per run.\n//\n// Pipedrive Insights already counts deals by stage and activities by type. What it cannot\n// do is the recruitment funnel, because that spans three objects and a set of aggregate\n// custom fields: outreach -> conversation -> meeting -> referral partner -> referrals ->\n// pre-screen -> site -> screened -> randomised. That funnel is this node.\n//\n// Two rules run through all of it:\n//\n//   A number that is not captured is reported as \"not captured\", never as zero. A zero\n//   means the practice referred nobody; a blank means nobody wired the field up. Printing\n//   the second as the first is how a dashboard loses a manager's trust in week two.\n//\n//   Nothing here reads a field the PHI check blocked. Counts only — a number of patients\n//   is not a patient.\nconst cfg = $('config').first().json;\nconst items = $input.all().map(function (i) { return i.json; });\n\n// ---- business-day calendar (WORK_DAYS + HOLIDAYS from config). Inlined by build/build.mjs\n// into every node that counts days, so \"3 days overdue\" means the same thing everywhere.\nfunction businessCalendar(c) {\n  const DAY = 86400000;\n  const work = (c.work_days && c.work_days.length) ? c.work_days : [1, 2, 3, 4, 5];\n  const holidays = {};\n  (c.holidays || []).forEach(function (h) { holidays[String(h).slice(0, 10)] = true; });\n  function ymd(ms) { return new Date(ms).toISOString().slice(0, 10); }\n  function dayStart(ms) { return Date.parse(ymd(ms) + 'T00:00:00Z'); }\n  function isWorkday(ms) {\n    return work.indexOf(new Date(ms).getUTCDay()) !== -1 && !holidays[ymd(ms)];\n  }\n  // n business days after the day of `ms`. n = 0 means \"today, or the next workday\".\n  function add(ms, n) {\n    let t = dayStart(ms);\n    let left = Math.max(0, Math.round(Number(n) || 0));\n    let guard = 0;\n    while (left > 0 && guard++ < 3660) { t += DAY; if (isWorkday(t)) left--; }\n    while (!isWorkday(t) && guard++ < 3660) t += DAY;\n    return t;\n  }\n  // Business days that have passed between the day of `from` and the day of `to`.\n  // Due Friday, asked Monday = 1, not 3.\n  function between(from, to) {\n    let t = dayStart(from);\n    const end = dayStart(to);\n    let n = 0;\n    let guard = 0;\n    while (t < end && guard++ < 3660) { t += DAY; if (isWorkday(t)) n++; }\n    return n;\n  }\n  return { DAY: DAY, ymd: ymd, dayStart: dayStart, isWorkday: isWorkday, add: add,\n    between: between };\n}\nconst cal = businessCalendar(cfg);\n\nconst DAY = 86400000;\nconst now = Date.now();\nconst windowStart = now - Number(cfg.report_window_days || 7) * DAY;\nconst runAt = new Date().toISOString().slice(0, 19).replace('T', ' ');\n\n// One item per open deal; a pipeline with no open deals arrives as one item with no id.\nconst clean = items.filter(function (j) { return !j.id; })[0];\nconst deals = items.filter(function (j) { return j.id; });\nconst pipeline = (deals[0] && deals[0]._pipeline) || {\n  read_at: clean && clean.read_at, source: clean && clean.source,\n  phi_violations: (clean && clean.phi_violations) || [],\n  results_not_captured: (clean && clean.results_not_captured) || []\n};\n\n// Activities have to be re-read from the pipeline item: the per-deal fan-out above carries\n// verdicts, not the raw activity list.\nconst upstream = $('check the PHI boundary').first().json;\nconst activities = upstream.activities || [];\nconst resultKeys = upstream.result_field_keys || {};\nconst notCaptured = upstream.results_not_captured || [];\n\nfunction stamp(s) {\n  if (!s) return null;\n  const ms = Date.parse(String(s).replace(' ', 'T') +\n    (String(s).indexOf('Z') === -1 ? 'Z' : ''));\n  return isNaN(ms) ? null : ms;\n}\n\nfunction inWindow(a) {\n  const t = stamp(a.marked_done_time) || stamp(a.add_time);\n  return t !== null && t >= windowStart;\n}\n\nconst noAnswer = cfg.no_answer_words || [];\nfunction isConversation(a) {\n  if (!a.done) return false;\n  if (cfg.conversation_types.indexOf(a.type) === -1) return false;\n  const text = (String(a.subject || '') + ' ' + String(a.note || '')).toLowerCase();\n  for (let i = 0; i < noAnswer.length; i++) {\n    if (text.indexOf(noAnswer[i]) !== -1) return false;\n  }\n  return true;\n}\n\nconst dealById = {};\ndeals.forEach(function (d) { dealById[String(d.id)] = d; });\n\n// ------------------------------------------------------------------ activity-based counts\nconst recent = activities.filter(inWindow);\nconst outreach = recent.filter(function (a) {\n  return a.done && cfg.outreach_types.indexOf(a.type) !== -1;\n});\nconst conversations = recent.filter(isConversation);\nconst meetings = recent.filter(function (a) {\n  return a.done && cfg.meeting_types.indexOf(a.type) !== -1;\n});\n// Overdue by OVERDUE_DAYS business days — the same definition the guard escalates on.\nconst overdue = activities.filter(function (a) {\n  if (a.done || !a.due_date) return false;\n  const due = Date.parse(String(a.due_date).slice(0, 10) + 'T00:00:00Z');\n  return !isNaN(due) && due < cal.dayStart(now) &&\n    cal.between(due, now) >= Number(cfg.overdue_days || 0);\n});\n\n// ------------------------------------------------------------------ result-field counts\n// A deal contributes a number only when the field is configured AND present on the deal.\nfunction resultOf(deal, name) {\n  const key = resultKeys[name];\n  if (!key) return null;\n  const raw = deal.raw ? deal.raw[key] : undefined;\n  if (raw === undefined || raw === null || raw === '') return null;\n  const n = Number(raw);\n  return isNaN(n) ? null : n;\n}\n\nconst RESULTS = ['referrals_sent', 'prescreen_qualified', 'sent_to_site', 'screened',\n  'randomized'];\nconst totals = {};\nconst captured = {};\nRESULTS.forEach(function (r) { totals[r] = 0; captured[r] = 0; });\n\ndeals.forEach(function (d) {\n  RESULTS.forEach(function (r) {\n    const v = resultOf(d, r);\n    if (v !== null) { totals[r] += v; captured[r]++; }\n  });\n});\n\nfunction reported(r) { return captured[r] > 0 ? totals[r] : null; }\nfunction pct(a, b) {\n  if (a === null || b === null || !b) return null;\n  return Math.round((a / b) * 100);\n}\n\n// ------------------------------------------------------------------ deal-based counts\nconst open = deals.length;\nconst covered = deals.filter(function (d) { return d.covered; }).length;\nconst gaps = deals.filter(function (d) { return !d.covered; });\nconst stalled = deals.filter(function (d) { return d.stale; });\nconst partners = deals.filter(function (d) {\n  return cfg.partner_stages.indexOf(d.stage) !== -1;\n});\nconst newPartners = partners.filter(function (d) {\n  const t = stamp(d.stage_change_time);\n  return t !== null && t >= windowStart;\n});\nconst activePartners = partners.filter(function (d) {\n  const v = resultOf(d, 'referrals_sent');\n  return v !== null && v > 0;\n});\n\n// ------------------------------------------------------------------ by rep\nconst byRep = {};\ndeals.forEach(function (d) {\n  const k = d.owner || 'Unassigned';\n  if (!byRep[k]) {\n    byRep[k] = { rep: k, open_deals: 0, gaps: 0, overdue: 0, outreach_attempts: 0,\n      conversations: 0, meetings: 0, new_partners: 0, referrals_sent: 0,\n      referrals_captured: 0 };\n  }\n  const r = byRep[k];\n  r.open_deals++;\n  if (!d.covered) r.gaps++;\n  if (cfg.partner_stages.indexOf(d.stage) !== -1 &&\n      stamp(d.stage_change_time) >= windowStart) r.new_partners++;\n  const v = resultOf(d, 'referrals_sent');\n  if (v !== null) { r.referrals_sent += v; r.referrals_captured++; }\n});\n\nfunction repOf(activity) {\n  const d = dealById[String(activity.deal_id)];\n  return d ? (d.owner || 'Unassigned') : null;\n}\noutreach.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.outreach_attempts++; });\nconversations.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.conversations++; });\nmeetings.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.meetings++; });\noverdue.forEach(function (a) { const r = byRep[repOf(a)]; if (r) r.overdue++; });\n\n// ------------------------------------------------------------------ by practice\nconst byPractice = deals.map(function (d) {\n  const row = { organisation: d.organisation || d.title, stage: d.stage,\n    owner: d.owner, last_referral: '' };\n  RESULTS.forEach(function (r) {\n    const v = resultOf(d, r);\n    row[r] = v === null ? '' : v;\n  });\n  const acts = activities.filter(function (a) {\n    return String(a.deal_id) === String(d.id) && a.done &&\n      a.type === cfg.activity_types.referral_follow_up;\n  }).map(function (a) { return stamp(a.marked_done_time); })\n    .filter(function (t) { return t !== null; }).sort(function (a, b) { return b - a; });\n  row.last_referral = acts.length ? new Date(acts[0]).toISOString().slice(0, 10) : '';\n  return row;\n}).sort(function (a, b) { return Number(b.referrals_sent || 0) - Number(a.referrals_sent || 0); });\n\nreturn [{\n  json: {\n    run_at: runAt,\n    window_days: Number(cfg.report_window_days || 7),\n    source: pipeline.source,\n    phi_violations: pipeline.phi_violations || [],\n    results_not_captured: notCaptured,\n\n    open_deals: open,\n    covered: covered,\n    gaps: gaps.length,\n    coverage_pct: open ? Math.round((covered / open) * 100) : 100,\n    overdue: overdue.length,\n\n    outreach_attempts: outreach.length,\n    conversations: conversations.length,\n    meetings: meetings.length,\n    new_partners: newPartners.length,\n    active_partners: activePartners.length,\n\n    referrals_sent: reported('referrals_sent'),\n    prescreen_qualified: reported('prescreen_qualified'),\n    sent_to_site: reported('sent_to_site'),\n    screened: reported('screened'),\n    randomized: reported('randomized'),\n    referral_to_screen: pct(reported('screened'), reported('referrals_sent')),\n    screen_to_random: pct(reported('randomized'), reported('screened')),\n\n    stalled: stalled.length,\n    high_priority: stalled.filter(function (d) { return d.high_priority; }).length,\n\n    gap_rows: gaps.map(function (d) {\n      return { deal_id: d.id, deal: d.title, organisation: d.organisation,\n        person: d.person, stage: d.stage, owner: d.owner, value: d.value,\n        last_activity: d.last_activity, days_quiet: d.days_quiet,\n        action: d.parked_due ? 'only activity parked at ' + d.parked_due\n          : 'no open activity' };\n    }).sort(function (a, b) { return Number(b.days_quiet || 0) - Number(a.days_quiet || 0); }),\n    by_rep: Object.keys(byRep).map(function (k) { return byRep[k]; })\n      .sort(function (a, b) { return b.open_deals - a.open_deals; }),\n    by_practice: byPractice\n  }\n}];"
+      },
+      "id": "9d6cef7c-5127-40bc-ace0-5ce04a0f9d6c",
+      "name": "compute the KPIs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "84994cc5-379a-4135-aea2-cea2e4308499",
+              "leftValue": "={{ $('config').first().json.sheet_live }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "b6cdfae1-8455-4e91-a509-4509c5ecb6cd",
+      "name": "sheet in use?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('config').first().json.dashboard_tab }}"
+        },
+        "options": {}
+      },
+      "id": "43e9ed67-1913-4337-a716-c7166bfe43e9",
+      "name": "[cred] Sheets - read the dashboard history",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4080,
+        140
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notes": "Reads the Dashboard tab back. Its own history is the trend; last week is a row in it."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Finds last week's Dashboard row in the sheet's own history.\n//\n// The Dashboard tab is appended once per run, so it already IS the trend. This reads it\n// back, maps the column headings to KPI names through DASHBOARD_COLUMNS, and keeps the\n// newest row that is at least BASELINE_MIN_DAYS old — the previous weekly run, not a\n// manual re-run from this morning. A read that failed, or a sheet with no history yet,\n// gives no baseline and the report says so; it never compares against a zero.\nconst cfg = $('config').first().json;\nconst rows = $input.all().map(function (i) { return i.json || {}; });\nconst C = cfg.dashboard_columns;\n\nconst failed = rows.length === 1 && rows[0].error;\nconst cutoff = Date.now() - Number(cfg.baseline_min_days || 5) * 86400000;\n\nfunction stamp(s) {\n  const ms = Date.parse(String(s || '').replace(' ', 'T') +\n    (String(s || '').indexOf('Z') === -1 ? 'Z' : ''));\n  return isNaN(ms) ? null : ms;\n}\nfunction num(v) {\n  if (v === '' || v === null || v === undefined || v === 'not captured') return null;\n  const n = Number(v);\n  return isNaN(n) ? null : n;\n}\n\nlet best = null;\nlet bestAt = null;\nrows.forEach(function (r) {\n  const at = stamp(r[C.run_at]);\n  if (at === null || at > cutoff) return;\n  if (bestAt === null || at > bestAt) { best = r; bestAt = at; }\n});\n\nlet baseline = null;\nif (best) {\n  baseline = {};\n  Object.keys(C).forEach(function (k) {\n    baseline[k] = k === 'run_at' ? best[C.run_at] : num(best[C[k]]);\n  });\n}\n\nreturn [{\n  json: {\n    baseline: baseline,\n    baseline_source: failed ? 'sheet read failed: ' + String(rows[0].error.message || rows[0].error).slice(0, 120)\n      : baseline ? 'Dashboard tab, row of ' + baseline.run_at\n      : 'no Dashboard row older than ' + cfg.baseline_min_days + ' days yet',\n    history_rows: failed ? 0 : rows.filter(function (r) { return r[C.run_at]; }).length\n  }\n}];"
+      },
+      "id": "fa5a01b6-5524-44d6-ae54-0e547985fa5a",
+      "name": "pick last week's row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// STOP: no live sheet to read last week from.\n//\n// Either SHEET_ID is blank, or this is the demo pipeline — fabricated numbers are never\n// compared with, or written into, a real sheet. The demo carries last week's row in its\n// fixture so the comparison can still be watched; a real run without a sheet simply has\n// no baseline, and the report says that instead of inventing one.\nconst cfg = $('config').first().json;\nconst pipeline = $('one pipeline').first().json;\nconst demo = pipeline.source === 'demo' ? pipeline._demo_baseline : null;\n\nreturn [{\n  json: {\n    baseline: demo || null,\n    baseline_source: demo ? 'demo fixture (last week, fabricated)'\n      : !cfg.sheet_enabled ? 'no SHEET_ID — nothing to compare with'\n      : 'demo data is never compared with a real sheet',\n    history_rows: 0\n  }\n}];"
+      },
+      "id": "fb56713f-d8d4-438f-ad5a-2d5ab886fb56",
+      "name": "STOP: no sheet history",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "id": "52925c6a-8ba5-4f4a-a7df-c7df7bc95292",
+      "name": "one baseline",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        4560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Week over week, and who needs a conversation.\n//\n// A weekly number on its own invites \"is that good?\". This puts last week next to it for\n// the numbers a manager steers by, and flags reps by the shape of their week rather than\n// its size:\n//\n//   effort without progress   COACH_MIN_ATTEMPTS+ attempts, under COACH_MIN_CONVERSATION_PCT%\n//                             of them became conversations — a list or a script problem\n//   follow-up slipping        over COACH_MAX_GAP_PCT% of their open deals have no next step\n//\n// \"Not captured\" stays not captured: a delta is only computed when both weeks have a\n// number. null minus 4 is not -4.\nconst cfg = $('config').first().json;\nconst k = $('compute the KPIs').first().json;\nconst b = $json.baseline || null;\n\nconst TRACKED = [\n  ['coverage_pct', 'Coverage %', 'up'],\n  ['gaps', 'Deals without a next activity', 'down'],\n  ['overdue', 'Overdue activities', 'down'],\n  ['outreach_attempts', 'Outreach attempts', 'up'],\n  ['conversations', 'Meaningful conversations', 'up'],\n  ['meetings', 'Meetings', 'up'],\n  ['new_partners', 'New referral partners', 'up'],\n  ['stalled', 'Stalled deals', 'down'],\n  ['referrals_sent', 'Patient referrals', 'up']\n];\n\nconst deltas = TRACKED.map(function (t) {\n  const now = k[t[0]];\n  const was = b ? b[t[0]] : null;\n  const both = now !== null && now !== undefined && was !== null && was !== undefined;\n  const d = both ? Number(now) - Number(was) : null;\n  return {\n    kpi: t[0], label: t[1], now: now === undefined ? null : now, was: was === undefined ? null : was,\n    delta: d,\n    direction: d === null || d === 0 ? 'flat' : ((d > 0) === (t[2] === 'up') ? 'better' : 'worse')\n  };\n});\n\nconst coaching = [];\n(k.by_rep || []).forEach(function (r) {\n  const rate = r.outreach_attempts ? Math.round((r.conversations / r.outreach_attempts) * 100) : null;\n  const gapPct = r.open_deals ? Math.round((r.gaps / r.open_deals) * 100) : 0;\n  if (r.outreach_attempts >= Number(cfg.coach_min_attempts || 0) && rate !== null &&\n      rate < Number(cfg.coach_min_conversation_pct || 0)) {\n    coaching.push({ rep: r.rep, flag: 'effort without progress',\n      detail: r.outreach_attempts + ' attempts, ' + r.conversations + ' conversations (' + rate + '%)' });\n  }\n  if (gapPct > Number(cfg.coach_max_gap_pct || 100)) {\n    coaching.push({ rep: r.rep, flag: 'follow-up slipping',\n      detail: r.gaps + ' of ' + r.open_deals + ' open deals (' + gapPct + '%) have no next step' });\n  }\n});\n\nreturn [{\n  json: Object.assign({}, k, {\n    baseline: b,\n    baseline_source: $json.baseline_source,\n    deltas: deltas,\n    worse: deltas.filter(function (d) { return d.direction === 'worse'; }).map(function (d) { return d.kpi; }),\n    coaching: coaching\n  })\n}];"
+      },
+      "id": "a0377828-7ebc-4ba8-ac7b-6c7bf59ba037",
+      "name": "compare with last week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b8856159-775a-4f89-a397-03974bd4b885",
+              "leftValue": "={{ $('config').first().json.sheet_live }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "f42ee9ad-fb0d-459d-a1eb-31eb9c08f42e",
       "name": "writing the dashboard?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3080,
-        0
+        5040,
+        300
       ]
     },
     {
       "parameters": {
         "jsCode": "// One row per run, appended. The sheet's own history is the trend line — no separate\n// \"previous value\" column to keep in step, and no chart that breaks when a KPI is renamed.\n//\n// A KPI that is not captured is written as the literal string \"not captured\", not as 0 and\n// not as blank. Blank reads as a formula error; 0 reads as a real finding.\nconst cfg = $('config').first().json;\nconst k = $json;\nconst C = cfg.dashboard_columns;\n\nfunction n(v) { return v === null || v === undefined ? 'not captured' : v; }\n\nconst row = {};\nrow[C.run_at] = k.run_at;\nrow[C.open_deals] = k.open_deals;\nrow[C.covered] = k.covered;\nrow[C.gaps] = k.gaps;\nrow[C.coverage_pct] = k.coverage_pct;\nrow[C.overdue] = k.overdue;\nrow[C.outreach_attempts] = k.outreach_attempts;\nrow[C.conversations] = k.conversations;\nrow[C.meetings] = k.meetings;\nrow[C.new_partners] = k.new_partners;\nrow[C.active_partners] = k.active_partners;\nrow[C.referrals_sent] = n(k.referrals_sent);\nrow[C.prescreen_qualified] = n(k.prescreen_qualified);\nrow[C.sent_to_site] = n(k.sent_to_site);\nrow[C.screened] = n(k.screened);\nrow[C.randomized] = n(k.randomized);\nrow[C.referral_to_screen] = n(k.referral_to_screen);\nrow[C.screen_to_random] = n(k.screen_to_random);\nrow[C.stalled] = k.stalled;\nrow[C.high_priority] = k.high_priority;\n\nreturn [{ json: row }];"
       },
-      "id": "dash-rows",
+      "id": "e9f40b18-4d22-4398-a7f6-a7f6b24be9f4",
       "name": "rows for the dashboard",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3360,
-        0
+        5280,
+        140
       ]
     },
     {
@@ -430,27 +773,27 @@
           "cellFormat": "RAW"
         }
       },
-      "id": "w-dash",
+      "id": "78ef72c7-458f-4a97-a64f-364ffa9e78ef",
       "name": "[cred] Sheets - append the dashboard row",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        3640,
-        0
+        5520,
+        140
       ],
-      "notes": "One row per run. The tab's own history is the trend — there is no 'previous value' column to keep in step."
+      "notes": "One row per run. The tab's own history is the trend, and next week's baseline."
     },
     {
       "parameters": {
         "jsCode": "// \"Active deals without future activities\" — item 6's last bullet, and the report that\n// proves the rule in item 4 actually holds.\n//\n// A rule without the report that measures it is a hope. This tab is the measurement, and\n// it is written on every run whether it is empty or not: an empty Gaps tab that was written\n// today is a result, an empty Gaps tab that was never written is a broken workflow.\nconst cfg = $('config').first().json;\nconst k = $('compute the KPIs').first().json;\nconst C = cfg.gap_columns;\n\nconst rows = (k.gap_rows || []).map(function (g) {\n  const row = {};\n  row[C.deal_id] = g.deal_id;\n  row[C.deal] = g.deal;\n  row[C.organisation] = g.organisation;\n  row[C.person] = g.person;\n  row[C.stage] = g.stage;\n  row[C.owner] = g.owner;\n  row[C.value] = g.value;\n  row[C.last_activity] = g.last_activity;\n  row[C.days_quiet] = g.days_quiet;\n  row[C.action] = g.action;\n  row[C.run_at] = k.run_at;\n  return { json: row };\n});\n\nif (!rows.length) {\n  const row = {};\n  row[C.deal_id] = '';\n  row[C.deal] = 'No open deal is missing a next activity';\n  row[C.organisation] = '';\n  row[C.person] = '';\n  row[C.stage] = '';\n  row[C.owner] = '';\n  row[C.value] = '';\n  row[C.last_activity] = '';\n  row[C.days_quiet] = 0;\n  row[C.action] = 'clean run';\n  row[C.run_at] = k.run_at;\n  return [{ json: row }];\n}\n\nreturn rows;"
       },
-      "id": "gap-rows",
+      "id": "06cad5aa-64c1-448a-a008-d008d38906ca",
       "name": "rows for the gaps tab",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3920,
-        0
+        5760,
+        140
       ]
     },
     {
@@ -476,27 +819,27 @@
           "cellFormat": "RAW"
         }
       },
-      "id": "w-gaps",
+      "id": "f133dd9d-cb56-4e8d-a2b6-52b61db8f133",
       "name": "[cred] Sheets - write the gaps",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        4200,
-        0
+        6000,
+        140
       ],
-      "notes": "'Active deals without future activities'. Written on every run, including clean ones — an empty tab that was written today is a result; one that was never written is a broken workflow."
+      "notes": "'Active deals without future activities'. Written on every run, including clean ones — an empty tab written today is a result; one never written is a broken workflow."
     },
     {
       "parameters": {
         "jsCode": "// Results by marketing representative.\n//\n// Attempts and conversations are kept in separate columns deliberately. A rep with 200\n// attempts and 6 conversations and a rep with 40 attempts and 22 conversations have very\n// different problems, and a single \"activity\" number hides both.\nconst cfg = $('config').first().json;\nconst k = $('compute the KPIs').first().json;\nconst C = cfg.by_rep_columns;\n\nreturn (k.by_rep || []).map(function (r) {\n  const row = {};\n  row[C.rep] = r.rep;\n  row[C.open_deals] = r.open_deals;\n  row[C.gaps] = r.gaps;\n  row[C.overdue] = r.overdue;\n  row[C.outreach_attempts] = r.outreach_attempts;\n  row[C.conversations] = r.conversations;\n  row[C.meetings] = r.meetings;\n  row[C.new_partners] = r.new_partners;\n  row[C.referrals_sent] = r.referrals_captured ? r.referrals_sent : 'not captured';\n  row[C.run_at] = k.run_at;\n  return { json: row };\n});"
       },
-      "id": "rep-rows",
+      "id": "028076d1-f7e1-4f81-a0d5-90d52f9c0280",
       "name": "rows for the by rep tab",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4480,
-        0
+        6240,
+        140
       ]
     },
     {
@@ -522,26 +865,26 @@
           "cellFormat": "RAW"
         }
       },
-      "id": "w-rep",
+      "id": "58ef8993-fe39-49a3-a1aa-31aa554a58ef",
       "name": "[cred] Sheets - write by rep",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        4760,
-        0
+        6480,
+        140
       ]
     },
     {
       "parameters": {
         "jsCode": "// Results by physician / practice. Aggregate counts only — this tab is why the PHI check\n// upstream exists. Every column here is a number of patients, never a patient.\nconst cfg = $('config').first().json;\nconst k = $('compute the KPIs').first().json;\nconst C = cfg.by_practice_columns;\n\nreturn (k.by_practice || []).map(function (p) {\n  const row = {};\n  row[C.organisation] = p.organisation;\n  row[C.stage] = p.stage;\n  row[C.owner] = p.owner;\n  row[C.referrals_sent] = p.referrals_sent === '' ? 'not captured' : p.referrals_sent;\n  row[C.prescreen_qualified] = p.prescreen_qualified === '' ? 'not captured' : p.prescreen_qualified;\n  row[C.sent_to_site] = p.sent_to_site === '' ? 'not captured' : p.sent_to_site;\n  row[C.screened] = p.screened === '' ? 'not captured' : p.screened;\n  row[C.randomized] = p.randomized === '' ? 'not captured' : p.randomized;\n  row[C.last_referral] = p.last_referral;\n  row[C.run_at] = k.run_at;\n  return { json: row };\n});"
       },
-      "id": "prac-rows",
+      "id": "17d8232d-f9bb-471d-a138-61381d8817d8",
       "name": "rows for the by practice tab",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5040,
-        0
+        6720,
+        140
       ]
     },
     {
@@ -567,27 +910,27 @@
           "cellFormat": "RAW"
         }
       },
-      "id": "w-prac",
+      "id": "e2b75991-2641-4641-a5b2-35b248dce2b7",
       "name": "[cred] Sheets - write by practice",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        5320,
-        0
+        6960,
+        140
       ],
       "notes": "Aggregate counts only. This tab is why the PHI check upstream exists."
     },
     {
       "parameters": {
-        "jsCode": "// STOP: no sheet id, so nothing is written down.\n//\n// The numbers were still computed and are still posted to chat. This is the shape a first\n// demo runs in: the dashboard is real, it just has nowhere permanent to live yet.\nconst k = $('compute the KPIs').first().json;\n\nreturn [{\n  json: Object.assign({}, k, {\n    written: false,\n    held_because: 'SHEET_ID is blank in config — the dashboard was computed but not stored'\n  })\n}];"
+        "jsCode": "// STOP: nothing is written down.\n//\n// Either SHEET_ID is blank, or the run is on the demo pipeline — fabricated deals are never\n// written into a real dashboard. The numbers were still computed, compared with last week\n// and are still posted to chat. This is the shape a first demo runs in.\nconst cfg = $('config').first().json;\nconst k = $('compare with last week').first().json;\n\nreturn [{\n  json: Object.assign({}, k, {\n    written: false,\n    held_because: cfg.sheet_enabled\n      ? 'demo pipeline — fabricated numbers are never written into a real sheet'\n      : 'SHEET_ID is blank in config — the dashboard was computed but not stored'\n  })\n}];"
       },
-      "id": "no-sheet",
+      "id": "b1e914c7-75ba-4c97-ae97-7e97089eb1e9",
       "name": "STOP: no sheet",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3360,
-        190
+        5280,
+        460
       ]
     },
     {
@@ -595,26 +938,26 @@
         "mode": "append",
         "numberInputs": 2
       },
-      "id": "merge-report",
+      "id": "a5f0d7aa-d2fa-468a-ad8f-1d8f4189a5f0",
       "name": "reported",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        5600,
-        0
+        7200,
+        300
       ]
     },
     {
       "parameters": {
-        "jsCode": "// The weekly management report, in the order a manager reads it: is the pipeline covered,\n// is anyone talking to anybody, and is any of that turning into enrolled patients.\n//\n// Every \"not captured\" in here is load-bearing. It says the CRM field has not been wired\n// up, which is a setup task, not a recruitment result — and it stops the number being read\n// as a zero in a meeting.\nconst cfg = $('config').first().json;\nconst k = $('compute the KPIs').first().json;\nconst stored = $json.written !== false;\n\nfunction n(v, suffix) {\n  return v === null || v === undefined ? '_not captured_' : (v + (suffix || ''));\n}\n\nconst lines = [];\nlines.push('*Referral network — last ' + k.window_days + ' days*');\nlines.push('');\nlines.push('*Coverage*');\nlines.push('• ' + k.open_deals + ' open deals, ' + k.coverage_pct + '% with a next activity');\nlines.push('• ' + k.gaps + ' without one · ' + k.overdue + ' overdue activities');\nlines.push('• ' + k.stalled + ' stalled' +\n  (k.high_priority ? ' (' + k.high_priority + ' high-value)' : ''));\nlines.push('');\nlines.push('*Activity*');\nlines.push('• ' + k.outreach_attempts + ' outreach attempts → ' + k.conversations +\n  ' meaningful conversations → ' + k.meetings + ' meetings');\nlines.push('• ' + k.new_partners + ' new referral partners · ' + k.active_partners +\n  ' practices actively referring');\nlines.push('');\nlines.push('*Recruitment*');\nlines.push('• ' + n(k.referrals_sent) + ' referrals → ' + n(k.prescreen_qualified) +\n  ' pre-screen qualified → ' + n(k.sent_to_site) + ' sent to site');\nlines.push('• ' + n(k.screened) + ' screened → ' + n(k.randomized) + ' randomised');\nlines.push('• referral → screen ' + n(k.referral_to_screen, '%') +\n  ' · screen → randomised ' + n(k.screen_to_random, '%'));\n\nif ((k.results_not_captured || []).length) {\n  lines.push('');\n  lines.push(':information_source: not yet captured in the CRM: ' +\n    k.results_not_captured.join(', ') + ' — these are setup tasks, not zeroes.');\n}\nif ((k.phi_violations || []).length) {\n  lines.push('');\n  lines.push(':rotating_light: ' + k.phi_violations.length + ' CRM field(s) are named like ' +\n    'patient clinical data and were not read: ' +\n    k.phi_violations.map(function (v) { return v.name; }).join(', '));\n}\nlines.push('');\nlines.push(stored\n  ? 'Written to the dashboard sheet · source: ' + k.source\n  : 'Not written down (no SHEET_ID) · source: ' + k.source);\n\n// The three deals a manager should ask about by name, and no more than three. A digest\n// that lists forty rows is a spreadsheet with extra steps.\nconst worst = (k.gap_rows || []).slice(0, 3);\nif (worst.length) {\n  lines.push('');\n  lines.push('*Quietest uncovered deals*');\n  worst.forEach(function (g) {\n    lines.push('• ' + g.organisation + ' (' + g.stage + ', ' + g.owner + ') — ' +\n      g.days_quiet + ' days quiet, ' + g.action);\n  });\n}\n\nreturn [{\n  json: Object.assign({}, k, {\n    written: stored,\n    report: lines.join('\\n'),\n    _report_body: { text: lines.join('\\n') }\n  })\n}];"
+        "jsCode": "// The weekly management report, in the order a manager reads it: is the pipeline covered,\n// is anyone talking to anybody, and is any of that turning into enrolled patients.\n//\n// Every \"not captured\" in here is load-bearing. It says the CRM field has not been wired\n// up, which is a setup task, not a recruitment result — and it stops the number being read\n// as a zero in a meeting.\nconst cfg = $('config').first().json;\nconst k = $('compare with last week').first().json;\nconst stored = $json.written !== false;\n\nfunction n(v, suffix) {\n  return v === null || v === undefined ? '_not captured_' : (v + (suffix || ''));\n}\n\nconst lines = [];\nlines.push('*Referral network — last ' + k.window_days + ' days*');\nlines.push('');\nlines.push('*Coverage*');\nlines.push('• ' + k.open_deals + ' open deals, ' + k.coverage_pct + '% with a next activity');\nlines.push('• ' + k.gaps + ' without one · ' + k.overdue + ' overdue activities');\nlines.push('• ' + k.stalled + ' stalled' +\n  (k.high_priority ? ' (' + k.high_priority + ' high-value)' : ''));\nlines.push('');\nlines.push('*Activity*');\nlines.push('• ' + k.outreach_attempts + ' outreach attempts → ' + k.conversations +\n  ' meaningful conversations → ' + k.meetings + ' meetings');\nlines.push('• ' + k.new_partners + ' new referral partners · ' + k.active_partners +\n  ' practices actively referring');\nlines.push('');\nlines.push('*Recruitment*');\nlines.push('• ' + n(k.referrals_sent) + ' referrals → ' + n(k.prescreen_qualified) +\n  ' pre-screen qualified → ' + n(k.sent_to_site) + ' sent to site');\nlines.push('• ' + n(k.screened) + ' screened → ' + n(k.randomized) + ' randomised');\nlines.push('• referral → screen ' + n(k.referral_to_screen, '%') +\n  ' · screen → randomised ' + n(k.screen_to_random, '%'));\n\n// Week over week. Only numbers both weeks actually have; \"not captured\" is never a delta.\nlines.push('');\nlines.push('*Against last week* — ' + k.baseline_source);\nconst moved = (k.deltas || []).filter(function (d) { return d.delta !== null; });\nif (moved.length) {\n  moved.forEach(function (d) {\n    const sign = d.delta > 0 ? '+' : '';\n    const mark = d.direction === 'worse' ? ' :small_red_triangle_down:'\n      : d.direction === 'better' ? ' :white_check_mark:' : '';\n    lines.push('• ' + d.label + ': ' + d.was + ' -> ' + d.now + ' (' + sign + d.delta + ')' + mark);\n  });\n} else {\n  lines.push('• no comparable numbers yet — the trend starts with the next weekly run');\n}\n\nif ((k.coaching || []).length) {\n  lines.push('');\n  lines.push('*Worth a conversation*');\n  k.coaching.forEach(function (c) {\n    lines.push('• ' + c.rep + ' — ' + c.flag + ': ' + c.detail);\n  });\n}\n\nif ((k.results_not_captured || []).length) {\n  lines.push('');\n  lines.push(':information_source: not yet captured in the CRM: ' +\n    k.results_not_captured.join(', ') + ' — these are setup tasks, not zeroes.');\n}\nif ((k.phi_violations || []).length) {\n  lines.push('');\n  lines.push(':rotating_light: ' + k.phi_violations.length + ' CRM field(s) are named like ' +\n    'patient clinical data and were not read: ' +\n    k.phi_violations.map(function (v) { return v.name; }).join(', '));\n}\nlines.push('');\nlines.push(stored\n  ? 'Written to the dashboard sheet · source: ' + k.source\n  : 'Not written down (no SHEET_ID) · source: ' + k.source);\n\n// The three deals a manager should ask about by name, and no more than three. A digest\n// that lists forty rows is a spreadsheet with extra steps.\nconst worst = (k.gap_rows || []).slice(0, 3);\nif (worst.length) {\n  lines.push('');\n  lines.push('*Quietest uncovered deals*');\n  worst.forEach(function (g) {\n    lines.push('• ' + g.organisation + ' (' + g.stage + ', ' + g.owner + ') — ' +\n      g.days_quiet + ' days quiet, ' + g.action);\n  });\n}\n\nreturn [{\n  json: Object.assign({}, k, {\n    written: stored,\n    report: lines.join('\\n'),\n    _report_body: { text: lines.join('\\n') }\n  })\n}];"
       },
-      "id": "report",
+      "id": "2ab1e397-b101-4a67-a1cf-a1cf626e2ab1",
       "name": "build the management report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5880,
-        0
+        7440,
+        300
       ]
     },
     {
@@ -628,7 +971,7 @@
           },
           "conditions": [
             {
-              "id": "rep-on-c",
+              "id": "0680f1bb-ca95-454b-a958-195895e20680",
               "leftValue": "={{ $('config').first().json.manager_enabled }}",
               "rightValue": "true",
               "operator": {
@@ -643,13 +986,13 @@
         "looseTypeValidation": true,
         "options": {}
       },
-      "id": "rep-on",
+      "id": "e668f653-10d4-4a63-a462-0462078ae668",
       "name": "report webhook configured?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        6160,
-        0
+        7680,
+        300
       ]
     },
     {
@@ -672,13 +1015,13 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json._report_body) }}"
       },
-      "id": "post-report",
+      "id": "d70f6e03-794f-4b13-ab7d-9b7db53ad70f",
       "name": "Post the management report",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        6440,
-        0
+        7920,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -688,29 +1031,40 @@
     },
     {
       "parameters": {},
-      "id": "no-report",
+      "id": "3bbbef93-53c2-4fa3-a67e-267eff4a3bbb",
       "name": "STOP: no report webhook",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        6440,
-        190
+        7920,
+        460
       ]
     },
     {
       "parameters": {},
-      "id": "end",
+      "id": "cf93764a-4dc3-432a-a8fb-f8fbfae9cf93",
       "name": "End",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        6720,
-        0
+        8160,
+        300
       ]
     }
   ],
   "connections": {
     "Run it now": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday, 08:00": {
       "main": [
         [
           {
@@ -809,7 +1163,76 @@
       "main": [
         [
           {
+            "node": "read succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read succeeded?": {
+      "main": [
+        [
+          {
             "node": "check the PHI boundary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "build the read-failure alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build the read-failure alert": {
+      "main": [
+        [
+          {
+            "node": "failure alert configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "failure alert configured?": {
+      "main": [
+        [
+          {
+            "node": "Post the read-failure alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no failure webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the read-failure alert": {
+      "main": [
+        [
+          {
+            "node": "STOP: fail the run on a bad read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no failure webhook": {
+      "main": [
+        [
+          {
+            "node": "STOP: fail the run on a bad read",
             "type": "main",
             "index": 0
           }
@@ -821,17 +1244,6 @@
         [
           {
             "node": "check every deal for a next activity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Every Monday, 08:00": {
-      "main": [
-        [
-          {
-            "node": "config",
             "type": "main",
             "index": 0
           }
@@ -850,6 +1262,79 @@
       ]
     },
     "compute the KPIs": {
+      "main": [
+        [
+          {
+            "node": "sheet in use?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sheet in use?": {
+      "main": [
+        [
+          {
+            "node": "[cred] Sheets - read the dashboard history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no sheet history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[cred] Sheets - read the dashboard history": {
+      "main": [
+        [
+          {
+            "node": "pick last week's row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pick last week's row": {
+      "main": [
+        [
+          {
+            "node": "one baseline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STOP: no sheet history": {
+      "main": [
+        [
+          {
+            "node": "one baseline",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "one baseline": {
+      "main": [
+        [
+          {
+            "node": "compare with last week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "compare with last week": {
       "main": [
         [
           {

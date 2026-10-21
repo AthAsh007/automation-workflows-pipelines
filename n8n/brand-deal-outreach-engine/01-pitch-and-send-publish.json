@@ -2,14 +2,158 @@
   "name": "Send personalised brand deal pitches from Airtable with Instantly",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Send personalised brand deal pitches from Airtable with Instantly\n\nFor agencies and talent managers who pitch brands for creators at volume and need every pitch checked before it goes out.\n\n### How it works\n1. A weekday schedule loads creators, brands, inboxes and the pitch log from Airtable.\n2. Each creator is matched to brands in their niche and budget.\n3. Facts are built in code. An AI model writes the pitch from those facts only.\n4. An audit holds pitches that are thin, templated or quote numbers not in the records.\n5. Only inboxes proven healthy can send. Pitches go to an Instantly campaign.\n6. Every pitch, sent or held, is logged to Airtable. A summary is posted to Slack.\n\n### Setup\n1. Open `config` and set `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID`.\n2. In `config`, set `AI_API_KEY` (Anthropic) for `AI - write the pitch`.\n3. In `config`, set `SEND_API_KEY` and `CAMPAIGN_ID` (Instantly).\n4. In `config`, set `ALERT_WEBHOOK_URL` to a Slack incoming webhook.\n5. Keep `TEST_RUN = true` for the first run and open `STOP: not sent`. Then set it to false.\n\n### Requirements\n- Airtable base with Students, Brands, Inboxes and Pitches tables\n- Instantly, Anthropic and Slack (each optional: a blank key skips that step)\n\n### How to customize\n- Gate strictness: `MIN_FACTS`, `BANNED_PHRASES`, `MIN_WORDS` and `MAX_WORDS`.\n- Volume and inbox health: `PITCHES_PER_STUDENT_PER_DAY` and `MIN_WARMUP_DAYS`.",
+        "height": 900,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        0
+      ],
+      "id": "724a2605-5717-4c4e-9a00-724a26051000",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Trigger and config\n`Run it now` is for tests. The weekday schedule runs production. `config` is the only node you edit.",
+        "height": 540,
+        "width": 440,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "714a2472-5717-4c4e-9a00-714a24721001",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Load the roster\nThe `[cred]` nodes read four Airtable tables with the key in `config`. No key: `STOP: demo roster` builds demo data that can never be emailed.",
+        "height": 540,
+        "width": 1540,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        0
+      ],
+      "id": "704a22df-5717-4c4e-9a00-704a22df1002",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Match brands to creators\nPairs creators with brands in their niche and budget. `STOP: nothing to pitch` reports which filter removed the volume.",
+        "height": 540,
+        "width": 660,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        0
+      ],
+      "id": "6f4a214c-5717-4c4e-9a00-6f4a214c1003",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write the pitch\nFacts are built in code. `AI - write the pitch` needs `AI_API_KEY`. `STOP: no writer` keeps the draft for a person to finish.",
+        "height": 540,
+        "width": 1100,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2820,
+        0
+      ],
+      "id": "6e4a1fb9-5717-4c4e-9a00-6e4a1fb91004",
+      "name": "Section 4"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Gate each pitch\n`audit the pitch` holds weak copy. `assign a healthy inbox` fails closed on warmup, bounces, spam and caps.",
+        "height": 340,
+        "width": 660,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3980,
+        0
+      ],
+      "id": "6d4a1e26-5717-4c4e-9a00-6d4a1e261005",
+      "name": "Section 5"
+    },
+    {
+      "parameters": {
+        "content": "## 6. Send through Instantly\nThe `[cred] Instantly` node needs `SEND_API_KEY`. `STOP: not sent` lists every held or preview pitch with its reason.",
+        "height": 540,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4700,
+        0
+      ],
+      "id": "6c4a1c93-5717-4c4e-9a00-6c4a1c931006",
+      "name": "Section 6"
+    },
+    {
+      "parameters": {
+        "content": "## 7. Log every pitch\nSent and held pitches are written to Airtable. `confirm the log` flags gaps. `STOP: not logged` means logging is off.",
+        "height": 540,
+        "width": 1100,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5640,
+        0
+      ],
+      "id": "6b4a1b00-5717-4c4e-9a00-6b4a1b001007",
+      "name": "Section 7"
+    },
+    {
+      "parameters": {
+        "content": "## 8. Report the run\nPosts the run summary to Slack. `STOP: no alert webhook` means no URL is set.",
+        "height": 540,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6800,
+        0
+      ],
+      "id": "7a4a329d-5717-4c4e-9a00-7a4a329d1008",
+      "name": "Section 8"
+    },
+    {
       "parameters": {},
       "id": "manual",
       "name": "Run it now",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -1960,
-        200
+        60,
+        140
       ]
     },
     {
@@ -28,8 +172,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -1960,
-        400
+        60,
+        340
       ]
     },
     {
@@ -41,8 +185,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1740,
-        300
+        280,
+        140
       ]
     },
     {
@@ -76,8 +220,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -1520,
-        300
+        560,
+        140
       ]
     },
     {
@@ -115,8 +259,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1300,
-        120
+        780,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -160,8 +304,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1080,
-        120
+        1000,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -205,8 +349,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -860,
-        120
+        1220,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -250,8 +394,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -640,
-        120
+        1440,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -269,8 +413,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -420,
-        120
+        1660,
+        140
       ]
     },
     {
@@ -282,8 +426,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1300,
-        480
+        780,
+        340
       ]
     },
     {
@@ -296,8 +440,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        -200,
-        300
+        1880,
+        140
       ]
     },
     {
@@ -309,8 +453,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        20,
-        300
+        2160,
+        140
       ]
     },
     {
@@ -344,8 +488,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        240,
-        300
+        2380,
+        140
       ]
     },
     {
@@ -357,8 +501,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
-        480
+        2600,
+        340
       ]
     },
     {
@@ -370,8 +514,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
-        300
+        2880,
+        140
       ]
     },
     {
@@ -405,8 +549,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        680,
-        300
+        3100,
+        140
       ]
     },
     {
@@ -442,8 +586,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        900,
-        120
+        3320,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -460,8 +604,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        120
+        3540,
+        140
       ]
     },
     {
@@ -473,8 +617,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        900,
-        480
+        3320,
+        340
       ]
     },
     {
@@ -487,8 +631,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        1340,
-        300
+        3760,
+        140
       ]
     },
     {
@@ -500,8 +644,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
-        300
+        4040,
+        140
       ]
     },
     {
@@ -513,8 +657,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1780,
-        300
+        4260,
+        140
       ]
     },
     {
@@ -548,8 +692,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2000,
-        300
+        4480,
+        140
       ]
     },
     {
@@ -561,8 +705,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2220,
-        120
+        4760,
+        140
       ]
     },
     {
@@ -594,8 +738,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2440,
-        120
+        4980,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -612,8 +756,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2660,
-        120
+        5200,
+        140
       ]
     },
     {
@@ -625,8 +769,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2220,
-        480
+        4760,
+        340
       ]
     },
     {
@@ -639,8 +783,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        2880,
-        300
+        5420,
+        140
       ]
     },
     {
@@ -674,8 +818,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3100,
-        300
+        5700,
+        140
       ]
     },
     {
@@ -687,8 +831,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3320,
-        120
+        5920,
+        140
       ]
     },
     {
@@ -720,8 +864,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3540,
-        120
+        6140,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -738,8 +882,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3760,
-        120
+        6360,
+        140
       ]
     },
     {
@@ -751,8 +895,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3320,
-        480
+        5920,
+        340
       ]
     },
     {
@@ -765,8 +909,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        3980,
-        300
+        6580,
+        140
       ]
     },
     {
@@ -778,8 +922,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4200,
-        300
+        6860,
+        140
       ]
     },
     {
@@ -813,8 +957,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        4420,
-        300
+        7080,
+        140
       ]
     },
     {
@@ -842,8 +986,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        4640,
-        180
+        7300,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -858,8 +1002,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        4640,
-        420
+        7300,
+        340
       ]
     },
     {
@@ -869,136 +1013,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        4860,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## Send personalised brand deal pitches from Airtable with Instantly\n\n**Who's it for**\nCreator-management agencies, talent managers and solo operators running paid brand-deal outreach at volume, who need every pitch to read as though a person wrote it and need to prove it rather than promise it.\n\n**How it works**\nOn a weekday schedule the run loads creators, brand targets, sending inboxes and the pitch log from Airtable, or builds an offline demo roster when no key is set. `match brands to students` pairs each creator with brands in their own niche whose budget clears their minimum rate and skips anyone pitched inside the re-pitch window. `build the pitch` assembles verifiable facts in code and hands the model that list with an instruction to add nothing to it. `audit the pitch` holds anything thin, templated, mis-sized or numerically unsupported. `assign a healthy inbox` fails closed: an inbox that cannot be proved warmed and clean sends nothing. Survivors are pushed into an Instantly campaign, every pitch — sent or held — is logged the same day, and a run summary is posted to Slack.\n\n**How to set up**\n1. Open `config` and add your Airtable personal access token and base id.\n2. Add the Anthropic key, the Instantly key and a campaign id.\n3. Add a Slack incoming webhook URL for the run summary.\n4. Leave `TEST_RUN = true` for the first run, read `STOP: not sent`, then set it to false.\n\n**Requirements**\nAn Airtable base with Students, Brands, Inboxes and Pitches tables. Anthropic, Instantly and Slack are optional: a blank key skips that branch instead of failing the run.\n\n**How to customize**\n`MIN_FACTS`, `BANNED_PHRASES`, `MIN_WORDS`/`MAX_WORDS`, `MIN_WARMUP_DAYS` and `PITCHES_PER_STUDENT_PER_DAY` in `config` control how strict each gate is.",
-        "height": 704,
-        "width": 900,
-        "color": 4
-      },
-      "id": "sticky-overview",
-      "name": "Sticky Note - Start here",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -1980,
-        -604
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 1. Trigger and config\n\n`Run it now` is for testing; `Every weekday, 08:00` is what runs in production.\n\n`config` is the only node you edit. The Airtable, Anthropic, Instantly and Slack keys, the daily volume caps, the deliverability thresholds and the banned-phrase list all live there. A blank key means that branch is skipped, not that the run fails.\n\n`Airtable configured?` decides whether the run reads your base or builds the offline demo roster.",
-        "height": 296,
-        "width": 700,
-        "color": 7
-      },
-      "id": "sticky-1",
-      "name": "Sticky Note - Trigger and config",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -1980,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 2. Read the roster, or build a demo one\n\nThe four `[cred] Airtable` nodes pull Students, Brands, Inboxes and the Pitches log in turn. `read the roster` folds all four responses into a single item, so nothing downstream touches an Airtable payload directly, and an empty read that actually errored is never reported as a quiet day.\n\nWith no Airtable key, `STOP: demo roster` builds a deterministic stand-in instead: six creators, sixty brand contacts and six sending inboxes with a deliberately mixed health picture, so the whole engine can be watched end to end before an account exists. Demo data forces the run into preview, so a fabricated contact can never be emailed.\n\n`one roster` merges whichever branch ran.",
-        "height": 296,
-        "width": 1280,
-        "color": 7
-      },
-      "id": "sticky-2",
-      "name": "Sticky Note - Read the roster",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        -1270,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 3. Match brands to creators, then write the pitch\n\n`match brands to students` pairs each creator with brands in their own niche whose budget band clears their minimum rate, skips anyone already pitched inside the re-pitch window, and stops at the per-creator and per-run caps. Nothing to do is a reportable state rather than a fault: `STOP: nothing to pitch` says which filter took the volume, by count.\n\n`build the pitch` assembles the facts **in code** from the brand and creator records — what the brand just did, what the creator's numbers actually are, what the deliverable costs — and hands the model that list with an instruction to add nothing to it. `AI - write the pitch` returns a subject and a body; `apply the written pitch` keeps the code-built skeleton whenever the answer cannot be parsed, so a writer that times out never sends an empty email. With no key set, `STOP: no writer` passes the skeleton on to be held for a human.",
-        "height": 272,
-        "width": 1520,
-        "color": 7
-      },
-      "id": "sticky-3",
-      "name": "Sticky Note - Match and write",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        20,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 4. The two gates\n\n`audit the pitch` is the personalisation gate: enough specific facts, at least one of them about the brand, nothing from `BANNED_PHRASES`, inside the word range, a real recipient rather than a role mailbox, and every number in the body traceable back to a record. A thin brand record yields fewer facts, not a vaguer sentence, and the pitch is held.\n\n`assign a healthy inbox` is the deliverability gate, and it fails closed: warmed past `MIN_WARMUP_DAYS`, under the bounce and spam ceilings, above the health score, and inside both the per-mailbox and the per-domain daily cap. `HOLD_UNKNOWN_INBOX` ships true.\n\n`sending this one?` is where both verdicts land.",
-        "height": 368,
-        "width": 660,
-        "color": 7
-      },
-      "id": "sticky-4",
-      "name": "Sticky Note - The two gates",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1550,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 5. Send through the campaign\n\n`payload for the campaign` builds the Instantly v2 lead body with the written subject and body attached as custom variables, and routes to a per-niche campaign when one is configured. `[cred] Instantly - add to the campaign` pushes it, and `record what was sent` reads the answer back and refuses to record a rejected lead as sent.\n\nEverything held stops at `STOP: not sent`. In preview — which is how this ships — that node holds the whole batch: every pitch fully written, with the inbox it would have gone from and, for each held one, the reason in plain words. Read it before you go live.",
-        "height": 272,
-        "width": 860,
-        "color": 7
-      },
-      "id": "sticky-5",
-      "name": "Sticky Note - Send the batch",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2220,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 6. Log every pitch, sent or held\n\n`rows for the pitch log` batches the run ten records to a request, which is Airtable's maximum, and writes held pitches too, each with its reason. A log that records only successes cannot answer why 180 of a planned 400 went out.\n\n`confirm the log` compares what Airtable says it created against what the run produced and reports any difference as a LOG GAP. `STOP: not logged` carries the count forward so the gap shows up in the summary instead of staying silent.",
-        "height": 248,
-        "width": 900,
-        "color": 7
-      },
-      "id": "sticky-6",
-      "name": "Sticky Note - Log every pitch",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3090,
-        620
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 7. Report the run\n\n`build the run summary` counts what was sent, what was held and why, how many inboxes were usable, and whether the log matched the sends.\n\n`alert configured?` posts that summary to Slack when `ALERT_WEBHOOK_URL` is set, and skips straight to `End` when it is not. The run finishes either way.",
-        "height": 200,
-        "width": 1070,
-        "color": 7
-      },
-      "id": "sticky-7",
-      "name": "Sticky Note - Report the run",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        4000,
-        620
+        7520,
+        140
       ]
     }
   ],

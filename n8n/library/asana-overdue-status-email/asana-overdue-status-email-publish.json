@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Email a weekly overdue-task report from Asana to each project owner\n\n**Who's it for**\nOperations leads and agency owners running 5 to 40 Asana projects, where overdue tasks pile up quietly because nobody opens the project view. Each owner gets one list on Monday morning and can fix dates or nudge people from it.\n\n**How it works**\n1. Every Monday at 08:00 it reads each project in `PROJECT_GIDS` (name and owner), then its incomplete tasks with due date, assignee and tags. Sample projects are used until Asana is connected.\n2. Tasks due before today are overdue. Tasks tagged with any of `SKIP_TAGS` are left out.\n3. Each task goes into a bucket from `BUCKETS` (1-7, 8-30 and over 30 days by default), oldest first, and unassigned tasks are flagged.\n4. Owners get one email each with every project they own. Projects with no owner go to `FALLBACK_EMAIL`.\n\n**How to set up**\n1. Run it once as imported. It reports on sample projects and stops at `STOP: preview - nothing sent`.\n2. Add an Asana credential to `Fetch project details` and `Fetch incomplete tasks`, put your project gids in `PROJECT_GIDS` and set `USE_ASANA = true`.\n3. Connect Gmail and set `FALLBACK_EMAIL`.\n4. Put your own address in `TEST_EMAIL` to receive every owner email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Asana workspace\n- A Gmail account\n\n**How to customize**\n- `BUCKETS` sets the overdue ranges and their labels.\n- `SKIP_TAGS` keeps parked work, such as tasks tagged on hold, out of the report.\n- `MAX_TASKS_PER_PROJECT` caps each project section; the rest is counted.",
-        "height": 960,
+        "content": "## Email a weekly overdue-task report from Asana to each project owner\n\n**Who's it for**\nOperations leads and agency owners running 5 to 40 Asana projects, where overdue tasks pile up quietly because nobody opens the project view. Each owner gets one list on Monday morning and can fix dates or nudge people from it.\n\n**How it works**\n1. Every Monday at 08:00 it reads each project in `PROJECT_GIDS` (name and owner), then its incomplete tasks. Sample projects are used until Asana is connected. A project that fails to load, or has more tasks than one page holds, is reported, not dropped.\n2. Tasks due before today are overdue, except those tagged with `SKIP_TAGS`. Each goes into a bucket from `BUCKETS` (1-7, 8-30 and over 30 days by default), oldest first, and unassigned tasks are flagged.\n3. Last week's report is kept in workflow static data. Each project shows its change against last week and how many tasks were cleared, each task is marked new, and tasks in `STUCK_WEEKS` or more reports in a row lead the email.\n4. Owners get one email each with every project they own. Projects with no owner, and projects that could not be read, go to `FALLBACK_EMAIL`. Only a live run saves the report for next week.\n\n**How to set up**\n1. Run it once as imported. It reports on sample projects and stops at `STOP: preview - nothing sent`.\n2. Add an Asana credential to `Fetch project details` and `Fetch incomplete tasks`, put your project gids in `PROJECT_GIDS` and set `USE_ASANA = true`.\n3. Connect Gmail and set `FALLBACK_EMAIL`.\n4. Put your own address in `TEST_EMAIL` to receive every owner email yourself, then set `TEST_RUN = false`.\n\n**Requirements**\n- An Asana workspace\n- A Gmail account\n\n**How to customize**\n- `BUCKETS` sets the overdue ranges and their labels.\n- `SKIP_TAGS` keeps parked work, such as tasks tagged on hold, out of the report.\n- `MAX_TASKS_PER_PROJECT` caps each project section; the rest is counted. `STUCK_WEEKS` sets when a task counts as stuck.",
+        "height": 1072,
         "width": 520,
         "color": 4
       },
@@ -19,9 +19,9 @@
     },
     {
       "parameters": {
-        "content": "## 1. Start and settings\n\nRuns every Monday at 08:00. Projects, buckets and skip tags live in `config`; `List projects` makes one item per project gid so details and tasks stay paired.",
+        "content": "## 1. Start and settings\n\nRuns every Monday at 08:00. Projects, buckets, skip tags and the stuck threshold live in `config`. `Load the previous report` reads last week from static data, and `List projects` makes one item per gid so details and tasks stay paired.",
         "height": 512,
-        "width": 640,
+        "width": 864,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "content": "## 2. Read projects and tasks\n\nThe owner comes from the project, the tasks from a second call that asks only for incomplete ones. `Load sample projects` returns the same project-plus-tasks shape, including an unowned project and a task on hold.",
+        "content": "## 2. Read projects and tasks\n\nThe owner comes from the project, the tasks from a second call that asks only for incomplete ones. Both calls continue on error, so one broken project becomes a line in the fallback email instead of a silent gap. A next_page marks a partial list.",
         "height": 512,
         "width": 1072,
         "color": 7
@@ -43,7 +43,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        688,
+        912,
         0
       ],
       "id": "a82966be-5717-4c4e-9a00-a82966be1001",
@@ -51,7 +51,7 @@
     },
     {
       "parameters": {
-        "content": "## 3. Find what is overdue\n\nTasks are grouped by owner email before any email is written, so someone who owns four projects gets one message. Tasks with no due date or a parked tag never count.",
+        "content": "## 3. Compare with last week\n\nTasks are grouped by owner email, so someone who owns four projects gets one message. Each task carries how many reports in a row it has appeared in, and each project its change and cleared count since last Monday.",
         "height": 512,
         "width": 640,
         "color": 7
@@ -59,7 +59,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1808,
+        2032,
         0
       ],
       "id": "a729652b-5717-4c4e-9a00-a729652b1002",
@@ -67,15 +67,15 @@
     },
     {
       "parameters": {
-        "content": "## 4. Write and send\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every owner email comes to you with the real owner in the subject.",
+        "content": "## 4. Write, send and save\n\nNothing is emailed while `TEST_RUN` is true and `TEST_EMAIL` is blank. In test mode every owner email comes to you with the real owner in the subject. The report is saved for next week only after a live send.",
         "height": 512,
-        "width": 640,
+        "width": 1072,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2496,
+        2720,
         0
       ],
       "id": "a6296398-5717-4c4e-9a00-a62963981003",
@@ -87,7 +87,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// EMAIL A WEEKLY OVERDUE-TASK REPORT FROM ASANA TO EACH PROJECT OWNER - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_ASANA false -> SAMPLE projects and tasks, so the run works before any credential exists.\n// Owners without an email address on Asana get their report sent to FALLBACK_EMAIL.\n\n// set true after adding the Asana credential to both Asana nodes\nconst USE_ASANA = false;\n// Asana project gids (the number in the project URL)\nconst PROJECT_GIDS = [\n  \"1204000000000001\",\n  \"1204000000000002\",\n  \"1204000000000003\",\n  \"1204000000000004\"\n];\n// overdue ranges, checked in order\nconst BUCKETS = [\n  {\n    max: 7,\n    label: \"1-7 days late\"\n  },\n  {\n    max: 30,\n    label: \"8-30 days late\"\n  },\n  {\n    max: 99999,\n    label: \"over 30 days late\"\n  }\n];\n// tasks with any of these tags are not reported\nconst SKIP_TAGS = [\n  \"on hold\",\n  \"someday\"\n];\n// most tasks listed per project; the rest is counted\nconst MAX_TASKS_PER_PROJECT = 15;\n// gets reports for projects without an owner email\nconst FALLBACK_EMAIL = 'ops@northwind.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_asana: USE_ASANA,\n    project_gids: PROJECT_GIDS,\n    buckets: BUCKETS,\n    skip_tags: SKIP_TAGS,\n    max_tasks_per_project: MAX_TASKS_PER_PROJECT,\n    fallback_email: FALLBACK_EMAIL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// EMAIL A WEEKLY OVERDUE-TASK REPORT FROM ASANA TO EACH PROJECT OWNER - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_ASANA false -> SAMPLE projects and tasks, so the run works before any credential exists.\n// Owners without an email address on Asana get their report sent to FALLBACK_EMAIL.\n\n// set true after adding the Asana credential to both Asana nodes\nconst USE_ASANA = false;\n// Asana project gids (the number in the project URL)\nconst PROJECT_GIDS = [\n  \"1204000000000001\",\n  \"1204000000000002\",\n  \"1204000000000003\",\n  \"1204000000000004\"\n];\n// overdue ranges, checked in order\nconst BUCKETS = [\n  {\n    max: 7,\n    label: \"1-7 days late\"\n  },\n  {\n    max: 30,\n    label: \"8-30 days late\"\n  },\n  {\n    max: 99999,\n    label: \"over 30 days late\"\n  }\n];\n// tasks with any of these tags are not reported\nconst SKIP_TAGS = [\n  \"on hold\",\n  \"someday\"\n];\n// most tasks listed per project; the rest is counted\nconst MAX_TASKS_PER_PROJECT = 15;\n// a task overdue in this many weekly reports in a row is listed first as stuck\nconst STUCK_WEEKS = 3;\n// gets reports for projects without an owner email\nconst FALLBACK_EMAIL = 'ops@northwind.example';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    use_asana: USE_ASANA,\n    project_gids: PROJECT_GIDS,\n    buckets: BUCKETS,\n    skip_tags: SKIP_TAGS,\n    max_tasks_per_project: MAX_TASKS_PER_PROJECT,\n    stuck_weeks: STUCK_WEEKS,\n    fallback_email: FALLBACK_EMAIL,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
@@ -126,6 +126,19 @@
       ]
     },
     {
+      "id": "96cb945c-23a5-4f9c-aa53-6a53142f96cb",
+      "name": "Load the previous report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Last live run's overdue tasks per project, from workflow static data. Empty on the\n// first run, so every task starts as new.\nconst prev = $getWorkflowStaticData('global').asana_overdue || null;\nreturn [{ json: { previous: prev } }];\n"
+      },
+      "position": [
+        496,
+        176
+      ]
+    },
+    {
       "id": "f63af940-2b55-4540-a1e4-71e413c3f63a",
       "name": "List projects",
       "type": "n8n-nodes-base.code",
@@ -134,7 +147,7 @@
         "jsCode": "// One item per project gid.\nreturn $('config').first().json.project_gids.map(gid => ({ json: { gid } }));\n"
       },
       "position": [
-        496,
+        720,
         176
       ]
     },
@@ -168,7 +181,7 @@
         "options": {}
       },
       "position": [
-        736,
+        960,
         176
       ]
     },
@@ -181,7 +194,7 @@
         "jsCode": "// Used until USE_ASANA is true. Same shape Read projects and tasks builds, dates relative to today.\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);\nconst t = (gid, name, d, assignee, tags = []) => ({ gid, name, due_on: d === null ? null : day(d), assignee: assignee ? { name: assignee } : null, tags: tags.map(name => ({ name })),\n  permalink_url: 'https://app.asana.com/0/0/' + gid });\nreturn [\n  { project: { gid: 'p1', name: 'Website relaunch', owner: { name: 'Maya Torres', email: 'maya@northwind.example' } }, tasks: [\n    t('t11', 'Final copy for pricing page', 3, 'Ben Okoro'), t('t12', 'Accessibility audit', 12, null), t('t13', 'Redirect map', 45, 'Ana Ruiz'),\n    t('t14', 'Launch checklist', -2, 'Maya Torres'), t('t15', 'Legacy blog import', 20, 'Ben Okoro', ['On hold']), t('t16', 'Favicon', null, 'Ana Ruiz') ] },\n  { project: { gid: 'p2', name: 'Q4 newsletter', owner: { name: 'Maya Torres', email: 'maya@northwind.example' } }, tasks: [\n    t('t21', 'Draft issue 3', 1, 'Chloe Martin') ] },\n  { project: { gid: 'p3', name: 'Office move', owner: { name: 'Tom Reyes', email: 'tom@northwind.example' } }, tasks: [\n    t('t31', 'Book movers', 0, 'Tom Reyes'), t('t32', 'Order desks', -5, 'Tom Reyes') ] },\n  { project: { gid: 'p4', name: 'Vendor review', owner: null }, tasks: [\n    t('t41', 'Compare payroll vendors', 9, 'Esme Larsen') ] },\n].map(json => ({ json }));\n"
       },
       "position": [
-        960,
+        1184,
         176
       ]
     },
@@ -210,8 +223,9 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
       "position": [
-        960,
+        1184,
         352
       ]
     },
@@ -221,7 +235,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "parameters": {
-        "url": "={{ 'https://app.asana.com/api/1.0/projects/' + $json.data.gid + '/tasks' }}",
+        "url": "={{ 'https://app.asana.com/api/1.0/projects/' + ($json.data || {}).gid + '/tasks' }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "asanaApi",
         "sendQuery": true,
@@ -248,8 +262,9 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
       "position": [
-        1168,
+        1392,
         352
       ]
     },
@@ -259,10 +274,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Task page i belongs to project i; completed_since=now already left only incomplete tasks.\nconst projects = $('Fetch project details').all().map(i => i.json.data || {});\nreturn $input.all().map((it, i) => ({ json: { project: projects[i], tasks: it.json.data || [] } }));\n"
+        "jsCode": "// Task page i belongs to project i; completed_since=now already left only incomplete\n// tasks. A failed call arrives as { error } (continue on error) and is kept as an\n// unreadable project; a next_page means more than 100 tasks, so the list is partial.\nconst listed = $('List projects').all().map(i => i.json.gid);\nconst details = $('Fetch project details').all().map(i => i.json);\nconst why = e => typeof e === 'string' ? e : e?.message || 'no data returned';\nreturn $input.all().map((it, i) => {\n  const d = details[i] || {};\n  if (d.error || it.json.error || !d.data) return { json: { project: { gid: d.data?.gid || listed[i], name: d.data?.name || 'Project ' + listed[i] }, error: why(d.error || it.json.error), tasks: [] } };\n  return { json: { project: d.data, tasks: it.json.data || [], truncated: Boolean(it.json.next_page) } };\n});\n"
       },
       "position": [
-        1392,
+        1616,
         352
       ]
     },
@@ -275,7 +290,7 @@
         "numberInputs": 2
       },
       "position": [
-        1616,
+        1840,
         176
       ]
     },
@@ -285,16 +300,16 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Overdue = due_on before today. Bucket by days late, oldest first; skip SKIP_TAGS.\nconst cfg = $('config').first().json;\nconst today = new Date().toISOString().slice(0, 10);\nconst skip = cfg.skip_tags.map(s => s.toLowerCase());\nconst late = d => Math.round((new Date(today) - new Date(d)) / 864e5);\nconst owners = {};\nlet skipped = 0;\nfor (const { json: { project, tasks } } of $input.all()) {\n  if (!project?.gid) continue;\n  const overdue = [];\n  for (const t of tasks) {\n    if (!t.due_on || t.due_on >= today) continue;\n    if ((t.tags || []).some(g => skip.includes(String(g.name).toLowerCase()))) { skipped++; continue; }\n    const days = late(t.due_on);\n    overdue.push({ name: t.name, due_on: t.due_on, days, bucket: cfg.buckets.find(b => days <= b.max)?.label || 'late',\n      assignee: t.assignee?.name || '', url: t.permalink_url || '' });\n  }\n  if (!overdue.length) continue;\n  overdue.sort((a, b) => b.days - a.days);\n  const email = project.owner?.email || cfg.fallback_email;\n  const o = (owners[email] ||= { email, name: project.owner?.name || '', fallback: !project.owner?.email, projects: [] });\n  o.projects.push({ name: project.name, overdue, unassigned: overdue.filter(t => !t.assignee).length });\n}\nreturn [{ json: { owners: Object.values(owners), skipped } }];\n"
+        "jsCode": "// Overdue = due_on before today. Bucket by days late, oldest first; skip SKIP_TAGS.\n// Against last week's report: change per project, tasks cleared, weeks in a row per task.\nconst cfg = $('config').first().json;\nconst prev = $('Load the previous report').first().json.previous || { projects: {}, weeks: {} };\nconst today = new Date().toISOString().slice(0, 10);\nconst skip = cfg.skip_tags.map(s => s.toLowerCase());\nconst late = d => Math.round((new Date(today) - new Date(d)) / 864e5);\nconst owners = {}, unreadable = [], next = { run_on: today, projects: {}, weeks: {} };\nconst ownerOf = (email, name, fallback) => (owners[email] ||= { email, name, fallback, projects: [], unreadable: [] });\nlet skipped = 0;\nfor (const { json: { project, tasks, error, truncated } } of $input.all()) {\n  if (!project?.gid) continue;\n  if (error) { unreadable.push({ name: project.name, gid: project.gid, reason: error }); continue; }\n  const overdue = [];\n  for (const t of tasks) {\n    if (!t.due_on || t.due_on >= today) continue;\n    if ((t.tags || []).some(g => skip.includes(String(g.name).toLowerCase()))) { skipped++; continue; }\n    const days = late(t.due_on);\n    const weeks = (prev.weeks[t.gid] || 0) + 1;\n    next.weeks[t.gid] = weeks;\n    overdue.push({ gid: t.gid, name: t.name, due_on: t.due_on, days, weeks, is_new: weeks === 1, stuck: weeks >= cfg.stuck_weeks,\n      bucket: cfg.buckets.find(b => days <= b.max)?.label || 'late', assignee: t.assignee?.name || '', url: t.permalink_url || '' });\n  }\n  const before = prev.projects[project.gid];\n  next.projects[project.gid] = overdue.map(t => t.gid);\n  const now = new Set(next.projects[project.gid]);\n  const cleared = before ? before.filter(g => !now.has(g)).length : 0;\n  if (!overdue.length && !truncated) continue;\n  overdue.sort((a, b) => b.days - a.days);\n  const email = project.owner?.email || cfg.fallback_email;\n  ownerOf(email, project.owner?.name || '', !project.owner?.email).projects.push({ name: project.name, overdue, truncated: Boolean(truncated),\n    unassigned: overdue.filter(t => !t.assignee).length, change: before ? overdue.length - before.length : null, cleared,\n    new_count: overdue.filter(t => t.is_new).length });\n}\nif (unreadable.length) ownerOf(cfg.fallback_email, '', true).unreadable = unreadable;\nreturn [{ json: { owners: Object.values(owners), skipped, unreadable, first_report: !prev.run_on, next_state: next } }];\n"
       },
       "position": [
-        1856,
+        2080,
         176
       ]
     },
     {
-      "id": "31b0754d-7bfd-4f3d-a9c6-19c6026831b0",
-      "name": "Anything overdue?",
+      "id": "b64d0a16-33c2-4f36-a11f-e11fbb25b64d",
+      "name": "Anything to report?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "parameters": {
@@ -307,7 +322,7 @@
           },
           "conditions": [
             {
-              "id": "03827dd4-fb3e-4394-af74-8f74f7f70382",
+              "id": "4c4b6b09-f2ab-4239-aece-6ece57844c4b",
               "leftValue": "={{ $json.owners.length > 0 }}",
               "rightValue": "",
               "operator": {
@@ -322,7 +337,7 @@
         "options": {}
       },
       "position": [
-        2080,
+        2304,
         176
       ]
     },
@@ -333,7 +348,7 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2304,
+        2528,
         352
       ]
     },
@@ -343,10 +358,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Per owner: each project, grouped by bucket, capped at MAX_TASKS_PER_PROJECT.\nconst cfg = $('config').first().json;\nreturn $input.first().json.owners.map(o => {\n  const total = o.projects.reduce((n, p) => n + p.overdue.length, 0);\n  const lines = ['Hi ' + (o.name.split(' ')[0] || 'there') + ',', '', total + ' overdue task' + (total === 1 ? '' : 's') + ' across ' + o.projects.length + ' project' + (o.projects.length === 1 ? '' : 's') + ':'];\n  if (o.fallback) lines.push('(These projects have no owner email on Asana, so this went to the fallback address.)');\n  for (const p of o.projects) {\n    lines.push('', p.name + ' (' + p.overdue.length + ' overdue' + (p.unassigned ? ', ' + p.unassigned + ' unassigned' : '') + ')');\n    const shown = p.overdue.slice(0, cfg.max_tasks_per_project);\n    for (const b of cfg.buckets.map(b => b.label)) {\n      const inB = shown.filter(t => t.bucket === b);\n      if (!inB.length) continue;\n      lines.push('  ' + b + ':');\n      for (const t of inB) lines.push('  - ' + t.name + ' (due ' + t.due_on + ', ' + (t.assignee || 'UNASSIGNED') + ') ' + t.url);\n    }\n    if (p.overdue.length > shown.length) lines.push('  ...and ' + (p.overdue.length - shown.length) + ' more');\n  }\n  lines.push('', 'Move the date, reassign or close what is no longer needed.');\n  return { json: { owner: o.email, total, subject: total + ' overdue Asana task' + (total === 1 ? '' : 's') + ' in your projects', body: lines.join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : o.email } };\n});\n"
+        "jsCode": "// Per owner: stuck tasks first, then each project with its change since last week,\n// grouped by bucket and capped at MAX_TASKS_PER_PROJECT. Unreadable projects last.\nconst cfg = $('config').first().json;\nconst signed = n => n === null ? 'first report' : n === 0 ? 'same as last week' : (n > 0 ? '+' : '') + n + ' vs last week';\nreturn $input.first().json.owners.map(o => {\n  const total = o.projects.reduce((n, p) => n + p.overdue.length, 0);\n  const stuck = o.projects.flatMap(p => p.overdue.filter(t => t.stuck).map(t => ({ ...t, project: p.name })));\n  const lines = ['Hi ' + (o.name.split(' ')[0] || 'there') + ',', '', total + ' overdue task' + (total === 1 ? '' : 's') + ' across ' + o.projects.length + ' project' + (o.projects.length === 1 ? '' : 's') + ':'];\n  if (o.fallback) lines.push('(These projects have no owner email on Asana, or could not be read, so this went to the fallback address.)');\n  if (stuck.length) {\n    lines.push('', 'Stuck: overdue in ' + cfg.stuck_weeks + '+ reports running. Re-plan or close these first:');\n    for (const t of stuck) lines.push('  - ' + t.name + ' (' + t.project + ', ' + t.weeks + ' weeks, ' + (t.assignee || 'UNASSIGNED') + ') ' + t.url);\n  }\n  for (const p of o.projects) {\n    lines.push('', p.name + ' (' + p.overdue.length + ' overdue, ' + signed(p.change) + (p.cleared ? ', ' + p.cleared + ' cleared' : '') + (p.new_count && p.change !== null ? ', ' + p.new_count + ' new' : '') + (p.unassigned ? ', ' + p.unassigned + ' unassigned' : '') + ')');\n    if (p.truncated) lines.push('  Note: this project has more than 100 incomplete tasks; only the first page was checked.');\n    const shown = p.overdue.slice(0, cfg.max_tasks_per_project);\n    for (const b of cfg.buckets.map(b => b.label)) {\n      const inB = shown.filter(t => t.bucket === b);\n      if (!inB.length) continue;\n      lines.push('  ' + b + ':');\n      for (const t of inB) lines.push('  - ' + (t.is_new && p.change !== null ? '[new] ' : '') + t.name + ' (due ' + t.due_on + ', ' + (t.assignee || 'UNASSIGNED') + ') ' + t.url);\n    }\n    if (p.overdue.length > shown.length) lines.push('  ...and ' + (p.overdue.length - shown.length) + ' more');\n  }\n  if (o.unreadable.length) {\n    lines.push('', 'Could not read ' + o.unreadable.length + ' project(s), so they are missing from every report this week:');\n    for (const u of o.unreadable) lines.push('  - ' + u.name + ' (' + u.gid + '): ' + u.reason);\n  }\n  lines.push('', 'Move the date, reassign or close what is no longer needed.');\n  const subject = (o.unreadable.length && !total ? 'Asana overdue report: ' + o.unreadable.length + ' project(s) could not be read'\n    : total + ' overdue Asana task' + (total === 1 ? '' : 's') + ' in your projects' + (stuck.length ? ', ' + stuck.length + ' stuck' : ''));\n  return { json: { owner: o.email, total, stuck: stuck.length, subject, body: lines.join('\\n'),\n    send_to: cfg.mode === 'test' ? cfg.test_email : o.email } };\n});\n"
       },
       "position": [
-        2544,
+        2768,
         176
       ]
     },
@@ -380,7 +395,7 @@
         "options": {}
       },
       "position": [
-        2768,
+        2992,
         176
       ]
     },
@@ -391,7 +406,7 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2992,
+        3200,
         352
       ]
     },
@@ -413,7 +428,65 @@
         }
       },
       "position": [
-        2992,
+        3200,
+        176
+      ]
+    },
+    {
+      "id": "ee87806e-7305-4a0e-aaf9-4af9aeedee87",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3424,
+        176
+      ]
+    },
+    {
+      "id": "a9c2a62b-9d5c-46bb-ad5d-ed5d65d2a9c2",
+      "name": "STOP: test send - report not saved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3648,
+        352
+      ]
+    },
+    {
+      "id": "cf62485b-8cb4-49eb-a074-d074e742cf62",
+      "name": "Save this week as the previous report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Next Monday compares with this. Saved once, after the live emails went out, so a\n// test run never makes real tasks look old or cleared.\nconst s = $('Find overdue tasks').first().json.next_state;\n$getWorkflowStaticData('global').asana_overdue = s;\nreturn [{ json: { saved_for: s.run_on, projects: Object.keys(s.projects).length, tasks: Object.keys(s.weeks).length } }];\n"
+      },
+      "position": [
+        3648,
         176
       ]
     }
@@ -442,6 +515,17 @@
       ]
     },
     "config": {
+      "main": [
+        [
+          {
+            "node": "Load the previous report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load the previous report": {
       "main": [
         [
           {
@@ -540,14 +624,14 @@
       "main": [
         [
           {
-            "node": "Anything overdue?",
+            "node": "Anything to report?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Anything overdue?": {
+    "Anything to report?": {
       "main": [
         [
           {
@@ -588,6 +672,35 @@
         [
           {
             "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the owner": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Save this week as the previous report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - report not saved",
             "type": "main",
             "index": 0
           }

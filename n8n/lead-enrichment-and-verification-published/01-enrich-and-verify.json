@@ -915,66 +915,146 @@
     },
     {
       "parameters": {
-        "content": "## Evergreen partnership engine — stage 2 of 6: enrich and verify\n\n**The job:** https://example.com/jobs/~022093767913249678699/\n\nEvergreen Mentorship, no-cost Medicaid-backed telehealth mental health across Midstate.\nThis workflow is the data half of the brief: take a raw list of Midstate organisations,\nfind the person who can actually make a referral, prove the address is deliverable,\nscore them, and hand only the safe ones to the sending engine.\n\n**The other five stages** — domains and warming, the CRM pipeline, the email\nsequences, the caller queue, the reporting — are in the README. This one is built\nfirst because every KPI in the brief depends on it: you cannot hold a bounce rate\nunder 2% downstream of a list nobody verified.\n\nEverything you edit is in the **config** node. No environment variables, so it runs\non n8n Cloud unchanged.",
-        "height": 400,
+        "content": "## Enrich and verify partnership leads from Google Sheets into Instantly\n\nFor outreach teams who need a verified decision maker at each organisation on a raw list.\n\n### How it works\n1. Every weekday at 07:00 it reads a batch of new rows from the Organisations tab.\n2. Keyword rules give each organisation a category. An optional AI call classifies the rest.\n3. Apollo finds decision makers at each organisation. Each contact is scored against your ICP.\n4. Every address goes to an email verifier. Anything not clearly valid is held back, never sent.\n5. Both sheet tabs are updated, safe contacts go to an Instantly campaign, and a summary is posted.\n\n### Setup\n1. Create a Google Sheet with an `Organisations` tab and a `Contacts` tab. Row 1 headings must match `ORG_COLUMNS` and `CONTACT_COLUMNS` in the `config` node.\n2. Add a Google Sheets credential to the four `[cred] Sheets` nodes.\n3. In `config`, set `SHEET_ID` (the long id in the sheet URL).\n4. In `config`, add `APOLLO_API_KEY`, `VERIFIER_API_KEY`, `INSTANTLY_API_KEY` and `INSTANTLY_CAMPAIGN_ID`. Optional: `AI_API_KEY` and `ALERT_WEBHOOK_URL`.\n5. Run once with `TEST_RUN = true` and read the list in `STOP: not pushed`. Set `TEST_RUN = false` to go live.\n\n### Requirements\n- A Google account for Sheets\n- Apollo, MillionVerifier and Instantly API keys\n- Optional: an Anthropic API key and a Slack incoming webhook\n- A blank key skips that step instead of failing the run\n\n### Customization tips\n- Batch size, categories, title rules and accepted verifier statuses are in `config`.\n- To use another verifier or Smartlead, change its URL in `config` and the body of the matching HTTP node.\n\n### Source (working file only)\nJob post: https://example.com/jobs/~022093767913249678699/",
+        "height": 1000,
         "width": 620,
-        "color": 4
+        "color": 1
       },
-      "id": "a",
-      "name": "Sticky Note a",
+      "id": "sticky-00",
+      "name": "Overview",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -1560,
-        -280
+        -2240,
+        -140
       ]
     },
     {
       "parameters": {
-        "content": "## Every optional step degrades, none of them fail\n\nA blank key in `config` means *skip this step*, never *fail this run*:\n\n- **no Apollo key** -> uses whatever contact details the raw list already has\n- **no AI key** -> keyword rules only, which place most organisations anyway\n- **no verifier key** -> nothing is emailed, everything is written to the sheet\n- **no Instantly key** -> the sending list is produced and reviewed, not pushed\n\nWhich is why this whole pipeline can be demonstrated on a screen-share before the\nclient has handed over a single credential.",
-        "height": 280,
-        "width": 560,
-        "color": 5
+        "content": "## 1. Trigger and settings\nRuns every weekday at 07:00, or when you click Run. Every setting and API key is in the `config` node.",
+        "height": 740,
+        "width": 400,
+        "color": 7
       },
-      "id": "b",
-      "name": "Sticky Note b",
+      "id": "sticky-01",
+      "name": "1. Trigger and settings",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -180,
-        500
+        -1540,
+        -140
       ]
     },
     {
       "parameters": {
-        "content": "## This is the under-2% bounce rate\n\nNot the copy, not the domains — this node and the gate after it.\n\n**It fails closed.** A verifier that times out, runs out of credits, or returns\nsomething unrecognised produces `unknown`, and `unknown` is held back. Every other\nmistake in cold outreach is recoverable; a burnt sending domain is not.\n\n`ACCEPT_STATUSES` is what reaches the campaign. Catch-all and unknown are held by\ndefault — they are the addresses that pass a verifier and still bounce.\n\n`HOLD_UNVERIFIED = true` is the setting that makes the KPI true. Leave it.",
-        "height": 300,
-        "width": 560,
-        "color": 3
+        "content": "## 2. Pick a batch\nReads the Organisations tab (Google Sheets credential), takes up to `BATCH_SIZE` rows not enriched recently and cleans each name and domain. `STOP: nothing to enrich` means no row was ready.",
+        "height": 740,
+        "width": 840,
+        "color": 7
       },
-      "id": "c",
-      "name": "Sticky Note c",
+      "id": "sticky-02",
+      "name": "2. Pick a batch",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1960,
-        500
+        -1100,
+        -140
       ]
     },
     {
       "parameters": {
-        "content": "## Nothing is pushed until you say so\n\n`TEST_RUN = true` with a blank `TEST_CAMPAIGN_ID` (how it ships) runs the whole\npipeline and writes both sheet tabs, but pushes nothing to a campaign. Open\n**STOP: not pushed** to read the whole sending list first: name, title, score,\nverifier verdict, and for everyone held, the reason in plain words.\n\nPut a campaign id in `TEST_CAMPAIGN_ID` and leads really are pushed, to that\ncampaign. `TEST_RUN = false` goes live.\n\n`DEMO_VERIFIER = true` forces preview whichever way those are set — a fabricated\nverdict can never reach a real campaign.",
-        "height": 300,
-        "width": 600,
-        "color": 6
+        "content": "## 3. Classify the organisation\nKeyword rules set the category. Rows they cannot place go to the AI call when `AI_API_KEY` is set. `STOP: keyword rules only` is the normal path otherwise.",
+        "height": 740,
+        "width": 840,
+        "color": 7
       },
-      "id": "d",
-      "name": "Sticky Note d",
+      "id": "sticky-03",
+      "name": "3. Classify the organisation",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        4180,
-        480
+        -220,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Find and score decision makers\nApollo searches each organisation for people in the target roles, then each contact gets an ICP score. With no Apollo key, `STOP: Apollo not configured` uses contacts already on the row.",
+        "height": 740,
+        "width": 1060,
+        "color": 7
+      },
+      "id": "sticky-04",
+      "name": "4. Find and score decision makers",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        660,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Verify every address\nEach email is checked with the verifier. This fails closed: timeouts, unknown and catch-all results are held back. `STOP: unverified - held back` collects addresses that could not be checked.",
+        "height": 740,
+        "width": 1060,
+        "color": 7
+      },
+      "id": "sticky-05",
+      "name": "5. Verify every address",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Write to the sheet\nUpdates the Organisations tab, then writes every contact to the Contacts tab, held ones with the reason. Rows match on an id column, so re-runs update instead of duplicating.",
+        "height": 740,
+        "width": 1060,
+        "color": 7
+      },
+      "id": "sticky-06",
+      "name": "6. Write to the sheet",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 7. Push to Instantly\nSafe contacts are added to the campaign and marked pushed in the sheet. With `TEST_RUN = true` and no `TEST_CAMPAIGN_ID` nothing is pushed: review the list in `STOP: not pushed`.",
+        "height": 740,
+        "width": 1060,
+        "color": 7
+      },
+      "id": "sticky-07",
+      "name": "7. Push to Instantly",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3960,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 8. Report the run\nCounts what was enriched, verified, held and pushed, and posts it to a Slack webhook. A blank `ALERT_WEBHOOK_URL` ends at `STOP: no alert webhook`.",
+        "height": 740,
+        "width": 840,
+        "color": 7
+      },
+      "id": "sticky-08",
+      "name": "8. Report the run",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5060,
+        -140
       ]
     }
   ],

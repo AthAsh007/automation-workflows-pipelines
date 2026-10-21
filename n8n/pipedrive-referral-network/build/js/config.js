@@ -20,6 +20,11 @@ const API_TOKEN      = '';
 // account; set it once you have more than one pipeline.
 const PIPELINE_ID = '';
 
+// Every read is paginated (500 per page, Pipedrive's maximum). MAX_PAGES is a safety stop:
+// 20 pages = 10,000 open deals. If a read is cut off by it, the run is reported as a FAILED
+// read, never as a smaller pipeline — a half-read pipeline reads as "covered" by omission.
+const MAX_PAGES = 20;
+
 // ---------------------------------------------------------------- The pipeline's stages
 // In order. `id` is Pipedrive's numeric stage id — read it off the URL when you open the
 // stage's settings. The rest is this workflow's rule for that stage.
@@ -99,10 +104,33 @@ const GRACE_HOURS = 4;
 // forty stray activities, not two thousand.
 const DAILY_CAP = 40;
 
-// An activity already overdue by this many days is escalated in the summary rather than
-// having another one stacked on top of it. Stacking is how a rep ends up with 60 open
-// tasks and stops reading any of them.
-const OVERDUE_DAYS = 3;
+// ---------------------------------------------------------------- Business days
+// Every "days" setting in this node is counted in BUSINESS days: due dates never land on a
+// weekend or a holiday, and a task due on Friday is not "3 days overdue" on Monday morning.
+// WORK_DAYS uses 0 = Sunday ... 6 = Saturday. HOLIDAYS are 'YYYY-MM-DD' strings.
+const WORK_DAYS = [1, 2, 3, 4, 5];
+const HOLIDAYS  = [];
+
+// ---------------------------------------------------------------- Escalation tiers
+// A deal whose next activity is overdue does NOT get another one stacked on top of it.
+// Stacking is how a rep ends up with 60 open tasks and stops reading any of them. Instead:
+//
+//   overdue OVERDUE_DAYS or more        -> tier "owner":   the rep's own morning DM
+//   overdue MANAGER_AFTER_DAYS or more  -> tier "manager": the management escalation
+//
+// The manager is told about a deal ONCE, then again only if it is still open after
+// REMIND_MANAGER_AFTER_DAYS — a daily repeat of the same twelve deals is how an escalation
+// channel gets muted. Memory lives in the workflow's own static data; nothing to set up.
+const OVERDUE_DAYS              = 3;
+const MANAGER_AFTER_DAYS        = 7;
+const REMIND_MANAGER_AFTER_DAYS = 5;
+
+// ---------------------------------------------------------------- Rep workload
+// New activities are load-levelled: if a rep already has MAX_PER_OWNER_PER_DAY open
+// activities due on the target day, the new one moves to the next business day with room,
+// up to LEVEL_WITHIN_DAYS later. Forty tasks dumped on one Monday get done on none of them.
+const MAX_PER_OWNER_PER_DAY = 8;
+const LEVEL_WITHIN_DAYS     = 3;
 
 // Deals worth more than this that have gone stale are called out separately, which is the
 // "management notification for high-priority opportunities" automation.
@@ -236,10 +264,31 @@ const PARTNER_STAGES = ['Referral Partner', 'Actively Referring'];
 
 const REPORT_WINDOW_DAYS = 7;   // the reporting period. 7 = the weekly management report.
 
+// Week-over-week: the report compares itself with the newest Dashboard row that is at least
+// BASELINE_MIN_DAYS old, read back from the sheet. No sheet = no comparison, said so.
+const BASELINE_MIN_DAYS = 5;
+
+// Rep coaching flags in the weekly report. A rep is flagged when:
+//   - COACH_MIN_ATTEMPTS+ attempts but under COACH_MIN_CONVERSATION_PCT% became
+//     conversations (effort without progress — a list or a script problem), or
+//   - over COACH_MAX_GAP_PCT% of their open deals have no next activity (follow-up slipping).
+const COACH_MIN_ATTEMPTS         = 6;
+const COACH_MIN_CONVERSATION_PCT = 40;
+const COACH_MAX_GAP_PCT          = 30;
+
 // ---------------------------------------------------------------- Notifications
-const ALERT_WEBHOOK_URL   = '';   // Slack incoming webhook, the rep-facing run summary.
+const ALERT_WEBHOOK_URL   = '';   // Slack incoming webhook, the team run summary. Also
+                                  // where a FAILED Pipedrive read is reported.
 const MANAGER_WEBHOOK_URL = '';   // Optional second webhook for management escalations.
                                   // Blank = escalations go to ALERT_WEBHOOK_URL instead.
+
+// Per-rep morning DMs in Slack: each owner gets only their own deals — what was scheduled
+// for them, what they are overdue on. Needs a Slack credential on "[cred] Slack - DM each
+// owner" (bot scope chat:write), SLACK_DMS = true, and the map below.
+// OWNER_SLACK_IDS maps a Pipedrive user id to a Slack member id: { 11: 'U01ABCDEF' }.
+// Reps not in the map are simply not DM'd — they are still in the team summary.
+const SLACK_DMS       = false;
+const OWNER_SLACK_IDS = {};
 
 // ---------------------------------------------------------------- Demo mode
 // With no API token set, builds a deterministic fake pipeline — eight stages, twenty-odd
@@ -269,6 +318,12 @@ let MODE = TEST_RUN !== true ? 'live'
 const FORCED_PREVIEW = DEMO_DATA && MODE !== 'preview';
 if (FORCED_PREVIEW) MODE = 'preview';
 
+const OWNER_SLACK = {};
+Object.keys(OWNER_SLACK_IDS || {}).forEach(function (k) {
+  const v = String(OWNER_SLACK_IDS[k] || '').trim();
+  if (v) OWNER_SLACK[String(k)] = v;
+});
+
 const BASE_URL = 'https://' + (COMPANY_DOMAIN.trim() || 'api') + '.pipedrive.com/api/v1';
 
 // Every field key this workflow is configured to touch, gathered here so the PHI check runs
@@ -288,6 +343,7 @@ return [{
     api_token:      API_TOKEN.trim(),
     company_domain: COMPANY_DOMAIN.trim(),
     pipeline_id:    String(PIPELINE_ID || '').trim(),
+    max_pages:      Math.max(1, Number(MAX_PAGES) || 20),
 
     stages:              STAGES,
     activity_types:      ACTIVITY_TYPES,
@@ -299,6 +355,12 @@ return [{
     grace_hours:         Number(GRACE_HOURS) || 0,
     daily_cap:           Number(DAILY_CAP) || 0,
     overdue_days:        Number(OVERDUE_DAYS) || 0,
+    manager_after_days:  Number(MANAGER_AFTER_DAYS) || 0,
+    remind_manager_after_days: Number(REMIND_MANAGER_AFTER_DAYS) || 0,
+    max_per_owner_per_day: Number(MAX_PER_OWNER_PER_DAY) || 0,
+    level_within_days:   Number(LEVEL_WITHIN_DAYS) || 0,
+    work_days:           (WORK_DAYS || []).map(Number),
+    holidays:            (HOLIDAYS || []).map(function (h) { return String(h).slice(0, 10); }),
     high_priority_value: Number(HIGH_PRIORITY_VALUE) || 0,
 
     forbidden_field_words: FORBIDDEN_FIELD_WORDS.map(function (w) {
@@ -324,10 +386,15 @@ return [{
     no_answer_words:    NO_ANSWER_WORDS.map(function (w) { return String(w).toLowerCase(); }),
     partner_stages:     PARTNER_STAGES,
     report_window_days: Number(REPORT_WINDOW_DAYS) || 7,
+    baseline_min_days:  Number(BASELINE_MIN_DAYS) || 5,
+    coach_min_attempts:         Number(COACH_MIN_ATTEMPTS) || 0,
+    coach_min_conversation_pct: Number(COACH_MIN_CONVERSATION_PCT) || 0,
+    coach_max_gap_pct:          Number(COACH_MAX_GAP_PCT) || 100,
 
     alert_webhook_url:   ALERT_WEBHOOK_URL.trim(),
     manager_webhook_url: MANAGER_WEBHOOK_URL.trim(),
     test_owner_id:       String(TEST_OWNER_ID || '').trim(),
+    owner_slack_ids:     OWNER_SLACK,
 
     // derived flags — the gates read these, never the raw constants
     mode:         MODE,
@@ -339,6 +406,11 @@ return [{
     write_enabled:     MODE !== 'preview' && API_TOKEN.trim() !== ''
                        && COMPANY_DOMAIN.trim() !== '',
     sheet_enabled:   SHEET_ID.trim() !== '',
+    // Fabricated demo numbers never land in a real sheet, and are never compared with it.
+    sheet_live:      SHEET_ID.trim() !== '' && !DEMO_DATA,
+    slack_dm_enabled: SLACK_DMS === true && Object.keys(OWNER_SLACK).length > 0,
+    failure_alert_enabled: (ALERT_WEBHOOK_URL.trim() || MANAGER_WEBHOOK_URL.trim()) !== '',
+    failure_url:     ALERT_WEBHOOK_URL.trim() || MANAGER_WEBHOOK_URL.trim(),
     alert_enabled:   ALERT_WEBHOOK_URL.trim() !== '',
     manager_enabled: (MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim()) !== '',
     manager_url:     MANAGER_WEBHOOK_URL.trim() || ALERT_WEBHOOK_URL.trim(),

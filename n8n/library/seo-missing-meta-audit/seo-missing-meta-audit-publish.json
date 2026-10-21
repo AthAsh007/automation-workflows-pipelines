@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Audit sitemap pages for missing titles and meta descriptions in Google Sheets\n\n**Who's it for**\nMarketers and site owners who want a page-by-page list of SEO basics to fix, without paying for a crawler subscription. The sheet becomes the to-do list, updated every week.\n\n**How it works**\n1. Every Sunday at 22:00 it reads your sitemap and fetches up to 150 pages, or 7 sample pages until live fetching is on.\n2. Each page is checked for a title of 30-60 characters, a meta description of 70-160, exactly one H1, a canonical that points to itself, and no noindex tag.\n3. Titles and descriptions used on more than one page are flagged on every page that shares them.\n4. Missing tags, noindex and failed loads are errors, the rest are warnings. One row per page is upserted on the url column of the Audit tab.\n\n**How to set up**\n1. Run it once as imported. It audits the sample pages and stops at `STOP: dry run - sheet untouched`.\n2. Set `SITEMAP_URLS` and `USE_LIVE_FETCH = true`, then run it and read the rows in `Audit each page`.\n3. Connect Google Sheets, create an Audit tab with a url column, and set `AUDIT_SHEET_ID`.\n4. Set `DRY_RUN = false` to write the rows.\n\n**Requirements**\n- A public XML sitemap\n- A Google Sheet with an Audit tab\n\n**How to customize**\n- `TITLE_LENGTH` and `DESCRIPTION_LENGTH` hold the min and max characters.\n- `MAX_PAGES` caps the pages fetched per run.\n- `ERROR_RULES` decides which issues count as errors rather than warnings.",
-        "height": 960,
+        "content": "## Audit sitemap pages for missing titles and meta descriptions in Google Sheets\n\n**Who's it for**\nMarketers and site owners who want a page-by-page list of SEO basics to fix, without paying for a crawler subscription. The sheet becomes the to-do list, updated every week.\n\n**How it works**\n1. Every Sunday at 22:00 it reads your sitemap and fetches up to 150 pages, or 7 sample pages until live fetching is on.\n2. Each page is checked for a title of 30-60 characters, a meta description of 70-160, exactly one H1, a canonical that points to itself, and no noindex tag.\n3. Titles and descriptions used on more than one page are flagged on every page that shares them.\n4. Missing tags, noindex and failed loads are errors, the rest are warnings.\n5. Each page is compared with last week's audit: new issues make it regressed, cleared issues make it improved, and every open issue keeps the date it was first seen, so the row shows how many weeks it has been ignored.\n6. One row per page is upserted on the url column of the Audit tab. Slack gets regressions first with their new issues, then the fix count and the error total against last week.\n\n**How to set up**\n1. Run it once as imported. It audits the sample pages and stops at `STOP: dry run - sheet untouched`.\n2. Set `SITEMAP_URLS` and `USE_LIVE_FETCH = true`, then run it and read the rows in `Audit each page`.\n3. Connect Google Sheets, create an Audit tab with a url column, and set `AUDIT_SHEET_ID`.\n4. Optionally connect Slack and set `SLACK_CHANNEL_ID` for the weekly change report.\n5. Set `DRY_RUN = false` to write the rows. The first live run is the baseline; changes are reported from the second.\n\n**Requirements**\n- A public XML sitemap\n- A Google Sheet with an Audit tab\n- Optional: a Slack workspace\n\n**How to customize**\n- `TITLE_LENGTH` and `DESCRIPTION_LENGTH` hold the min and max characters.\n- `MAX_PAGES` caps the pages fetched per run.\n- `ERROR_RULES` decides which issues count as errors rather than warnings.\n- `STALE_ISSUE_DAYS` sets when an open issue is called out as stale in the Slack report.",
+        "height": 1216,
         "width": 520,
         "color": 4
       },
@@ -20,7 +20,7 @@
     {
       "parameters": {
         "content": "## 1. Start and settings\n\nRuns every Sunday at 22:00 or by hand, so Monday starts with a fresh list. Length ranges, the page cap and which issues are errors are constants in `config`.",
-        "height": 560,
+        "height": 528,
         "width": 416,
         "color": 7
       },
@@ -36,7 +36,7 @@
     {
       "parameters": {
         "content": "## 2. Fetch the pages\n\nThe sitemap decides which pages are audited, newest first. A page that fails to load continues as an error row instead of stopping the run. `Load sample pages` returns the same url and HTML pairs.",
-        "height": 560,
+        "height": 528,
         "width": 1520,
         "color": 7
       },
@@ -51,9 +51,9 @@
     },
     {
       "parameters": {
-        "content": "## 3. Audit the tags\n\n`Audit each page` reads meta tags with attributes in any order, because CMS themes write content before name as often as after. Duplicate titles are counted across the whole run, so both pages get the flag.",
-        "height": 560,
-        "width": 416,
+        "content": "## 3. Audit and compare\n\n`Audit each page` reads meta tags with attributes in any order and counts duplicates across the run. `Compare with last week` diffs issues by rule, not by the number in them, and keeps the date each issue first appeared.",
+        "height": 528,
+        "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -67,15 +67,15 @@
     },
     {
       "parameters": {
-        "content": "## 4. Write the audit sheet\n\nRows are upserted on url, so next week updates the same row and the sheet stays one line per page. Nothing is written while `DRY_RUN` is true.",
-        "height": 560,
-        "width": 416,
+        "content": "## 4. Write the sheet and report\n\nRows are upserted on url, so the sheet stays one line per page. The baseline is saved only after that write, and Slack hears only when something regressed, got fixed or the error total moved.",
+        "height": 528,
+        "width": 1296,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2496,
+        2720,
         0
       ],
       "id": "1595abb3-5717-4c4e-9a00-1595abb31003",
@@ -87,11 +87,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// AUDIT SITEMAP PAGES FOR MISSING TITLES AND META DESCRIPTIONS IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FETCH false -> SAMPLE pages.\n// DRY_RUN true -> the audit is computed and shown, the sheet is not written.\n\n// set true to read the sitemap and fetch each page (public GETs)\nconst USE_LIVE_FETCH = false;\n// sitemaps to read (child sitemaps, not an index)\nconst SITEMAP_URLS = [\n  \"https://www.yourcompany.example/sitemap.xml\"\n];\n// pages fetched per run, newest lastmod first\nconst MAX_PAGES = 150;\n// title length range in characters\nconst TITLE_LENGTH = [\n  30,\n  60\n];\n// meta description length range in characters\nconst DESCRIPTION_LENGTH = [\n  70,\n  160\n];\n// issues that make a row an error; everything else warns\nconst ERROR_RULES = [\n  \"missing title\",\n  \"missing meta description\",\n  \"no H1\",\n  \"noindex\",\n  \"page failed to load\"\n];\n// Google Sheets id with an Audit tab; blank means nothing is written\nconst AUDIT_SHEET_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_fetch: USE_LIVE_FETCH,\n    sitemap_urls: SITEMAP_URLS,\n    max_pages: MAX_PAGES,\n    title_length: TITLE_LENGTH,\n    description_length: DESCRIPTION_LENGTH,\n    error_rules: ERROR_RULES,\n    audit_sheet_id: AUDIT_SHEET_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: AUDIT_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// AUDIT SITEMAP PAGES FOR MISSING TITLES AND META DESCRIPTIONS IN GOOGLE SHEETS - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_LIVE_FETCH false -> SAMPLE pages.\n// DRY_RUN true -> the audit is computed and shown, the sheet is not written.\n\n// set true to read the sitemap and fetch each page (public GETs)\nconst USE_LIVE_FETCH = false;\n// sitemaps to read (child sitemaps, not an index)\nconst SITEMAP_URLS = [\n  \"https://www.yourcompany.example/sitemap.xml\"\n];\n// pages fetched per run, newest lastmod first\nconst MAX_PAGES = 150;\n// title length range in characters\nconst TITLE_LENGTH = [\n  30,\n  60\n];\n// meta description length range in characters\nconst DESCRIPTION_LENGTH = [\n  70,\n  160\n];\n// issues that make a row an error; everything else warns\nconst ERROR_RULES = [\n  \"missing title\",\n  \"missing meta description\",\n  \"no H1\",\n  \"noindex\",\n  \"page failed to load\"\n];\n// Google Sheets id with an Audit tab; blank means nothing is written\nconst AUDIT_SHEET_ID = '';\n// open issues older than this are counted as stale in the report\nconst STALE_ISSUE_DAYS = 28;\n// channel for the weekly change report; blank skips Slack\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_live_fetch: USE_LIVE_FETCH,\n    sitemap_urls: SITEMAP_URLS,\n    max_pages: MAX_PAGES,\n    title_length: TITLE_LENGTH,\n    description_length: DESCRIPTION_LENGTH,\n    error_rules: ERROR_RULES,\n    audit_sheet_id: AUDIT_SHEET_ID,\n    stale_issue_days: STALE_ISSUE_DAYS,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    sheet_enabled: AUDIT_SHEET_ID.trim() !== '',\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
-        224
+        208
       ]
     },
     {
@@ -102,7 +102,7 @@
       "parameters": {},
       "position": [
         48,
-        224
+        208
       ]
     },
     {
@@ -122,7 +122,7 @@
       },
       "position": [
         48,
-        400
+        384
       ]
     },
     {
@@ -156,7 +156,7 @@
       },
       "position": [
         512,
-        224
+        208
       ]
     },
     {
@@ -165,11 +165,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Used until USE_LIVE_FETCH is true. Each item is a page URL and its HTML, the\n// same pair the live branch produces, with one problem per page.\nconst base = 'https://www.yourcompany.example';\nreturn [\n  { url: base + '/', html: '<html><head><title>Team expense tracking for small companies | Tallyroom</title><meta content=\"Track shared team expenses, approve them in one click and export to your accounting tool. Free for teams of up to 5.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/pricing', html: '<html><head><title>Pricing</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/pricing\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/features', html: '<html><head><title>Features: approvals, receipts &amp; exports | Tallyroom</title><link rel=\"canonical\" href=\"https://www.yourcompany.example/features\"></head><body><h1>Heading</h1><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/blog/expense-policy-template', html: '<html><head><title>Free expense policy template for small teams (2026 edition)</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/blog/expense-policies\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/thank-you', html: '<html><head><title>Thanks for signing up to the Tallyroom newsletter</title><meta content=\"You are on the list. Expect one email a month with expense tips, templates and product news.\" name=\"description\"><meta name=\"robots\" content=\"noindex, follow\"></head><body><p>Body</p></body></html>' },\n  { url: base + '/about', html: '<html><head><title></title><meta content=\"Who we are, why we started Tallyroom in 2021 and the six people who build and support it every day.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/about\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/old-page', html: '', error: 'Request failed with status code 404' },\n].map(json => ({ json }));\n"
+        "jsCode": "// Used until USE_LIVE_FETCH is true. Each item is a page URL and its HTML, the\n// same pair the live branch produces, with one problem per page. \"previous\" is\n// last week's audit for that page, so the comparison has something to diff.\nconst base = 'https://www.yourcompany.example';\nreturn [\n  { url: base + '/', previous: ['description too long (171)'], html: '<html><head><title>Team expense tracking for small companies | Tallyroom</title><meta content=\"Track shared team expenses, approve them in one click and export to your accounting tool. Free for teams of up to 5.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/pricing', previous: [], html: '<html><head><title>Pricing</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/pricing\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/features', html: '<html><head><title>Features: approvals, receipts &amp; exports | Tallyroom</title><link rel=\"canonical\" href=\"https://www.yourcompany.example/features\"></head><body><h1>Heading</h1><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/blog/expense-policy-template', html: '<html><head><title>Free expense policy template for small teams (2026 edition)</title><meta content=\"Plans and pricing for Tallyroom. Start free, upgrade when your team grows past five people.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/blog/expense-policies\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/thank-you', html: '<html><head><title>Thanks for signing up to the Tallyroom newsletter</title><meta content=\"You are on the list. Expect one email a month with expense tips, templates and product news.\" name=\"description\"><meta name=\"robots\" content=\"noindex, follow\"></head><body><p>Body</p></body></html>' },\n  { url: base + '/about', previous: ['missing title'], html: '<html><head><title></title><meta content=\"Who we are, why we started Tallyroom in 2021 and the six people who build and support it every day.\" name=\"description\"><link rel=\"canonical\" href=\"https://www.yourcompany.example/about\"></head><body><h1>Heading</h1><p>Body</p></body></html>' },\n  { url: base + '/old-page', html: '', error: 'Request failed with status code 404' },\n].map(json => ({ json }));\n"
       },
       "position": [
         736,
-        224
+        208
       ]
     },
     {
@@ -182,7 +182,7 @@
       },
       "position": [
         736,
-        400
+        384
       ]
     },
     {
@@ -210,7 +210,7 @@
       "waitBetweenTries": 2000,
       "position": [
         960,
-        400
+        384
       ]
     },
     {
@@ -223,7 +223,7 @@
       },
       "position": [
         1168,
-        400
+        384
       ]
     },
     {
@@ -256,7 +256,7 @@
       "onError": "continueRegularOutput",
       "position": [
         1392,
-        400
+        384
       ]
     },
     {
@@ -269,7 +269,7 @@
       },
       "position": [
         1616,
-        400
+        384
       ]
     },
     {
@@ -282,7 +282,7 @@
       },
       "position": [
         1840,
-        224
+        208
       ]
     },
     {
@@ -295,7 +295,20 @@
       },
       "position": [
         2080,
-        224
+        208
+      ]
+    },
+    {
+      "id": "3e27ae74-cdd0-4234-a846-e8464f573e27",
+      "name": "Compare with last week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Diffs each page's issues with the last saved audit. Issue text carries numbers\n// (\"title too long (72)\"), so issues are compared by their rule, not the count.\n// first_seen keeps the date each rule first failed on each page, so an issue\n// that has been open for weeks is visible. Nothing is saved here; the baseline\n// is written only after the sheet write succeeds.\nconst cfg = $('config').first().json;\nconst store = $getWorkflowStaticData('global');\nlet sample = {};\ntry { sample = Object.fromEntries($('Load sample pages').all().filter(i => i.json.previous).map(i => [i.json.url, { issues: i.json.previous, first_seen: {} }])); } catch (e) { sample = {}; }\nconst last = store.pages || sample;\nconst firstRun = Object.keys(last).length === 0;\nconst rule = i => i.replace(/\\s*\\(.*\\)$/, '').replace(/^page failed to load.*/, 'page failed to load').replace(/^canonical points to .*/, 'canonical points elsewhere').replace(/^\\d+ H1 tags$/, 'several H1 tags');\nconst today = new Date().toISOString().slice(0, 10);\nconst { rows, summary } = $input.first().json;\nconst regressed = [], improved = [];\nlet stale = 0;\nconst out = rows.map(r => {\n  const now = r.issues ? r.issues.split('; ').map(rule) : [];\n  const prev = last[r.url];\n  const before = prev ? prev.issues.map(rule) : [];\n  const added = now.filter(i => !before.includes(i)), cleared = before.filter(i => !now.includes(i));\n  const change = !prev ? (firstRun ? 'baseline' : 'new page') : added.length ? 'regressed' : cleared.length ? 'improved' : 'unchanged';\n  const first_seen = {};\n  for (const i of now) first_seen[i] = prev?.first_seen?.[i] || today;\n  const oldest = Object.values(first_seen).sort()[0] || '';\n  const open_days = oldest ? Math.round((Date.parse(today) - Date.parse(oldest)) / 864e5) : 0;\n  if (open_days >= cfg.stale_issue_days) stale++;\n  if (change === 'regressed' || (change === 'new page' && r.status === 'error')) regressed.push({ url: r.url, added: added.join(', ') });\n  if (change === 'improved') improved.push({ url: r.url, cleared: cleared.join(', ') });\n  return { ...r, change, new_issues: added.join('; '), fixed_issues: cleared.join('; '), oldest_issue_days: open_days, _rules: now, _first_seen: first_seen };\n});\nconst lastErrors = store.summary ? store.summary.error : null;\nreturn [{ json: { rows: out, summary, regressed, improved, stale, first_run: firstRun,\n  error_delta: lastErrors === null ? null : summary.error - lastErrors } }];\n"
+      },
+      "position": [
+        2304,
+        208
       ]
     },
     {
@@ -309,8 +322,8 @@
         "options": {}
       },
       "position": [
-        2304,
-        224
+        2528,
+        208
       ]
     },
     {
@@ -353,8 +366,8 @@
         "options": {}
       },
       "position": [
-        2544,
-        224
+        2768,
+        208
       ]
     },
     {
@@ -364,8 +377,21 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2768,
-        400
+        2992,
+        384
+      ]
+    },
+    {
+      "id": "5ffb0fc9-793a-4af9-af64-5f6445c45ffb",
+      "name": "Keep only the sheet columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The rule list and first-seen map are working fields for the baseline, not columns.\nreturn $input.all().map(({ json: r }) => {\n  const { _rules, _first_seen, regressed, improved, stale, first_run, error_delta, summary, ...row } = r;\n  return { json: row };\n});\n"
+      },
+      "position": [
+        2992,
+        208
       ]
     },
     {
@@ -396,8 +422,96 @@
         "options": {}
       },
       "position": [
-        2768,
-        224
+        3216,
+        208
+      ]
+    },
+    {
+      "id": "7e670221-e851-41d1-afc5-ffc5bbac7e67",
+      "name": "Save this audit as the baseline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Runs after the upsert, so a failed write keeps last week's baseline. Then builds\n// the Slack report: regressions first, then fixes, then totals against last week.\nconst cfg = $('config').first().json;\nconst c = $('Compare with last week').first().json;\nconst store = $getWorkflowStaticData('global');\nstore.pages = Object.fromEntries(c.rows.map(r => [r.url, { issues: r._rules, first_seen: r._first_seen }]));\nstore.summary = c.summary;\nconst short = u => u.replace(/^https?:\\/\\/[^/]+/, '') || '/';\nconst lines = [(cfg.mode === 'test' ? '[TEST] ' : '') + '*Weekly SEO audit*: ' + c.summary.error + ' errors, ' + c.summary.warn + ' warnings, ' + c.summary.pass + ' clean' +\n  (c.error_delta === null ? ' (first audit, baseline saved)' : ' (' + (c.error_delta > 0 ? '+' : '') + c.error_delta + ' errors vs last week)')];\nif (c.regressed.length) lines.push('', '*Regressed*', ...c.regressed.slice(0, 15).map(r => '- ' + short(r.url) + ': ' + (r.added || 'new page with errors')));\nif (c.improved.length) lines.push('', '*Fixed*: ' + c.improved.length + ' page(s), e.g. ' + c.improved.slice(0, 3).map(r => short(r.url) + ' (' + r.cleared + ')').join('; '));\nif (c.stale) lines.push('', c.stale + ' page(s) have an issue open for ' + cfg.stale_issue_days + '+ days.');\nreturn [{ json: { text: lines.join('\\n'), worth_posting: c.first_run || c.regressed.length > 0 || c.improved.length > 0 || (c.error_delta || 0) !== 0 } }];\n"
+      },
+      "position": [
+        3424,
+        208
+      ]
+    },
+    {
+      "id": "a91008ff-c91f-4f4f-a0c6-d0c6d9c6a910",
+      "name": "Post the change report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3dcdcf19-ee8e-4149-afd6-4fd6b0143dcd",
+              "leftValue": "={{ $json.worth_posting }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "3ccdcd86-2c39-4fa6-a54f-854f7a153ccd",
+              "leftValue": "={{ $('config').first().json.slack_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3648,
+        208
+      ]
+    },
+    {
+      "id": "03ac7938-aa93-47b8-a244-8244db2b03ac",
+      "name": "STOP: no changes, or no Slack channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3872,
+        384
+      ]
+    },
+    {
+      "id": "796bd69b-b14b-442b-a8ee-68ee3002796b",
+      "name": "Post the change report to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        3872,
+        208
       ]
     }
   ],
@@ -534,6 +648,17 @@
       "main": [
         [
           {
+            "node": "Compare with last week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare with last week": {
+      "main": [
+        [
+          {
             "node": "One row per page",
             "type": "main",
             "index": 0
@@ -556,7 +681,7 @@
       "main": [
         [
           {
-            "node": "Upsert audit rows",
+            "node": "Keep only the sheet columns",
             "type": "main",
             "index": 0
           }
@@ -564,6 +689,57 @@
         [
           {
             "node": "STOP: dry run - sheet untouched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep only the sheet columns": {
+      "main": [
+        [
+          {
+            "node": "Upsert audit rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert audit rows": {
+      "main": [
+        [
+          {
+            "node": "Save this audit as the baseline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save this audit as the baseline": {
+      "main": [
+        [
+          {
+            "node": "Post the change report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the change report?": {
+      "main": [
+        [
+          {
+            "node": "Post the change report to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: no changes, or no Slack channel",
             "type": "main",
             "index": 0
           }

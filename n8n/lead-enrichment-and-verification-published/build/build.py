@@ -1,11 +1,12 @@
-# Builds ../01-enrich-and-verify.json from js/*.js
-# Run: python build.py
+# Builds ../01-enrich-and-verify.json from js/*.js, then its sticky notes with stickies.mjs
+# Run: python build.py   (needs bun on PATH for the sticky notes)
 import io, json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..')
 CFG = "$('config').first().json"
 
+# Read by stickies.mjs and validate.py: shown on the working file's overview sticky only.
 JOB_URL = 'https://example.com/jobs/~022093767913249678699/'
 
 
@@ -45,12 +46,6 @@ def merge(nid, name, pos):
     return {"parameters": {"mode": "append", "numberInputs": 2},
             "id": nid, "name": name, "type": "n8n-nodes-base.merge",
             "typeVersion": 3, "position": pos}
-
-
-def sticky(nid, pos, w, h, colour, content):
-    return {"parameters": {"content": content, "height": h, "width": w, "color": colour},
-            "id": nid, "name": "Sticky Note " + nid, "type": "n8n-nodes-base.stickyNote",
-            "typeVersion": 1, "position": pos}
 
 
 def sheet(nid, name, pos, tab, operation=None, matching=None, notes=None, always=False):
@@ -264,52 +259,6 @@ w.append(http("alert", "Post the run summary", [5540, 80], "POST",
 w.append(noop("no-alert", "STOP: no alert webhook", [5540, 280]))
 w.append(noop("end", "End", [5760, 160]))
 
-# --- the canvas documents itself
-w.append(sticky("a", [-1560, -280], 620, 400, 4,
-    "## Evergreen partnership engine — stage 2 of 6: enrich and verify\n\n"
-    "**The job:** " + JOB_URL + "\n\n"
-    "Evergreen Mentorship, no-cost Medicaid-backed telehealth mental health across Midstate.\n"
-    "This workflow is the data half of the brief: take a raw list of Midstate organisations,\n"
-    "find the person who can actually make a referral, prove the address is deliverable,\n"
-    "score them, and hand only the safe ones to the sending engine.\n\n"
-    "**The other five stages** — domains and warming, the CRM pipeline, the email\n"
-    "sequences, the caller queue, the reporting — are in the README. This one is built\n"
-    "first because every KPI in the brief depends on it: you cannot hold a bounce rate\n"
-    "under 2% downstream of a list nobody verified.\n\n"
-    "Everything you edit is in the **config** node. No environment variables, so it runs\n"
-    "on n8n Cloud unchanged."))
-
-w.append(sticky("b", [-180, 500], 560, 280, 5,
-    "## Every optional step degrades, none of them fail\n\n"
-    "A blank key in `config` means *skip this step*, never *fail this run*:\n\n"
-    "- **no Apollo key** -> uses whatever contact details the raw list already has\n"
-    "- **no AI key** -> keyword rules only, which place most organisations anyway\n"
-    "- **no verifier key** -> nothing is emailed, everything is written to the sheet\n"
-    "- **no Instantly key** -> the sending list is produced and reviewed, not pushed\n\n"
-    "Which is why this whole pipeline can be demonstrated on a screen-share before the\n"
-    "client has handed over a single credential."))
-
-w.append(sticky("c", [1960, 500], 560, 300, 3,
-    "## This is the under-2% bounce rate\n\n"
-    "Not the copy, not the domains — this node and the gate after it.\n\n"
-    "**It fails closed.** A verifier that times out, runs out of credits, or returns\n"
-    "something unrecognised produces `unknown`, and `unknown` is held back. Every other\n"
-    "mistake in cold outreach is recoverable; a burnt sending domain is not.\n\n"
-    "`ACCEPT_STATUSES` is what reaches the campaign. Catch-all and unknown are held by\n"
-    "default — they are the addresses that pass a verifier and still bounce.\n\n"
-    "`HOLD_UNVERIFIED = true` is the setting that makes the KPI true. Leave it."))
-
-w.append(sticky("d", [4180, 480], 600, 300, 6,
-    "## Nothing is pushed until you say so\n\n"
-    "`TEST_RUN = true` with a blank `TEST_CAMPAIGN_ID` (how it ships) runs the whole\n"
-    "pipeline and writes both sheet tabs, but pushes nothing to a campaign. Open\n"
-    "**STOP: not pushed** to read the whole sending list first: name, title, score,\n"
-    "verifier verdict, and for everyone held, the reason in plain words.\n\n"
-    "Put a campaign id in `TEST_CAMPAIGN_ID` and leads really are pushed, to that\n"
-    "campaign. `TEST_RUN = false` goes live.\n\n"
-    "`DEMO_VERIFIER = true` forces preview whichever way those are set — a fabricated\n"
-    "verdict can never reach a real campaign."))
-
 c = {
     "Run it now": main("config"),
     "Every weekday, 07:00": main("config"),
@@ -365,6 +314,12 @@ c = {
 
 path, n = save("01-enrich-and-verify", w, c, ["evergreen", "outreach", "enrichment"])
 print('wrote %s (%d nodes)' % (os.path.basename(path), n))
+
+# --- the canvas documents itself. Sticky text and placement live in stickies.mjs, which
+# writes the same notes into this file and into 01-enrich-and-verify-publish.json, so the
+# two can never disagree. Re-run `bun stickies.mjs` after any layout change.
+import subprocess
+subprocess.run(['bun', 'stickies.mjs', path], cwd=HERE, check=True)
 
 # =====================================================================  THE SHEET
 # Generated from the config node's column names, so the tabs and the workflow can never

@@ -13,7 +13,8 @@
 const cfg = $('config').first().json;
 const p = $json;
 
-const INSTRUCTION = 'Reply **post** to publish, or **cancel** to discard.';
+// The instruction is in config so workflow 02 strips exactly the same string back off.
+const INSTRUCTION = cfg.approval_instruction;
 
 // Discord counts UTF-16 code units, the same thing String.length counts.
 const body = p._caption + '\n\n' + INSTRUCTION;

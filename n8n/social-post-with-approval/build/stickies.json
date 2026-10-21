@@ -1,0 +1,84 @@
+[
+  {
+    "file": "../01-draft-and-approve-publish.json",
+    "main": "## Draft LinkedIn posts with AI and send them to Discord for approval\n\nFor teams posting daily to a LinkedIn company page who want drafting automated and nothing published without a yes.\n\n### How it works\n1. Reads the post log and decides whether today needs a draft. An open draft keeps the day silent; a cancelled one is drafted again.\n2. Picks the next idea from a Google Sheets bank, skipping pillars published in the last 21 days, a topic family already used twice this week, and layout repeats.\n3. Takes the bank caption or has an LLM write one, then checks it in code: length, hashtags, banned phrases, links, @mentions and a repeated opening hook.\n4. A failing model caption gets one rewrite with the exact failures fed back. If it still fails, it is held for a human.\n5. Builds the image as HTML, checks the layout, renders it with Browserless or HCTI and verifies the PNG bytes.\n6. Sends caption and image to a private Discord channel and logs it as awaiting. It never publishes; the companion workflow does.\n\n### Setup\n1. Import and click Execute workflow. With `SHEET_ID` blank it runs on demo data and stops before anything leaves n8n.\n2. Create the Bank and Log tabs (headings in the README) and set `SHEET_ID`.\n3. Connect Google Sheets and Discord, add an LLM key and a renderer in `config`.\n4. Set `TEST_CHANNEL_ID` to a test channel, then `TEST_RUN = false` to go live.\n\n### Requirements\nGoogle Sheets, a Discord bot, an OpenAI-compatible endpoint, and Browserless or HCTI. Slack is optional.\n\n### Customization tips\nEvery rule and threshold is a constant in `config`. The image design is `build the HTML template`.",
+    "sections": [
+      {
+        "from": -20,
+        "to": 1220,
+        "text": "## 1. Decide whether today needs a post\nReads the log. An open draft keeps the day silent; a cancelled one is drafted again. No sheet means the demo log."
+      },
+      {
+        "from": 1540,
+        "to": 2300,
+        "text": "## 2. Pick a topic that has rested\nNext ready bank row, skipping pillars published recently, a busy topic family and layout repeats."
+      },
+      {
+        "from": 2620,
+        "to": 4820,
+        "text": "## 3. Write, check, rewrite once\nBank, LLM or demo writer. Rules run in code. A failing model caption gets one rewrite with its failures, then a human."
+      },
+      {
+        "from": 5140,
+        "to": 7580,
+        "text": "## 4. Render and check the image\nHTML template, layout check, Browserless or HCTI, then the PNG bytes are verified."
+      },
+      {
+        "from": 7900,
+        "to": 9380,
+        "text": "## 5. Send for approval\nCaption and image go to a private Discord channel, then an awaiting row is logged."
+      },
+      {
+        "from": 9700,
+        "to": 10460,
+        "text": "## 6. Report the run\nOne Slack summary per run, with a warning before the LinkedIn token expires."
+      }
+    ]
+  },
+  {
+    "file": "../02-publish-on-approval-publish.json",
+    "main": "## Publish Discord-approved posts to LinkedIn with edits and token alerts\n\nFor teams using the companion drafting workflow who need approved drafts published to a LinkedIn company page, and nothing else.\n\n### How it works\n1. Every 5 minutes it reads the log. An open draft past its approval window is closed as expired, never published.\n2. It reads the reply in Discord. Only a human's whole-message `post` or `cancel`, or `edit` with a new caption below it, counts.\n3. An edit is checked against the same caption rules. If it passes, it is re-sent with the same image as a new draft that needs its own `post`. If not, the bot replies with the reasons.\n4. On `post` it confirms the message is unchanged since delivery, then registers the image, uploads it and publishes. A rejected token posts one alert and keeps the approval open.\n5. The post URN goes into the log and the bank row is marked posted.\n6. Once a week it posts a report from the log, with LinkedIn statistics if enabled.\n\n### Setup\n1. Import and click Execute workflow. With `SHEET_ID` blank it plays a demo reply (`DEMO_REPLY`) with no credentials.\n2. Use the same `config` as the drafting workflow.\n3. Connect Google Sheets and Discord, and add a LinkedIn token with `w_organization_social` and your organisation URN.\n4. Keep `TEST_RUN = true` until a full cycle ends at `STOP: not published`.\n\n### Requirements\nA LinkedIn company page with API access, the shared Google Sheet and the Discord approval channel. Slack is optional.\n\n### Customization tips\nApproval words, expiry, alert spacing and the report day are constants in `config`.",
+    "sections": [
+      {
+        "from": -20,
+        "to": 1460,
+        "text": "## 1. Find the open draft\nReads the log every 5 minutes. An expired draft is closed, never published. Most runs stop here."
+      },
+      {
+        "from": 1780,
+        "to": 4220,
+        "text": "## 2. Weekly report\nOnce a week, from the log: published, expired, cancelled and edited drafts, plus LinkedIn statistics if enabled."
+      },
+      {
+        "from": 4540,
+        "to": 5540,
+        "text": "## 3. Read the reply\nOnly a human's post, cancel or edit counts. Bots, chatter and replies already handled are ignored."
+      },
+      {
+        "from": 5860,
+        "to": 7100,
+        "text": "## 4. Check an edit\nSame caption rules. A passing edit goes out again as a new draft; a failing one gets the reasons."
+      },
+      {
+        "from": 7420,
+        "to": 9860,
+        "text": "## 5. Verify and publish\nRefuses a changed draft. Register, upload, publish. No retry on publish, so a timeout cannot double-post."
+      },
+      {
+        "from": 10180,
+        "to": 10940,
+        "text": "## 6. Alert on a rejected token\nOne alert in the channel per 6 hours. The approval stays open for after the fix."
+      },
+      {
+        "from": 11260,
+        "to": 12500,
+        "text": "## 7. Record the outcome\nMarks the bank row and appends the log row with the post URN."
+      },
+      {
+        "from": 12820,
+        "to": 13580,
+        "text": "## 8. Report the run\nSlack summary for anything worth knowing; idle polls stay quiet."
+      }
+    ]
+  }
+]

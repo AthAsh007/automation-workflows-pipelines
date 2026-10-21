@@ -1,79 +1,92 @@
-// Find the draft that is waiting on a human, if there is one.
+// Find the draft that is waiting on a human, and decide what state it is in.
 //
-// The log is the source of truth. Exactly one row may be `awaiting` at a time — workflow 01
-// refuses to draft while one is open — so this either finds one or finds nothing.
+// The log is append-only, so "waiting" is computed, not stored: an `awaiting` row is OPEN until
+// a later row closes it by carrying the same message id (posted, cancelled, expired,
+// superseded, failed — see the shared block below). Treating every `awaiting` row as open was
+// the old rule, and it turned the second day's draft into a permanent conflict with the first.
 //
-// It also decides whether that draft is still approvable. A draft goes stale: the day moves
-// on, the claims in it may not have, and an approval typed against yesterday's post at
-// lunchtime today publishes something nobody re-read. After APPROVAL_EXPIRES_HOURS it is
-// marked expired instead.
+// _draft_state, which the Switch after this node routes on:
 //
-// Input: every row of the Log tab. Output: exactly one item, always.
+//   open      exactly one open draft, inside APPROVAL_EXPIRES_HOURS -> read the channel
+//   expired   an open draft older than that -> closed with an `expired` row, never published.
+//             The day has moved on and the claims in it may not have; an approval typed at
+//             lunchtime tomorrow publishes something nobody re-read.
+//   conflict  two live open drafts, or one with no message id -> stop and say so. Workflow 01
+//             only opens one at a time, so the sheet was edited by hand or a write was cut off.
+//   none      nothing open -> stop. Most polls end here, and that is correct.
+//
+// It also carries what the later nodes need from the log, so nothing downstream re-reads it:
+// the reply ids already acted on for this draft (so a refused edit is answered once, not every
+// five minutes), when the last LinkedIn alert went out, and the hooks recently published.
+//
+// Input: every row of the Log tab (or the demo log). Output: exactly one item, always.
+
+// @include lib/log-state.js
 
 const cfg = $('config').first().json;
 const L = cfg.log_columns;
 
-const norm = (v) => String(v === undefined || v === null ? '' : v).trim();
+const rows = cleanRows(items.map((i) => i.json || {}), L);
+const open = openDrafts(rows).sort((a, b) => (a.at < b.at ? -1 : 1));
+const today = localParts(new Date(), cfg.timezone || 'UTC');
+const hooks = recentHooks(postedHistory(rows), today.date, cfg.hook_lookback_days);
 
-const rows = items.map((i) => i.json).filter((r) => r && (r[L.date] || r[L.slug]));
+const expired = open.filter((r) => ageHours(r) > cfg.approval_expires_hours);
+const live = open.filter((r) => ageHours(r) <= cfg.approval_expires_hours);
 
-// Rows are appended, so the last `awaiting` is the current one. A log that somehow holds two
-// is a real problem worth seeing rather than quietly picking one.
-const awaiting = rows.filter((r) => norm(r[L.status]).toLowerCase() === 'awaiting');
-
-if (!awaiting.length) {
-  return [{
-    json: {
-      _has_pending: false,
-      _reason: 'no draft is awaiting approval — ' + rows.length + ' log row(s), none open'
-    }
-  }];
+function carry(row, state, reason) {
+  const mine = rows.filter((r) => r.message_id && r.message_id === row.message_id);
+  const alerts = mine.filter((r) => r.status === 'alert').map((r) => r.at).sort();
+  return {
+    _draft_state: state,
+    _has_pending: state === 'open',
+    _expired: state === 'expired',
+    _date: row.date,
+    _slug: row.slug,
+    _slot: row.slot,
+    _pillar: row.pillar,
+    _hook: row.hook,
+    _message_id: row.message_id,
+    _channel_id: row.channel_id || cfg.channel_id,
+    _caption_fp: row.caption_fp,
+    _opened_at: row.at,
+    _age_hours: Math.round(ageHours(row) * 10) / 10,
+    _handled_reply_ids: mine.map((r) => r.reply_id).filter(Boolean),
+    _last_alert_at: alerts.length ? alerts[alerts.length - 1] : '',
+    _recent_hooks: hooks,
+    _open_drafts: open.length,
+    _log_rows: rows.length,
+    _reason: reason
+  };
 }
 
-if (awaiting.length > 1) {
-  return [{
-    json: {
-      _has_pending: false,
-      _conflict: true,
-      _reason: awaiting.length + ' drafts are marked awaiting at once: '
-        + awaiting.map((r) => norm(r[L.date]) + ' ' + norm(r[L.slug])).join(', ')
-        + '. Workflow 01 only opens one at a time, so the log has been edited by hand or a '
-        + 'run was interrupted mid-write. Resolve it in the sheet — do not publish either.'
-    }
-  }];
+let out;
+if (expired.length) {
+  // Oldest first, one per run. If two are stale the next poll closes the second.
+  const r = expired[0];
+  out = carry(r, 'expired', 'the draft for ' + r.slug + ' has been open ' + Math.round(ageHours(r))
+    + ' hours, past the ' + cfg.approval_expires_hours + ' hour limit. Marked expired rather '
+    + 'than published; workflow 01 drafts a fresh one on its next run.');
+} else if (live.length > 1) {
+  out = carry(live[live.length - 1], 'conflict', live.length + ' drafts are open at once: '
+    + live.map((r) => r.date + ' ' + r.slug + ' (' + r.message_id + ')').join(', ')
+    + '. Workflow 01 only opens one at a time, so the log was edited by hand or a write was '
+    + 'interrupted. Close the wrong one in the sheet (a `cancelled` row with its message id). '
+    + 'Neither is published until then.');
+} else if (live.length === 1 && !live[0].message_id) {
+  out = carry(live[0], 'conflict', 'the open row for ' + live[0].slug + ' has no message id, so '
+    + 'there is no Discord message to read a reply from. Add a `cancelled` row for it.');
+} else if (live.length === 1) {
+  out = carry(live[0], 'open', 'draft ' + live[0].slug + ' has been awaiting approval for '
+    + Math.round(ageHours(live[0]) * 10) / 10 + ' hours');
+} else {
+  out = {
+    _draft_state: 'none',
+    _has_pending: false,
+    _recent_hooks: hooks,
+    _log_rows: rows.length,
+    _reason: 'no draft is awaiting approval — ' + rows.length + ' log row(s), none open'
+  };
 }
 
-const row = awaiting[0];
-const at = norm(row[L.at]);
-const openedAt = at ? Date.parse(at) : NaN;
-const ageHours = isNaN(openedAt) ? 0 : (Date.now() - openedAt) / 3600000;
-const expired = !isNaN(openedAt) && ageHours > cfg.approval_expires_hours;
-
-// The message the draft went out in is the anchor. Without it there is nothing to scan
-// forward from, and a channel-wide search for the word "post" is exactly the ambiguity the
-// dedicated-channel rule exists to prevent.
-const messageId = norm(row[L.message_id]);
-const channelId = norm(row[L.channel_id]) || cfg.channel_id;
-
-return [{
-  json: {
-    _has_pending: !expired && messageId !== '',
-    _expired: expired,
-    _date: norm(row[L.date]),
-    _slug: norm(row[L.slug]),
-    _slot: Number(row[L.slot]) || 0,
-    _message_id: messageId,
-    _channel_id: channelId,
-    _caption_fp: norm(row[L.caption_fp]),
-    _age_hours: Math.round(ageHours * 10) / 10,
-    _reason: expired
-      ? 'the draft for ' + norm(row[L.slug]) + ' has been open ' + Math.round(ageHours)
-        + ' hours, past the ' + cfg.approval_expires_hours + ' hour limit. Marked expired '
-        + 'rather than published — re-run workflow 01 for a fresh one.'
-      : messageId === ''
-        ? 'the awaiting row for ' + norm(row[L.slug]) + ' has no message id, so there is no '
-          + 'Discord message to read a reply from'
-        : 'draft ' + norm(row[L.slug]) + ' has been awaiting approval for '
-          + Math.round(ageHours * 10) / 10 + ' hours'
-  }
-}];
+return [{ json: out }];

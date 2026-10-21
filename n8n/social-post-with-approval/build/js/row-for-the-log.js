@@ -25,10 +25,15 @@ row[L.slot] = p.slot;
 row[L.status] = 'awaiting';
 row[L.channel_id] = cfg.channel_id;
 row[L.message_id] = messageId;
+row[L.reply_id] = '';
 row[L.caption_fp] = p._caption_fp;
+row[L.pillar] = p.pillar || '';
+row[L.hook] = p._hook || '';
 row[L.urn] = '';
 row[L.note] = 'delivered for approval in ' + cfg.mode + ' mode, ' + p._caption_words
-  + ' words, caption from the ' + p._caption_source + ', ' + p._png_bytes + ' byte image';
+  + ' words, caption from the ' + p._caption_source
+  + (p._rewritten ? ' (rewritten once; fixed: ' + (p._fixed || []).join('; ').slice(0, 300) + ')' : '')
+  + ', ' + p._png_bytes + ' byte image';
 row[L.at] = new Date().toISOString();
 
 return [{

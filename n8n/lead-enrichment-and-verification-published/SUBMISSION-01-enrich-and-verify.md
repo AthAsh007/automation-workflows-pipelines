@@ -21,8 +21,8 @@ written down with the reason in plain words.
 3. Leave `TEST_RUN = true` and `TEST_CAMPAIGN_ID` blank for the first run.
 
 **Requirements**
-A Google Sheet with a raw organisation list. Apollo, an email verifier, an OpenAI-compatible
-endpoint and Instantly are each optional — a blank key skips that step rather than failing the run.
+A Google Sheet with a raw organisation list. Apollo, an email verifier, an Anthropic API key
+and Instantly are each optional — a blank key skips that step rather than failing the run.
 
 **How to customize**
 The ICP scoring is in **`score against the ICP`** and the accept list is in `config`. To swap the

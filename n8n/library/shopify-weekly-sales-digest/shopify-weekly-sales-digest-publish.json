@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Post a weekly Shopify sales digest by product to Slack\n\n**Who's it for**\nShopify store owners and small e-commerce teams who want Monday's numbers in the team channel without opening Shopify Analytics or exporting a report.\n\n**How it works**\n1. Every Monday at 08:30 it reads the last 14 days of orders from Shopify, or 14 sample orders until Shopify is connected.\n2. Cancelled and test orders are dropped. The rest are split into this week and the week before.\n3. For each week it totals revenue, orders, average order value, units, discount codes used and new versus returning customers. Refunds count in the week they were issued, not the week of the order.\n4. Products are ranked by this week's revenue with the change against last week, and the digest is posted to Slack.\n\n**How to set up**\n1. Run it once as imported. It builds the digest from sample orders and stops at `STOP: no Slack channel`.\n2. Add a Shopify access token credential to `Fetch orders from the last 14 days`, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Add a Slack credential and set `SLACK_CHANNEL_ID`.\n4. Set `DRY_RUN = false` to post every Monday.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_orders\n- A Slack workspace\n\n**How to customize**\n- `TOP_PRODUCTS` sets how many products the digest lists.\n- `CURRENCY` and `LOCALE` control number formatting.\n- Change the schedule on `Every Monday at 08:30` for a different reporting day.",
-        "height": 896,
+        "content": "## Post a weekly Shopify sales digest by product to Slack\n\n**Who's it for**\nShopify store owners and small e-commerce teams who want Monday's numbers in the team channel without opening Shopify Analytics, and who want to know whether a good or bad week is unusual or just normal noise.\n\n**How it works**\n1. Every Monday at 08:30 it reads the last 14 days of orders from Shopify as 14 one-day requests, or sample orders until Shopify is connected. A day that fails to load, or hits the 250-order page limit, is recorded.\n2. If any day failed, the digest is not built. Slack gets a short notice naming the failed days instead of a report with missing revenue.\n3. Cancelled and test orders are dropped. For each week it totals revenue, orders, average order value, units, discount codes and new versus returning customers. Refunds count in the week they were issued.\n4. This week is compared with last week and with the average of the previous `BASELINE_WEEKS` weeks read from a Weekly sales tab. Products whose revenue fell by `FALLING_DROP_PCT` or more are named.\n5. The digest is posted to Slack and this week's totals are upserted into the Weekly sales tab, keyed on the week, so a rerun does not add a second row.\n\n**How to set up**\n1. Run it once as imported. It builds the digest from sample orders and sample history and stops at `STOP: no Slack channel` and `STOP: history not saved`.\n2. Add a Shopify access token credential to `Fetch one day of orders`, set `SHOP_DOMAIN` and `USE_SHOPIFY = true`.\n3. Create a Weekly sales tab with columns Week, Revenue, Orders, AOV, Refunds, Net, New customers. Connect Google Sheets and set `HISTORY_SHEET_ID`.\n4. Add a Slack credential and set `SLACK_CHANNEL_ID`, then set `DRY_RUN = false` to post and save every Monday.\n\n**Requirements**\n- A Shopify store\n- A custom app token with read_orders\n- A Slack workspace\n- Optional: a Google Sheet for the weekly history\n\n**How to customize**\n- `TOP_PRODUCTS` sets how many products the digest lists.\n- `BASELINE_WEEKS`, `FALLING_DROP_PCT` and `FALLING_MIN_REVENUE` control the trend line and which products are called out.\n- `CURRENCY` and `LOCALE` control number formatting. Change the schedule on `Every Monday at 08:30` for a different reporting day.",
+        "height": 1232,
         "width": 520,
         "color": 4
       },
@@ -19,8 +19,8 @@
     },
     {
       "parameters": {
-        "content": "## 1. Start and settings\n\nRuns Monday at 08:30 so the 7-day window covers the full previous week. Formatting and how many products to list live in `config`.",
-        "height": 528,
+        "content": "## 1. Start and settings\n\nRuns Monday at 08:30 so the 7-day window covers the full previous week. Formatting, the baseline length and the falling-product thresholds live in `config`.",
+        "height": 896,
         "width": 416,
         "color": 7
       },
@@ -35,9 +35,9 @@
     },
     {
       "parameters": {
-        "content": "## 2. Read two weeks of orders\n\nOne read covers both weeks, so this week and last are always counted the same way. `Load sample orders` includes a cancelled and a test order to show they are left out.",
-        "height": 528,
-        "width": 864,
+        "content": "## 2. Read two weeks of orders\n\n`Build one request per day` splits 14 days into one-day reads so the 250-order page limit applies per day, not per fortnight. `Fetch one day of orders` keeps going on an error so `Read Shopify orders` can name the failed day.",
+        "height": 896,
+        "width": 1072,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -51,15 +51,15 @@
     },
     {
       "parameters": {
-        "content": "## 3. Compare the weeks\n\nRefunds land in the week they were issued, which is when the money left. Product revenue is line price times quantity, before order-level discounts, so a promotion does not make a product look weaker.",
-        "height": 528,
-        "width": 416,
+        "content": "## 3. Stop on a failed read\n\nA missing day would look like a sales drop. `Every day read?` sends any gap to `Write the failed-read notice`, which is posted in place of the digest. The history write is never reached, so a bad week is not saved.",
+        "height": 896,
+        "width": 864,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1376,
+        1584,
         0
       ],
       "id": "1fe27d18-5717-4c4e-9a00-1fe27d181002",
@@ -67,19 +67,51 @@
     },
     {
       "parameters": {
-        "content": "## 4. Post to Slack\n\nThe digest text is built on every run so a dry run can be read in the execution. A blank channel and a dry run each end on their own STOP.",
-        "height": 528,
+        "content": "## 4. Read the weekly history\n\nThe Weekly sales tab holds one row per past week. `Load sample history` stands in until `HISTORY_SHEET_ID` is set, so the baseline line shows on the first run.",
+        "height": 896,
         "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1840,
+        2496,
         0
       ],
       "id": "20e27eab-5717-4c4e-9a00-20e27eab1003",
       "name": "Section 4 note"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Compare the weeks\n\nRefunds land in the week they were issued. Product revenue is before order discounts so a promotion does not make a product look weaker. The baseline ignores a saved row for this same week, so a rerun does not compare a week with itself.",
+        "height": 896,
+        "width": 416,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3184,
+        0
+      ],
+      "id": "25e2868a-5717-4c4e-9a00-25e2868a1004",
+      "name": "Section 5 note"
+    },
+    {
+      "parameters": {
+        "content": "## 6. Post and save the week\n\nThe digest is built on every run so a dry run can be read in the execution. Only a live run with a sheet writes history, and `Upsert the week in history` matches on Week, so a second run on one Monday updates the row.",
+        "height": 896,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3648,
+        0
+      ],
+      "id": "26e2881d-5717-4c4e-9a00-26e2881d1005",
+      "name": "Section 6 note"
     },
     {
       "id": "4b1d367f-d53d-44cf-ae36-0e3687464b1d",
@@ -87,11 +119,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// POST A WEEKLY SHOPIFY SALES DIGEST BY PRODUCT TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE orders.\n// SLACK_CHANNEL_ID blank -> nothing is posted. DRY_RUN true -> the digest is built and shown, not posted.\n\n// set true after adding the Shopify credential to the fetch node\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// products listed in the digest\nconst TOP_PRODUCTS = 5;\n// currency for formatting\nconst CURRENCY = 'USD';\n// number format\nconst LOCALE = 'en-US';\n// channel for the digest; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    top_products: TOP_PRODUCTS,\n    currency: CURRENCY,\n    locale: LOCALE,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// POST A WEEKLY SHOPIFY SALES DIGEST BY PRODUCT TO SLACK - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// USE_SHOPIFY false -> SAMPLE orders. HISTORY_SHEET_ID blank -> SAMPLE history, nothing saved.\n// SLACK_CHANNEL_ID blank -> nothing is posted. DRY_RUN true -> the digest is built and shown, not posted or saved.\n\n// set true after adding the Shopify credential to the fetch node\nconst USE_SHOPIFY = false;\n// your myshopify.com domain\nconst SHOP_DOMAIN = 'your-store.myshopify.com';\n// products listed in the digest\nconst TOP_PRODUCTS = 5;\n// Google Sheets id with a Weekly sales tab; blank uses sample history and saves nothing\nconst HISTORY_SHEET_ID = '';\n// earlier weeks averaged for the trend line\nconst BASELINE_WEEKS = 4;\n// a product whose revenue fell by this percent or more is called out\nconst FALLING_DROP_PCT = 30;\n// only products that made at least this much last week can be called out\nconst FALLING_MIN_REVENUE = 50;\n// currency for formatting\nconst CURRENCY = 'USD';\n// number format\nconst LOCALE = 'en-US';\n// channel for the digest; blank posts nothing\nconst SLACK_CHANNEL_ID = '';\n// ships true. The run computes and reports, and writes nothing.\nconst DRY_RUN = true;\n\nconst MODE = DRY_RUN !== true ? 'live' : 'preview';\n\nreturn [{\n  json: {\n    use_shopify: USE_SHOPIFY,\n    shop_domain: SHOP_DOMAIN,\n    top_products: TOP_PRODUCTS,\n    history_sheet_id: HISTORY_SHEET_ID,\n    baseline_weeks: BASELINE_WEEKS,\n    falling_drop_pct: FALLING_DROP_PCT,\n    falling_min_revenue: FALLING_MIN_REVENUE,\n    currency: CURRENCY,\n    locale: LOCALE,\n    slack_channel_id: SLACK_CHANNEL_ID,\n    dry_run: DRY_RUN,\n    slack_enabled: SLACK_CHANNEL_ID.trim() !== '',\n    history_enabled: HISTORY_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
-        208
+        224
       ]
     },
     {
@@ -102,7 +134,7 @@
       "parameters": {},
       "position": [
         48,
-        208
+        224
       ]
     },
     {
@@ -122,7 +154,7 @@
       },
       "position": [
         48,
-        384
+        400
       ]
     },
     {
@@ -155,13 +187,26 @@
         "options": {}
       },
       "position": [
-        512,
-        208
+        736,
+        224
       ]
     },
     {
-      "id": "16c8bdcd-ef8c-4fbd-a27f-327f6ee816c8",
-      "name": "Fetch orders from the last 14 days",
+      "id": "aa29892f-c3a8-407f-a80f-480f93f6aa29",
+      "name": "Build one request per day",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// 14 one-day windows ending now. Shopify returns at most 250 orders per request, so\n// asking one day at a time keeps a busy week from being cut off silently; a day\n// that still returns 250 is reported as capped.\nconst now = Date.now();\nreturn Array.from({ length: 14 }, (_, i) => ({ json: {\n  label: new Date(now - (i + 1) * 864e5).toISOString().slice(0, 10),\n  min: new Date(now - (i + 1) * 864e5).toISOString(),\n  max: new Date(now - i * 864e5).toISOString(),\n} }));\n"
+      },
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "id": "31846203-b780-4f13-a487-a487913a3184",
+      "name": "Fetch one day of orders",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "parameters": {
@@ -181,7 +226,11 @@
             },
             {
               "name": "created_at_min",
-              "value": "={{ new Date(Date.now() - 14 * 864e5).toISOString() }}"
+              "value": "={{ $json.min }}"
+            },
+            {
+              "name": "created_at_max",
+              "value": "={{ $json.max }}"
             },
             {
               "name": "fields",
@@ -196,9 +245,10 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
       "position": [
-        736,
-        208
+        944,
+        224
       ]
     },
     {
@@ -207,11 +257,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Orders -> the fields the digest needs. Refund amounts come from refund transactions\n// so a partial refund counts for what was actually returned.\nconst out = [];\nfor (const page of $input.all()) for (const o of page.json.orders || []) out.push({ json: {\n  id: o.id, created_at: o.created_at, cancelled: Boolean(o.cancelled_at), test: Boolean(o.test),\n  total: Number(o.total_price || 0), discounts: Number(o.total_discounts || 0), codes: (o.discount_codes || []).map(d => d.code.toUpperCase()),\n  lines: (o.line_items || []).map(l => ({ title: l.title, qty: l.quantity, price: Number(l.price) })),\n  refunds: (o.refunds || []).map(r => ({ at: r.created_at, amount: (r.transactions || []).filter(t => t.kind === 'refund' && t.status !== 'failure').reduce((s, t) => s + Number(t.amount), 0) })),\n  first_order: Number(o.customer?.orders_count || 1) <= 1,\n} });\nreturn out;\n"
+        "jsCode": "// One response per day, in request order. A failed day arrives as an item with an\n// error; it is listed, not skipped, so the digest never under-reports quietly.\n// Refund amounts come from refund transactions so a partial refund counts for what was returned.\nconst days = $('Build one request per day').all().map(i => i.json);\nconst seen = new Set(), orders = [], failed_days = [], capped_days = [];\n$input.all().forEach((it, i) => {\n  const day = days[i]?.label || 'day ' + (i + 1);\n  if (it.json.error) { failed_days.push({ day, error: String(it.json.error.message || it.json.error).slice(0, 120) }); return; }\n  const list = it.json.orders || [];\n  if (list.length >= 250) capped_days.push(day);\n  for (const o of list) {\n    if (seen.has(o.id)) continue; seen.add(o.id);\n    orders.push({\n      id: o.id, created_at: o.created_at, cancelled: Boolean(o.cancelled_at), test: Boolean(o.test),\n      total: Number(o.total_price || 0), discounts: Number(o.total_discounts || 0), codes: (o.discount_codes || []).map(d => d.code.toUpperCase()),\n      lines: (o.line_items || []).map(l => ({ title: l.title, qty: l.quantity, price: Number(l.price) })),\n      refunds: (o.refunds || []).map(r => ({ at: r.created_at, amount: (r.transactions || []).filter(t => t.kind === 'refund' && t.status !== 'failure').reduce((s, t) => s + Number(t.amount), 0) })),\n      first_order: Number(o.customer?.orders_count || 1) <= 1,\n    });\n  }\n});\nreturn [{ json: { orders, failed_days, capped_days, days_read: $input.all().length - failed_days.length } }];\n"
       },
       "position": [
-        960,
-        208
+        1168,
+        224
       ]
     },
     {
@@ -220,11 +270,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Used until USE_SHOPIFY is true. Eight orders this week (one cancelled), six last week (one test).\nconst at = d => new Date(Date.now() - d * 864e5 - 3600000).toISOString();\nconst A = ['Cold brew kit', 40], B = ['Glass carafe', 25], C = ['Filter pack', 10], D = ['Gift box', 60];\nconst o = (id, day, lines, extra = {}) => {\n  const sub = lines.reduce((s, [p, q]) => s + p[1] * q, 0);\n  const disc = extra.discounts || 0;\n  return { id, created_at: at(day), cancelled: false, test: false, total: sub - disc, discounts: disc, codes: [], refunds: [], first_order: false,\n    lines: lines.map(([p, q]) => ({ title: p[0], qty: q, price: p[1] })), ...extra };\n};\nreturn [\n  o(1, 1, [[A, 1], [B, 1]], { discounts: 6.5, codes: ['WELCOME10'], first_order: true }),\n  o(2, 1, [[C, 3]]),\n  o(3, 2, [[D, 1]]),\n  o(4, 3, [[A, 2]], { discounts: 12, codes: ['SPRING15'], first_order: true }),\n  o(5, 4, [[B, 2]]),\n  o(6, 5, [[A, 1]], { refunds: [{ at: at(0.5), amount: 40 }] }),\n  o(7, 6, [[C, 2]], { first_order: true }),\n  o(8, 2, [[A, 1]], { cancelled: true }),\n  o(11, 8, [[A, 1]]),\n  o(12, 9, [[B, 1]]),\n  o(13, 10, [[D, 2]]),\n  o(14, 11, [[C, 1]], { test: true }),\n  o(15, 12, [[A, 1], [B, 1]]),\n  o(16, 13, [[C, 4]], { discounts: 4, codes: ['WELCOME10'], first_order: true }),\n].map(json => ({ json }));\n"
+        "jsCode": "// Used until USE_SHOPIFY is true. Eight orders this week (one cancelled), six last week (one test).\nconst at = d => new Date(Date.now() - d * 864e5 - 3600000).toISOString();\nconst A = ['Cold brew kit', 40], B = ['Glass carafe', 25], C = ['Filter pack', 10], D = ['Gift box', 60];\nconst o = (id, day, lines, extra = {}) => {\n  const sub = lines.reduce((s, [p, q]) => s + p[1] * q, 0);\n  const disc = extra.discounts || 0;\n  return { id, created_at: at(day), cancelled: false, test: false, total: sub - disc, discounts: disc, codes: [], refunds: [], first_order: false,\n    lines: lines.map(([p, q]) => ({ title: p[0], qty: q, price: p[1] })), ...extra };\n};\nconst orders = [\n  o(1, 1, [[A, 1], [B, 1]], { discounts: 6.5, codes: ['WELCOME10'], first_order: true }),\n  o(2, 1, [[C, 3]]),\n  o(3, 2, [[D, 1]]),\n  o(4, 3, [[A, 2]], { discounts: 12, codes: ['SPRING15'], first_order: true }),\n  o(5, 4, [[B, 2]]),\n  o(6, 5, [[A, 1]], { refunds: [{ at: at(0.5), amount: 40 }] }),\n  o(7, 6, [[C, 2]], { first_order: true }),\n  o(8, 2, [[A, 1]], { cancelled: true }),\n  o(11, 8, [[A, 1]]),\n  o(12, 9, [[B, 1]]),\n  o(13, 10, [[D, 2]]),\n  o(14, 11, [[C, 1]], { test: true }),\n  o(15, 12, [[A, 1], [B, 1]]),\n  o(16, 13, [[C, 4]], { discounts: 4, codes: ['WELCOME10'], first_order: true }),\n];\nreturn [{ json: { orders, failed_days: [], capped_days: [], days_read: 14 } }];\n"
       },
       "position": [
-        736,
-        384
+        944,
+        400
       ]
     },
     {
@@ -236,8 +286,204 @@
         "numberInputs": 2
       },
       "position": [
-        1184,
-        208
+        1392,
+        224
+      ]
+    },
+    {
+      "id": "a672ac67-e4e6-4237-a33f-433f62fea672",
+      "name": "Every day read?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "036468dd-bb77-45cd-a4c9-14c936780364",
+              "leftValue": "={{ $json.failed_days.length === 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        1632,
+        224
+      ]
+    },
+    {
+      "id": "0bfec581-c337-4731-a756-5756d04c0bfe",
+      "name": "Write the failed-read notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A digest built from a partial read would show a fall in revenue that never happened,\n// so a failed day replaces the digest with a notice and nothing is saved to history.\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst lines = [\n  ':warning: *Weekly sales digest not built*' + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  'Shopify did not return orders for ' + d.failed_days.length + ' of 14 days, so the totals would be wrong:',\n  ...d.failed_days.map(f => '- ' + f.day + ': ' + f.error),\n  'Run the workflow again once Shopify responds. History was not updated.',\n];\nreturn [{ json: { text: lines.join('\\n'), failed: true } }];\n"
+      },
+      "position": [
+        1856,
+        400
+      ]
+    },
+    {
+      "id": "68015844-7a42-4b04-af95-ef9531e76801",
+      "name": "Notice can be posted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aaaf6c74-d278-4034-a8cf-f8cfa157aaaf",
+              "leftValue": "={{ $('config').first().json.slack_enabled && $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2080,
+        400
+      ]
+    },
+    {
+      "id": "ae2fbc61-55e2-4811-a2b1-d2b10f6cae2f",
+      "name": "STOP: notice not posted",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2304,
+        560
+      ]
+    },
+    {
+      "id": "df959f14-d3ef-40d4-abd9-abd913b7df95",
+      "name": "Post the failed-read notice",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.slack_channel_id }}"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "position": [
+        2304,
+        400
+      ]
+    },
+    {
+      "id": "3d767795-2471-4b05-a186-8186f2003d76",
+      "name": "History sheet set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e28e287-2a57-4e57-ad56-bd567cde1e28",
+              "leftValue": "={{ $('config').first().json.history_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2544,
+        224
+      ]
+    },
+    {
+      "id": "7698cd3d-f6c2-4c2d-af56-df5690187698",
+      "name": "Read the weekly history",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "alwaysOutputData": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.history_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Weekly sales"
+        },
+        "options": {}
+      },
+      "position": [
+        2768,
+        224
+      ]
+    },
+    {
+      "id": "e431d9c5-b5b8-4e35-a6fb-96fbc130e431",
+      "name": "Load sample history",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Used until HISTORY_SHEET_ID is set: the four weeks before this one.\nconst wk = n => new Date(Date.now() - n * 7 * 864e5).toISOString().slice(0, 10);\nreturn [[1, 286], [2, 240], [3, 300], [4, 274]].map(([n, revenue]) => ({ json: { Week: wk(n + 1), Revenue: revenue, Orders: 5 } }));\n"
+      },
+      "position": [
+        2768,
+        400
+      ]
+    },
+    {
+      "id": "ecd1b3cc-63cc-4c0c-a8d6-88d6571fecd1",
+      "name": "Combine history sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "parameters": {
+        "numberInputs": 2
+      },
+      "position": [
+        2992,
+        224
       ]
     },
     {
@@ -246,11 +492,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Two 7-day windows ending now. Orders count in the week they were placed; refunds\n// count in the week they were issued. Cancelled and test orders are excluded.\nconst now = Date.now(), week = 7 * 864e5;\nconst which = iso => { const t = now - new Date(iso).getTime(); return t < 0 ? null : t < week ? 'this' : t < 2 * week ? 'last' : null; };\nconst blank = () => ({ orders: 0, revenue: 0, units: 0, discounts: 0, discounted_orders: 0, refunds: 0, refund_count: 0, new_customers: 0, codes: {}, products: {} });\nconst W = { this: blank(), last: blank() };\nconst excluded = { cancelled: 0, test: 0 };\nfor (const { json: o } of $input.all()) {\n  for (const r of o.refunds) { const w = which(r.at); if (w && r.amount > 0) { W[w].refunds += r.amount; W[w].refund_count++; } }\n  if (o.cancelled) { excluded.cancelled++; continue; }\n  if (o.test) { excluded.test++; continue; }\n  const w = which(o.created_at); if (!w) continue;\n  const s = W[w];\n  s.orders++; s.revenue += o.total;\n  if (o.first_order) s.new_customers++;\n  if (o.discounts > 0) { s.discounts += o.discounts; s.discounted_orders++; }\n  for (const c of o.codes) s.codes[c] = (s.codes[c] || 0) + 1;\n  for (const l of o.lines) {\n    const p = s.products[l.title] ||= { units: 0, revenue: 0 };\n    p.units += l.qty; p.revenue += l.qty * l.price; s.units += l.qty;\n  }\n}\nconst r2 = n => Math.round(n * 100) / 100;\nfor (const s of Object.values(W)) { s.revenue = r2(s.revenue); s.refunds = r2(s.refunds); s.discounts = r2(s.discounts); s['net'] = r2(s.revenue - s.refunds); s.aov = s.orders ? r2(s.revenue / s.orders) : 0; }\nconst pct = (a, b) => b ? Math.round((a - b) / b * 1000) / 10 : null;\nconst top = Object.entries(W.this.products).map(([title, p]) => ({ title, ...p, last: W.last.products[title]?.revenue || 0,\n  change: pct(p.revenue, W.last.products[title]?.revenue || 0) })).sort((a, b) => b.revenue - a.revenue);\nreturn [{ json: { this_week: W.this, last_week: W.last, top, excluded,\n  change: { revenue: pct(W.this.revenue, W.last.revenue), orders: pct(W.this.orders, W.last.orders), aov: pct(W.this.aov, W.last.aov) } } }];\n"
+        "jsCode": "// Two 7-day windows ending now. Orders count in the week they were placed; refunds\n// count in the week they were issued. Cancelled and test orders are excluded.\n// The baseline is the average revenue of the BASELINE_WEEKS saved weeks before this one.\nconst cfg = $('config').first().json;\nconst src = $('Combine order sources').first().json;\nconst now = Date.now(), week = 7 * 864e5;\nconst week_start = new Date(now - week).toISOString().slice(0, 10);\nconst which = iso => { const t = now - new Date(iso).getTime(); return t < 0 ? null : t < week ? 'this' : t < 2 * week ? 'last' : null; };\nconst blank = () => ({ orders: 0, revenue: 0, units: 0, discounts: 0, discounted_orders: 0, refunds: 0, refund_count: 0, new_customers: 0, codes: {}, products: {} });\nconst W = { this: blank(), last: blank() };\nconst excluded = { cancelled: 0, test: 0 };\nfor (const o of src.orders) {\n  for (const r of o.refunds) { const w = which(r.at); if (w && r.amount > 0) { W[w].refunds += r.amount; W[w].refund_count++; } }\n  if (o.cancelled) { excluded.cancelled++; continue; }\n  if (o.test) { excluded.test++; continue; }\n  const w = which(o.created_at); if (!w) continue;\n  const s = W[w];\n  s.orders++; s.revenue += o.total;\n  if (o.first_order) s.new_customers++;\n  if (o.discounts > 0) { s.discounts += o.discounts; s.discounted_orders++; }\n  for (const c of o.codes) s.codes[c] = (s.codes[c] || 0) + 1;\n  for (const l of o.lines) {\n    const p = s.products[l.title] ||= { units: 0, revenue: 0 };\n    p.units += l.qty; p.revenue += l.qty * l.price; s.units += l.qty;\n  }\n}\nconst r2 = n => Math.round(n * 100) / 100;\nfor (const s of Object.values(W)) { s.revenue = r2(s.revenue); s.refunds = r2(s.refunds); s.discounts = r2(s.discounts); s['net'] = r2(s.revenue - s.refunds); s.aov = s.orders ? r2(s.revenue / s.orders) : 0; }\nconst pct = (a, b) => b ? Math.round((a - b) / b * 1000) / 10 : null;\nconst top = Object.entries(W.this.products).map(([title, p]) => ({ title, ...p, last: W.last.products[title]?.revenue || 0,\n  change: pct(p.revenue, W.last.products[title]?.revenue || 0) })).sort((a, b) => b.revenue - a.revenue);\n// Falling: sold at least FALLING_MIN_REVENUE last week and dropped by FALLING_DROP_PCT or more (including to zero).\nconst falling = Object.entries(W.last.products).filter(([, p]) => p.revenue >= cfg.falling_min_revenue)\n  .map(([title, p]) => ({ title, last: p.revenue, now: W.this.products[title]?.revenue || 0 }))\n  .map(p => ({ ...p, change: pct(p.now, p.last) })).filter(p => p.change <= -cfg.falling_drop_pct).sort((a, b) => a.change - b.change);\n// Baseline from saved weeks strictly before this one; a rerun of this week is ignored.\nconst history = $input.all().map(i => i.json).filter(r => r.Week && String(r.Week).slice(0, 10) < week_start)\n  .sort((a, b) => String(b.Week).localeCompare(String(a.Week))).slice(0, cfg.baseline_weeks);\nconst baseline = history.length >= 2 ? r2(history.reduce((s, r) => s + Number(r.Revenue || 0), 0) / history.length) : null;\nreturn [{ json: { week_start, this_week: W.this, last_week: W.last, top, falling, excluded, capped_days: src.capped_days,\n  baseline: { weeks: history.length, revenue: baseline, change: baseline === null ? null : pct(W.this.revenue, baseline) },\n  change: { revenue: pct(W.this.revenue, W.last.revenue), orders: pct(W.this.orders, W.last.orders), aov: pct(W.this.aov, W.last.aov) } } }];\n"
       },
       "position": [
-        1424,
-        208
+        3232,
+        224
       ]
     },
     {
@@ -259,11 +505,101 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Slack mrkdwn. Arrows show direction; a product with no sales last week says \"new\".\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst T = d.this_week, L = d.last_week;\nconst money = n => new Intl.NumberFormat(cfg.locale, { style: 'currency', currency: cfg.currency }).format(n);\nconst ch = p => p === null ? 'new' : (p >= 0 ? '▲ ' : '▼ ') + Math.abs(p) + '%';\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(5, 10);\nconst codes = Object.entries(T.codes).sort((a, b) => b[1] - a[1]).map(([c, n]) => c + ' x' + n).join(', ');\nconst lines = [\n  '*Weekly sales* ' + day(7) + ' to ' + day(0) + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  'Revenue ' + money(T.revenue) + ' (' + ch(d.change.revenue) + ') · Orders ' + T.orders + ' (' + ch(d.change.orders) + ') · AOV ' + money(T.aov) + ' (' + ch(d.change.aov) + ')',\n  'Refunds ' + money(T.refunds) + ' on ' + T.refund_count + ' order' + (T.refund_count === 1 ? '' : 's') + ' · Net ' + money(T['net']),\n  'Discounts ' + money(T.discounts) + ' on ' + T.discounted_orders + ' of ' + T.orders + ' orders' + (codes ? ' (' + codes + ')' : ''),\n  'Customers: ' + T.new_customers + ' new, ' + (T.orders - T.new_customers) + ' returning',\n  '', '*Top products*',\n  ...d.top.slice(0, cfg.top_products).map((p, i) => (i + 1) + '. ' + p.title + ': ' + money(p.revenue) + ', ' + p.units + ' units (' + ch(p.change) + ')'),\n];\nif (d.excluded.cancelled || d.excluded.test) lines.push('', '_Left out: ' + d.excluded.cancelled + ' cancelled, ' + d.excluded.test + ' test orders._');\nreturn [{ json: { text: lines.join('\\n') } }];\n"
+        "jsCode": "// Slack mrkdwn. Arrows show direction; a product with no sales last week says \"new\".\nconst cfg = $('config').first().json;\nconst d = $input.first().json;\nconst T = d.this_week;\nconst money = n => new Intl.NumberFormat(cfg.locale, { style: 'currency', currency: cfg.currency }).format(n);\nconst ch = p => p === null ? 'new' : (p >= 0 ? '▲ ' : '▼ ') + Math.abs(p) + '%';\nconst day = n => new Date(Date.now() - n * 864e5).toISOString().slice(5, 10);\nconst codes = Object.entries(T.codes).sort((a, b) => b[1] - a[1]).map(([c, n]) => c + ' x' + n).join(', ');\nconst lines = [\n  '*Weekly sales* ' + day(7) + ' to ' + day(0) + (cfg.mode === 'preview' ? ' (dry run)' : ''),\n  'Revenue ' + money(T.revenue) + ' (' + ch(d.change.revenue) + ') · Orders ' + T.orders + ' (' + ch(d.change.orders) + ') · AOV ' + money(T.aov) + ' (' + ch(d.change.aov) + ')',\n  d.baseline.revenue === null ? '_No ' + cfg.baseline_weeks + '-week baseline yet (' + d.baseline.weeks + ' saved week' + (d.baseline.weeks === 1 ? '' : 's') + ')._'\n    : 'Against the ' + d.baseline.weeks + '-week average of ' + money(d.baseline.revenue) + ': ' + ch(d.baseline.change),\n  'Refunds ' + money(T.refunds) + ' on ' + T.refund_count + ' order' + (T.refund_count === 1 ? '' : 's') + ' · Net ' + money(T['net']),\n  'Discounts ' + money(T.discounts) + ' on ' + T.discounted_orders + ' of ' + T.orders + ' orders' + (codes ? ' (' + codes + ')' : ''),\n  'Customers: ' + T.new_customers + ' new, ' + (T.orders - T.new_customers) + ' returning',\n  '', '*Top products*',\n  ...d.top.slice(0, cfg.top_products).map((p, i) => (i + 1) + '. ' + p.title + ': ' + money(p.revenue) + ', ' + p.units + ' units (' + ch(p.change) + ')'),\n];\nif (d.falling.length) lines.push('', '*Falling*', ...d.falling.map(p => '- ' + p.title + ': ' + money(p.now) + ' from ' + money(p.last) + ' (' + ch(p.change) + ')'));\nif (d.capped_days.length) lines.push('', ':warning: _' + d.capped_days.join(', ') + ' returned 250 orders, the page limit, so totals for those days may be low._');\nif (d.excluded.cancelled || d.excluded.test) lines.push('', '_Left out: ' + d.excluded.cancelled + ' cancelled, ' + d.excluded.test + ' test orders._');\nreturn [{ json: { text: lines.join('\\n') } }];\n"
       },
       "position": [
-        1648,
-        208
+        3456,
+        224
+      ]
+    },
+    {
+      "id": "4011ce0f-3ded-4f5f-aeb9-8eb98e164011",
+      "name": "Save the week to history?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "57057665-856f-48d5-ac64-fc647c905705",
+              "leftValue": "={{ $('config').first().json.history_enabled && $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3696,
+        400
+      ]
+    },
+    {
+      "id": "07067c17-c713-4ae7-a097-00975aee0706",
+      "name": "STOP: history not saved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3920,
+        560
+      ]
+    },
+    {
+      "id": "4b58dc3d-0fa4-4b2d-ac98-3c9837184b58",
+      "name": "Shape the history row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One row per week, keyed on Week, so rerunning on the same Monday updates the row.\nconst d = $('Compare this week with last week').first().json;\nconst T = d.this_week;\nreturn [{ json: { Week: d.week_start, Revenue: T.revenue, Orders: T.orders, AOV: T.aov, Refunds: T.refunds, Net: T['net'], 'New customers': T.new_customers } }];\n"
+      },
+      "position": [
+        3920,
+        736
+      ]
+    },
+    {
+      "id": "8ff42a1a-074d-45fa-a2cf-e2cf45b98ff4",
+      "name": "Upsert the week in history",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('config').first().json.history_sheet_id }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Weekly sales"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Week"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "position": [
+        4144,
+        736
       ]
     },
     {
@@ -296,8 +632,8 @@
         "options": {}
       },
       "position": [
-        1888,
-        208
+        3696,
+        224
       ]
     },
     {
@@ -307,8 +643,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2112,
-        384
+        3920,
+        400
       ]
     },
     {
@@ -341,8 +677,8 @@
         "options": {}
       },
       "position": [
-        2112,
-        208
+        3920,
+        224
       ]
     },
     {
@@ -352,8 +688,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2336,
-        384
+        4144,
+        400
       ]
     },
     {
@@ -372,8 +708,8 @@
         "otherOptions": {}
       },
       "position": [
-        2336,
-        208
+        4144,
+        224
       ]
     }
   ],
@@ -404,6 +740,17 @@
       "main": [
         [
           {
+            "node": "Build one request per day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build one request per day": {
+      "main": [
+        [
+          {
             "node": "Shopify connected?",
             "type": "main",
             "index": 0
@@ -415,7 +762,7 @@
       "main": [
         [
           {
-            "node": "Fetch orders from the last 14 days",
+            "node": "Fetch one day of orders",
             "type": "main",
             "index": 0
           }
@@ -429,7 +776,7 @@
         ]
       ]
     },
-    "Fetch orders from the last 14 days": {
+    "Fetch one day of orders": {
       "main": [
         [
           {
@@ -466,6 +813,75 @@
       "main": [
         [
           {
+            "node": "Every day read?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day read?": {
+      "main": [
+        [
+          {
+            "node": "History sheet set?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write the failed-read notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "History sheet set?": {
+      "main": [
+        [
+          {
+            "node": "Read the weekly history",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load sample history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the weekly history": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load sample history": {
+      "main": [
+        [
+          {
+            "node": "Combine history sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine history sources": {
+      "main": [
+        [
+          {
             "node": "Compare this week with last week",
             "type": "main",
             "index": 0
@@ -488,7 +904,70 @@
       "main": [
         [
           {
+            "node": "Save the week to history?",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Slack channel set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save the week to history?": {
+      "main": [
+        [
+          {
+            "node": "Shape the history row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: history not saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape the history row": {
+      "main": [
+        [
+          {
+            "node": "Upsert the week in history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the failed-read notice": {
+      "main": [
+        [
+          {
+            "node": "Notice can be posted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notice can be posted?": {
+      "main": [
+        [
+          {
+            "node": "Post the failed-read notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: notice not posted",
             "type": "main",
             "index": 0
           }

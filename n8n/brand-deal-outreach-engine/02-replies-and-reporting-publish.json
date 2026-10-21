@@ -2,14 +2,158 @@
   "name": "Classify outreach replies and report weekly from Airtable to Slack",
   "nodes": [
     {
+      "parameters": {
+        "content": "## Classify outreach replies and report weekly from Airtable to Slack\n\nFor agencies running cold email at volume who need replies triaged every hour and a clean weekly number.\n\n### How it works\n1. An hourly schedule reads new replies from Instantly.\n2. Each reply is sorted by ordered rules. The first match wins.\n3. A reply that matches no rule is marked unclear and sent to a person.\n4. Outcomes are written back to the Airtable pitch log.\n5. Interested replies go to Slack as a handover. A short digest follows.\n6. Once a week, the lower row posts a report per creator.\n\n### Setup\n1. Open `config` and set `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID`.\n2. In `config`, set `SEND_API_KEY` for `[cred] Instantly - fetch replies`.\n3. In `config`, set `ALERT_WEBHOOK_URL` (and optionally `HANDOVER_WEBHOOK_URL`).\n4. Set `REPORT_DAY` and `REPORT_HOUR` for the weekly post.\n5. Press **Run it now**. With blank keys it uses demo data and writes nothing.\n\n### Requirements\n- Airtable base with a Pitches table\n- Instantly account and a Slack incoming webhook (each optional)\n\n### How to customize\n- Edit `REPLY_RULES` in `config`. Order is priority.\n- `REPORT_WINDOW_DAYS` sets the report window.",
+        "height": 800,
+        "width": 560,
+        "color": 1
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        0
+      ],
+      "id": "282deb91-5717-4c4e-9a00-282deb911000",
+      "name": "Overview"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Trigger and config\nOne hourly trigger drives both rows. `config` is the only node you edit.",
+        "height": 540,
+        "width": 440,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "272de9fe-5717-4c4e-9a00-272de9fe1001",
+      "name": "Section 1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Read the replies\nThe `[cred] Instantly` node needs `SEND_API_KEY`. No key: `STOP: demo replies` builds a test batch.",
+        "height": 540,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        0
+      ],
+      "id": "262de86b-5717-4c4e-9a00-262de86b1002",
+      "name": "Section 2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Classify the replies\nOrdered rules, first match wins. No match means unclear, sent to a person. `STOP: no replies` is a quiet hour.",
+        "height": 540,
+        "width": 660,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ],
+      "id": "252de6d8-5717-4c4e-9a00-252de6d81003",
+      "name": "Section 3"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Write outcomes back\nThe `[cred] Airtable` node upserts on Pitch id. `STOP: replies not logged` means Airtable is off, so suppressions are reported.",
+        "height": 540,
+        "width": 1100,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        0
+      ],
+      "id": "2c2df1dd-5717-4c4e-9a00-2c2df1dd1004",
+      "name": "Section 4"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Hand over and post the digest\nInterested replies go out as their own handover message. The digest follows. A STOP here means that webhook is blank.",
+        "height": 940,
+        "width": 1100,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3320,
+        0
+      ],
+      "id": "2b2df04a-5717-4c4e-9a00-2b2df04a1005",
+      "name": "Section 5"
+    },
+    {
+      "parameters": {
+        "content": "## 6. Wait for the report hour\nTrue one hour a week, set by `REPORT_DAY` and `REPORT_HOUR`. `STOP: not the report hour` is every other hour.",
+        "height": 540,
+        "width": 440,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        1040
+      ],
+      "id": "2a2deeb7-5717-4c4e-9a00-2a2deeb71006",
+      "name": "Section 6"
+    },
+    {
+      "parameters": {
+        "content": "## 7. Read the pitch log\nThe `[cred] Airtable` node reads the week. No key: `STOP: demo pitch log` builds a sample week.",
+        "height": 540,
+        "width": 880,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        1040
+      ],
+      "id": "292ded24-5717-4c4e-9a00-292ded241007",
+      "name": "Section 7"
+    },
+    {
+      "parameters": {
+        "content": "## 8. Post the weekly report\nSent, held, reply rate and bookings per creator. `STOP: no report webhook` means no URL is set.",
+        "height": 540,
+        "width": 660,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        1040
+      ],
+      "id": "202ddef9-5717-4c4e-9a00-202ddef91008",
+      "name": "Section 8"
+    },
+    {
       "parameters": {},
       "id": "manual",
       "name": "Run it now",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        0,
-        580
+        60,
+        140
       ]
     },
     {
@@ -28,8 +172,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
-        760
+        60,
+        340
       ]
     },
     {
@@ -41,8 +185,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        220,
-        670
+        280,
+        140
       ]
     },
     {
@@ -76,8 +220,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
-        580
+        560,
+        140
       ]
     },
     {
@@ -111,8 +255,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
-        490
+        780,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -130,8 +274,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        490
+        1000,
+        140
       ]
     },
     {
@@ -143,8 +287,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
-        670
+        780,
+        340
       ]
     },
     {
@@ -157,8 +301,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        1100,
-        580
+        1220,
+        140
       ]
     },
     {
@@ -170,8 +314,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
-        580
+        1500,
+        140
       ]
     },
     {
@@ -205,8 +349,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1540,
-        580
+        1720,
+        140
       ]
     },
     {
@@ -218,8 +362,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1760,
-        760
+        1940,
+        340
       ]
     },
     {
@@ -231,8 +375,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1760,
-        490
+        1940,
+        140
       ]
     },
     {
@@ -266,8 +410,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1980,
-        490
+        2220,
+        140
       ]
     },
     {
@@ -279,8 +423,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        400
+        2440,
+        140
       ]
     },
     {
@@ -312,8 +456,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2420,
-        400
+        2660,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -330,8 +474,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
-        400
+        2880,
+        140
       ]
     },
     {
@@ -343,8 +487,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
-        580
+        2440,
+        340
       ]
     },
     {
@@ -357,8 +501,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        2860,
-        490
+        3100,
+        140
       ]
     },
     {
@@ -370,8 +514,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3080,
-        580
+        3380,
+        340
       ]
     },
     {
@@ -405,8 +549,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3300,
-        490
+        3600,
+        140
       ]
     },
     {
@@ -418,8 +562,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3520,
-        400
+        3820,
+        140
       ]
     },
     {
@@ -447,8 +591,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3740,
-        400
+        4040,
+        140
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -463,8 +607,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3520,
-        580
+        3820,
+        340
       ]
     },
     {
@@ -498,8 +642,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3300,
-        760
+        3600,
+        540
       ]
     },
     {
@@ -527,8 +671,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3520,
-        760
+        3820,
+        540
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -542,8 +686,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3520,
-        940
+        3820,
+        740
       ]
     },
     {
@@ -577,8 +721,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        440,
-        1120
+        560,
+        1180
       ]
     },
     {
@@ -588,8 +732,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        660,
-        1300
+        780,
+        1380
       ]
     },
     {
@@ -623,8 +767,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
-        1120
+        1060,
+        1180
       ]
     },
     {
@@ -662,8 +806,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
-        1030
+        1280,
+        1180
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -681,8 +825,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
-        1030
+        1500,
+        1180
       ]
     },
     {
@@ -694,8 +838,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        1210
+        1280,
+        1380
       ]
     },
     {
@@ -708,8 +852,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
       "position": [
-        1320,
-        1120
+        1720,
+        1180
       ]
     },
     {
@@ -721,8 +865,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
-        1120
+        2000,
+        1180
       ]
     },
     {
@@ -756,8 +900,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1760,
-        1120
+        2220,
+        1180
       ]
     },
     {
@@ -785,8 +929,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
-        1030
+        2440,
+        1180
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -800,8 +944,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        1980,
-        1210
+        2440,
+        1380
       ]
     },
     {
@@ -811,120 +955,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3960,
-        760
-      ]
-    },
-    {
-      "parameters": {
-        "content": "## Classify outreach replies and report weekly\n\n**Who's it for**\nAgencies and freelancers running cold email at volume for creators or clients, who need every reply triaged within the hour and a clean weekly number to show for it.\n\n**How it works**\nOne hourly schedule drives both halves. The reply half reads new mail from the sending platform (Instantly by default) and sorts each message against an ordered rule list: unsubscribe, bounce, auto-reply, wrong person, not now, not interested, interested. First match wins, so a removal request outranks an interested line in the same email. Anything matching no rule becomes `unclear` and goes to a person with the same urgency as an obvious yes. Outcomes are upserted back to the Airtable pitch log on `Pitch id`, interested replies are posted to Slack as their own handover message, and a short digest follows. The report half wakes for one hour a week, reads the pitch log and posts a per-student block: sent, held, reply rate, interest rate, bookings.\n\n**How to set up**\n1. Open `config` and fill in the Airtable key and base id, the sending-platform key and campaign id, and a Slack or Discord webhook URL.\n2. Attach a credential to each `[cred]` node.\n3. Set `REPORT_DAY` and `REPORT_HOUR` for the weekly post.\n4. Press **Run it now**. With the keys left blank it runs on demo data and writes nothing.\n\n**Requirements**\nAn Airtable base with a `Pitches` table, an Instantly or Smartlead account, and a Slack or Discord incoming webhook. Every one of them is optional: a blank key skips that branch instead of failing the run.\n\n**How to customize**\n`REPLY_RULES` in `config` holds the classifier, in priority order. `REPORT_WINDOW_DAYS` sets the report window and `REPITCH_AFTER_DAYS` the nurture date.",
-        "height": 700,
-        "width": 920,
-        "color": 4
-      },
-      "id": "sticky-1",
-      "name": "Sticky Note - Overview",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -900
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 1. One trigger, one config\n\n`Run it now` is for testing, `Every hour` drives production. Both feed `config`, the only node you edit: keys, table and field names, reply rules and report day all live there.\n\nA key left blank skips that branch rather than failing the run.",
-        "height": 260,
-        "width": 420,
-        "color": 7
-      },
-      "id": "sticky-2",
-      "name": "Sticky Note - 1 Trigger and config",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 2. Read the replies\n\n`reply feed configured?` looks for a sending-platform key. With one, `[cred] Instantly - fetch replies` pulls the latest messages and `read the replies` keeps only inbound mail, because the v2 `/emails` endpoint returns sent and received together.\n\nWith no key, `STOP: demo replies` builds nine fabricated replies instead: one of every class the rules know, plus two that match nothing on purpose. `one reply list` merges whichever branch ran, so nothing downstream has to know which it got.",
-        "height": 260,
-        "width": 860,
-        "color": 7
-      },
-      "id": "sticky-3",
-      "name": "Sticky Note - 2 Read the replies",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        440,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 3. Classify, then decide\n\n`classify the replies` walks `REPLY_RULES` in order and the **first match wins**, which is why `unsubscribe` and `bounce` sit above `interested`. A reply matching no rule becomes `unclear` and is routed to a human, never guessed at.\n\n`any replies?` short-circuits a quiet hour into `STOP: no replies`. `decide the next step` turns each class into one outcome: handover, suppress, reroute, nurture or close, plus `ignore` for an out-of-office, which must not consume the follow-up.",
-        "height": 260,
-        "width": 860,
-        "color": 7
-      },
-      "id": "sticky-4",
-      "name": "Sticky Note - 3 Classify and decide",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        1320,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 4. Write the outcomes back\n\n`rows for the reply log` batches ten at a time and `[cred] Airtable - log the replies` upserts them on `Pitch id`, so a reply finds its pitch row without this workflow ever having held an Airtable record id.\n\n`confirm the reply log` compares written against expected and names the gap; auto-replies are excluded because they are deliberately never written back. `STOP: replies not logged` carries the same replies forward when Airtable is off, so an unrecorded suppression is reported rather than lost.",
-        "height": 260,
-        "width": 860,
-        "color": 7
-      },
-      "id": "sticky-5",
-      "name": "Sticky Note - 4 Write outcomes back",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        2200,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 5. Hand over, alert and finish\n\n`build the reply summary` writes one short digest per run. It fires every hour, and a long digest stops being read by Tuesday.\n\n`handovers to send?` splits off the replies that need a person now, and `build the handover` formats them with brand, creator, contact and an excerpt. A handover is deliberately a separate message from the digest: a digest gets scanned, a handover has to be acted on. `Post the handover` and `Post the reply summary` POST to the webhook URLs in `config`, and every branch lands on `Run complete`.",
-        "height": 260,
-        "width": 1080,
-        "color": 7
-      },
-      "id": "sticky-6",
-      "name": "Sticky Note - 5 Hand over and alert",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        3080,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "content": "### 6. The weekly report\n\n`is it the weekly report hour?` is true for one hour in 168, which is what lets a single hourly trigger drive both halves. Two schedule triggers would need two `config` nodes, and two config nodes disagree about a field name within a month.\n\n`[cred] Airtable - the pitch log` reads the window and `read the pitch log` normalises it; `STOP: demo pitch log` fabricates a week when no base is connected. `build the weekly report` produces a block per student: sent, held, reply rate, interest rate, bookings. Held pitches are shown rather than hidden, because they are what the quality gates cost, and every rate is computed against what was **sent**, never against what was written.",
-        "height": 260,
-        "width": 1740,
-        "color": 7
-      },
-      "id": "sticky-7",
-      "name": "Sticky Note - 6 Weekly report",
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        440,
-        1400
+        4260,
+        340
       ]
     }
   ],

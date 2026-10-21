@@ -13,7 +13,8 @@ const why = cfg.preview_only
     ? 'PREVIEW (forced — the demo pipeline cannot write to a real account)'
     : 'PREVIEW — TEST_RUN is true and TEST_OWNER_ID is blank')
   : deal.action === 'escalate'
-    ? 'escalated, not created — a second task on an already-overdue deal helps nobody'
+    ? 'escalated to the ' + deal.escalation_tier + ', not created — a second task on an ' +
+      'already-overdue deal helps nobody'
     : deal.action_reason;
 
 return [{

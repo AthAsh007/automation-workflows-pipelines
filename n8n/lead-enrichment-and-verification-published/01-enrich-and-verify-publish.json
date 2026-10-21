@@ -133,7 +133,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Turn a scraped row into something a data provider can be asked about.\n//\n// Apollo is only as good as the domain you hand it. \"www.MapleRidgeHealth.example/about\" and\n// \"https://mapleridgehealth.example\" are the same building, and asking twice costs twice. The\n// category is decided by the keyword rules in config; anything the rules cannot place is\n// flagged _needs_ai and the optional classifier picks it up.\n//\n// The two provider payloads are built here rather than inside the HTTP nodes, so the prompt\n// and the search are readable — and editable — without opening a body expression.\nconst cfg = $('config').first().json;\nconst col = cfg.org_columns;\n\nconst text = (v) => String(v == null ? '' : v).trim();\nconst categories = (cfg.category_rules || []).map((r) => r.category);\n\n// Only the specific titles are searched on. The catch-all \"director\"/\"manager\" rule exists to\n// score whoever comes back, not to ask Apollo for every manager in a hospital.\nconst searchTitles = [];\nfor (const rule of (cfg.title_rules || []).slice(0, 3)) {\n  for (const w of rule.words || []) if (searchTitles.length < 25) searchTitles.push(w);\n}\n\nreturn $input.all().map((entry) => {\n  const item = entry.json;\n  const row = item._row || {};\n\n  const name = text(row[col.name]);\n\n  const domain = text(row[col.website]).toLowerCase()\n    .replace(/^https?:\\/\\//, '')\n    .replace(/^www\\./, '')\n    .replace(/[/?#].*$/, '')\n    .replace(/[^a-z0-9.-]/g, '');\n\n  const haystack = (name + ' ' + domain).toLowerCase();\n\n  // A category already typed into the sheet by a human beats any rule here.\n  let category = text(row[col.category]);\n  let matchedOn = '';\n  let confident = category !== '';\n\n  if (!category) {\n    for (const rule of cfg.category_rules || []) {\n      const hit = (rule.words || []).find((w) => haystack.includes(String(w).toLowerCase()));\n      if (hit) { category = rule.category; matchedOn = hit; confident = true; break; }\n    }\n  }\n\n  if (!category) { category = 'Unclassified'; confident = false; }\n\n  const aiSystem = 'You classify Ohio health and social-service organisations for a referral '\n    + 'partnership programme. Answer with one JSON object and nothing else: '\n    + '{\"category\": \"<one of the listed categories, or Other>\", \"confidence\": <0-1>, '\n    + '\"reason\": \"<12 words max>\"}. Never invent a category that is not listed.';\n\n  const aiUser = 'Categories: ' + categories.join(' | ') + ' | Other\\n\\n'\n    + 'Organisation: ' + (name || '(no name)') + '\\n'\n    + 'Website: ' + (domain || '(none)') + '\\n'\n    + 'City/County: ' + [text(row[col.city]), text(row[col.county])].filter(Boolean).join(', ')\n    + '\\n\\nWhich category is it?';\n\n  const apolloBody = {\n    q_organization_domains_list: domain ? [domain] : [],\n    q_organization_name: domain ? undefined : name,\n    person_titles: searchTitles,\n    person_locations: cfg.require_state === 'OH' ? ['Ohio, US'] : undefined,\n    page: 1,\n    per_page: Math.max(Number(cfg.max_contacts_per_org || 3) * 3, 5)\n  };\n\n  return {\n    json: {\n      org_id:   item.org_id,\n      org_name: name,\n      domain:   domain,\n      category: category,\n      county:   text(row[col.county]),\n      city:     text(row[col.city]),\n      state:    text(row[col.state]).toUpperCase().slice(0, 2),\n      phone:    text(row[col.phone]),\n      source:   text(row[col.source]) || 'sheet',\n\n      // whatever the raw list already knew — the fallback when Apollo is not configured\n      _row: row,\n\n      _category_matched_on: matchedOn,\n      _category_confident:  confident,\n      // Only an unclassified org is worth an AI call. The rest already have an answer.\n      _needs_ai: !confident && cfg.ai_enabled === true,\n      _domain_missing: domain === '',\n\n      _ai_system: aiSystem,\n      _ai_user:   aiUser,\n      // JSON round-trip drops the undefined keys, which Apollo would otherwise reject.\n      _apollo_body: JSON.parse(JSON.stringify(apolloBody))\n    }\n  };\n});"
+        "jsCode": "// Turn a scraped row into something a data provider can be asked about.\n//\n// Apollo is only as good as the domain you hand it. \"www.MapleRidgeHealth.example/about\" and\n// \"https://mapleridgehealth.example\" are the same building, and asking twice costs twice. The\n// category is decided by the keyword rules in config; anything the rules cannot place is\n// flagged _needs_ai and the optional classifier picks it up.\n//\n// The two provider payloads are built here rather than inside the HTTP nodes, so the prompt\n// and the search are readable — and editable — without opening a body expression.\nconst cfg = $('config').first().json;\nconst col = cfg.org_columns;\n\nconst text = (v) => String(v == null ? '' : v).trim();\nconst categories = (cfg.category_rules || []).map((r) => r.category);\n\n// Only the specific titles are searched on. The catch-all \"director\"/\"manager\" rule exists to\n// score whoever comes back, not to ask Apollo for every manager in a hospital.\nconst searchTitles = [];\nfor (const rule of (cfg.title_rules || []).slice(0, 3)) {\n  for (const w of rule.words || []) if (searchTitles.length < 25) searchTitles.push(w);\n}\n\nreturn $input.all().map((entry) => {\n  const item = entry.json;\n  const row = item._row || {};\n\n  const name = text(row[col.name]);\n\n  const domain = text(row[col.website]).toLowerCase()\n    .replace(/^https?:\\/\\//, '')\n    .replace(/^www\\./, '')\n    .replace(/[/?#].*$/, '')\n    .replace(/[^a-z0-9.-]/g, '');\n\n  const haystack = (name + ' ' + domain).toLowerCase();\n\n  // A category already typed into the sheet by a human beats any rule here.\n  let category = text(row[col.category]);\n  let matchedOn = '';\n  let confident = category !== '';\n\n  if (!category) {\n    for (const rule of cfg.category_rules || []) {\n      const hit = (rule.words || []).find((w) => haystack.includes(String(w).toLowerCase()));\n      if (hit) { category = rule.category; matchedOn = hit; confident = true; break; }\n    }\n  }\n\n  if (!category) { category = 'Unclassified'; confident = false; }\n\n  const aiSystem = 'You classify health and social-service organisations for a referral '\n    + 'partnership programme. Answer with one JSON object and nothing else: '\n    + '{\"category\": \"<one of the listed categories, or Other>\", \"confidence\": <0-1>, '\n    + '\"reason\": \"<12 words max>\"}. Never invent a category that is not listed.';\n\n  const aiUser = 'Categories: ' + categories.join(' | ') + ' | Other\\n\\n'\n    + 'Organisation: ' + (name || '(no name)') + '\\n'\n    + 'Website: ' + (domain || '(none)') + '\\n'\n    + 'City/County: ' + [text(row[col.city]), text(row[col.county])].filter(Boolean).join(', ')\n    + '\\n\\nWhich category is it?';\n\n  const apolloBody = {\n    q_organization_domains_list: domain ? [domain] : [],\n    q_organization_name: domain ? undefined : name,\n    person_titles: searchTitles,\n    person_locations: cfg.require_state === 'OH' ? ['Ohio, US'] : undefined,\n    page: 1,\n    per_page: Math.max(Number(cfg.max_contacts_per_org || 3) * 3, 5)\n  };\n\n  return {\n    json: {\n      org_id:   item.org_id,\n      org_name: name,\n      domain:   domain,\n      category: category,\n      county:   text(row[col.county]),\n      city:     text(row[col.city]),\n      state:    text(row[col.state]).toUpperCase().slice(0, 2),\n      phone:    text(row[col.phone]),\n      source:   text(row[col.source]) || 'sheet',\n\n      // whatever the raw list already knew — the fallback when Apollo is not configured\n      _row: row,\n\n      _category_matched_on: matchedOn,\n      _category_confident:  confident,\n      // Only an unclassified org is worth an AI call. The rest already have an answer.\n      _needs_ai: !confident && cfg.ai_enabled === true,\n      _domain_missing: domain === '',\n\n      _ai_system: aiSystem,\n      _ai_user:   aiUser,\n      // JSON round-trip drops the undefined keys, which Apollo would otherwise reject.\n      _apollo_body: JSON.parse(JSON.stringify(apolloBody))\n    }\n  };\n});"
       },
       "id": "normalise",
       "name": "normalise the organisation",
@@ -811,7 +811,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// The one screen that says whether the pipeline is healthy: how many organisations were\n// worked, how many people came out, what the verifier threw away, and how many reached the\n// campaign — plus the number the client is actually judged on, the share of the sending\n// list that is verified deliverable.\nconst cfg = $('config').first().json;\nconst contacts = $('decide who is safe to email').all().map((i) => i.json);\nconst first = contacts[0] || {};\n\nlet pushedOk = 0;\nlet pushedFailed = 0;\nlet pushErrors = [];\ntry {\n  for (const item of $('record what was pushed').all()) {\n    if (item.json._ok) pushedOk++;\n    else { pushedFailed++; if (item.json._error) pushErrors.push(item.json._error); }\n  }\n} catch (e) {\n  // The push branch did not run this time. Preview runs land here every time.\n}\n\nconst orgs = new Set(contacts.map((c) => c.org_id)).size;\nconst withEmail = contacts.filter((c) => !c._no_contact && String(c.email || '').includes('@'));\nconst held = contacts.filter((c) => !c._safe);\n\nconst reasons = {};\nfor (const c of held) {\n  const r = c._hold_reason || 'unknown';\n  reasons[r] = (reasons[r] || 0) + 1;\n}\nconst topReasons = Object.keys(reasons)\n  .sort((a, b) => reasons[b] - reasons[a])\n  .slice(0, 6)\n  .map((r) => reasons[r] + ' x ' + r);\n\nconst bySegment = {};\nfor (const c of contacts.filter((x) => x._safe)) {\n  bySegment[c.category] = (bySegment[c.category] || 0) + 1;\n}\n\nconst batch = $('pick this run\\'s batch').first().json || {};\n\nconst lines = [\n  'the partnership partnership engine — enrich and verify',\n  'Mode: ' + cfg.mode.toUpperCase() + (cfg.forced_preview ? ' (forced: demo verdicts are on)' : ''),\n  '',\n  'Organisations worked: ' + orgs + ' of ' + (batch._rows_in_sheet || 0) + ' rows in the sheet',\n  'Contacts found: ' + withEmail.length + ' (' + (withEmail.length && orgs ? (Math.round((withEmail.length / orgs) * 10) / 10) : 0) + ' per org)',\n  'Verified deliverable: ' + withEmail.filter((c) => c._verified).length + ' (' + (first._verified_rate || 0) + '%)',\n  'Undeliverable caught: ' + (first._rejected_count || 0) + ' — that is ' + (first._bounce_risk_avoided || 0) + '% of bounce risk removed before sending',\n  'Onto the sending list: ' + (first._safe_count || 0),\n  'Held back: ' + held.length,\n  '',\n  'Why they were held: ' + (topReasons.length ? topReasons.join(', ') : 'nothing held'),\n  'Sending list by segment: ' + (Object.keys(bySegment).length\n    ? Object.keys(bySegment).map((k) => k + ' ' + bySegment[k]).join(', ') : 'none'),\n  '',\n  cfg.push_enabled\n    ? 'Pushed to campaign: ' + pushedOk + ' ok, ' + pushedFailed + ' rejected'\n      + (pushErrors.length ? ' (' + pushErrors.slice(0, 2).join('; ') + ')' : '')\n    : 'Pushed to campaign: nothing — ' + (cfg.preview_only ? 'preview mode' : 'sending engine not configured')\n];\n\n// Anything here needs a human before the next run.\nconst warnings = [];\nif (!cfg.verifier_enabled) warnings.push('no verifier key: every address is being held');\nif (!cfg.apollo_enabled) warnings.push('no Apollo key: running on sheet contacts only');\nif (cfg.demo_verdicts) warnings.push('DEMO_VERIFIER is on — verdicts are fabricated');\nif (withEmail.length && (first._verified_rate || 0) < 60) warnings.push('verified rate under 60% — check the source of this list');\nif (pushedFailed > pushedOk && pushedFailed > 0) warnings.push('more campaign rejections than successes');\nif (warnings.length) lines.push('', 'Needs attention: ' + warnings.join(' | '));\n\nconst text = lines.join('\\n');\n\nreturn [{\n  json: {\n    summary_text: text,\n    orgs_worked: orgs,\n    contacts_found: withEmail.length,\n    verified: withEmail.filter((c) => c._verified).length,\n    verified_rate: first._verified_rate || 0,\n    undeliverable_caught: first._rejected_count || 0,\n    sending_list: first._safe_count || 0,\n    held: held.length,\n    pushed_ok: pushedOk,\n    pushed_failed: pushedFailed,\n    hold_reasons: reasons,\n    warnings: warnings,\n    mode: cfg.mode,\n    // Slack incoming-webhook shape. Any webhook that accepts JSON will take this.\n    _alert_body: { text: text }\n  }\n}];"
+        "jsCode": "// The one screen that says whether the pipeline is healthy: how many organisations were\n// worked, how many people came out, what the verifier threw away, and how many reached the\n// campaign — plus the number the client is actually judged on, the share of the sending\n// list that is verified deliverable.\nconst cfg = $('config').first().json;\nconst contacts = $('decide who is safe to email').all().map((i) => i.json);\nconst first = contacts[0] || {};\n\nlet pushedOk = 0;\nlet pushedFailed = 0;\nlet pushErrors = [];\ntry {\n  for (const item of $('record what was pushed').all()) {\n    if (item.json._ok) pushedOk++;\n    else { pushedFailed++; if (item.json._error) pushErrors.push(item.json._error); }\n  }\n} catch (e) {\n  // The push branch did not run this time. Preview runs land here every time.\n}\n\nconst orgs = new Set(contacts.map((c) => c.org_id)).size;\nconst withEmail = contacts.filter((c) => !c._no_contact && String(c.email || '').includes('@'));\nconst held = contacts.filter((c) => !c._safe);\n\nconst reasons = {};\nfor (const c of held) {\n  const r = c._hold_reason || 'unknown';\n  reasons[r] = (reasons[r] || 0) + 1;\n}\nconst topReasons = Object.keys(reasons)\n  .sort((a, b) => reasons[b] - reasons[a])\n  .slice(0, 6)\n  .map((r) => reasons[r] + ' x ' + r);\n\nconst bySegment = {};\nfor (const c of contacts.filter((x) => x._safe)) {\n  bySegment[c.category] = (bySegment[c.category] || 0) + 1;\n}\n\nconst batch = $('pick this run\\'s batch').first().json || {};\n\nconst lines = [\n  'Partnership lead engine — enrich and verify',\n  'Mode: ' + cfg.mode.toUpperCase() + (cfg.forced_preview ? ' (forced: demo verdicts are on)' : ''),\n  '',\n  'Organisations worked: ' + orgs + ' of ' + (batch._rows_in_sheet || 0) + ' rows in the sheet',\n  'Contacts found: ' + withEmail.length + ' (' + (withEmail.length && orgs ? (Math.round((withEmail.length / orgs) * 10) / 10) : 0) + ' per org)',\n  'Verified deliverable: ' + withEmail.filter((c) => c._verified).length + ' (' + (first._verified_rate || 0) + '%)',\n  'Undeliverable caught: ' + (first._rejected_count || 0) + ' — that is ' + (first._bounce_risk_avoided || 0) + '% of bounce risk removed before sending',\n  'Onto the sending list: ' + (first._safe_count || 0),\n  'Held back: ' + held.length,\n  '',\n  'Why they were held: ' + (topReasons.length ? topReasons.join(', ') : 'nothing held'),\n  'Sending list by segment: ' + (Object.keys(bySegment).length\n    ? Object.keys(bySegment).map((k) => k + ' ' + bySegment[k]).join(', ') : 'none'),\n  '',\n  cfg.push_enabled\n    ? 'Pushed to campaign: ' + pushedOk + ' ok, ' + pushedFailed + ' rejected'\n      + (pushErrors.length ? ' (' + pushErrors.slice(0, 2).join('; ') + ')' : '')\n    : 'Pushed to campaign: nothing — ' + (cfg.preview_only ? 'preview mode' : 'sending engine not configured')\n];\n\n// Anything here needs a human before the next run.\nconst warnings = [];\nif (!cfg.verifier_enabled) warnings.push('no verifier key: every address is being held');\nif (!cfg.apollo_enabled) warnings.push('no Apollo key: running on sheet contacts only');\nif (cfg.demo_verdicts) warnings.push('DEMO_VERIFIER is on — verdicts are fabricated');\nif (withEmail.length && (first._verified_rate || 0) < 60) warnings.push('verified rate under 60% — check the source of this list');\nif (pushedFailed > pushedOk && pushedFailed > 0) warnings.push('more campaign rejections than successes');\nif (warnings.length) lines.push('', 'Needs attention: ' + warnings.join(' | '));\n\nconst text = lines.join('\\n');\n\nreturn [{\n  json: {\n    summary_text: text,\n    orgs_worked: orgs,\n    contacts_found: withEmail.length,\n    verified: withEmail.filter((c) => c._verified).length,\n    verified_rate: first._verified_rate || 0,\n    undeliverable_caught: first._rejected_count || 0,\n    sending_list: first._safe_count || 0,\n    held: held.length,\n    pushed_ok: pushedOk,\n    pushed_failed: pushedFailed,\n    hold_reasons: reasons,\n    warnings: warnings,\n    mode: cfg.mode,\n    // Slack incoming-webhook shape. Any webhook that accepts JSON will take this.\n    _alert_body: { text: text }\n  }\n}];"
       },
       "id": "summary",
       "name": "build the run summary",
@@ -915,115 +915,147 @@
     },
     {
       "parameters": {
-        "content": "## Enrich and verify partnership leads from Google Sheets into Instantly\n\n**Who's it for**\nPartnership, referral and B2B outreach teams who have a raw list of organisations and need the\ndecision maker found, the address proved deliverable, and only the safe contacts handed to a\nsending tool. Built for anyone whose bounce rate is a number somebody checks.\n\n**How it works**\nEach weekday it takes a batch from the raw list in Google Sheets, normalises each organisation and\nclassifies it — by keyword rules, or by an AI call when the rules are not confident. Apollo is asked\nfor the decision makers, everyone is scored against your ICP, and every address goes to a verifier.\nThe gate is the point of the whole workflow: it **fails closed**. A verifier that times out, runs\nout of credits or returns something unrecognised produces `unknown`, and `unknown` is held back.\nCatch-all addresses are held by default too, because they pass a verifier and still bounce. What\nsurvives is written to two sheet tabs and pushed to an Instantly campaign; everything held is\nwritten down with the reason in plain words.\n\n**How to set up**\n1. Open **`config`** and set your sheet id, the batch size and `ACCEPT_STATUSES`.\n2. Add Apollo, verifier, AI and Instantly keys as you get them — each is optional.\n3. Leave `TEST_RUN = true` and `TEST_CAMPAIGN_ID` blank for the first run.\n\n**Requirements**\nA Google Sheet with a raw organisation list. Apollo, an email verifier, an OpenAI-compatible\nendpoint and Instantly are each optional — a blank key skips that step rather than failing the run.\n\n**How to customize**\nThe ICP scoring is in **`score against the ICP`** and the accept list is in `config`. To swap the\nverifier or the sending tool, replace that one HTTP node — nothing else changes.",
-        "height": 1104,
-        "width": 660,
-        "color": 4
+        "content": "## Enrich and verify partnership leads from Google Sheets into Instantly\n\nFor outreach teams who need a verified decision maker at each organisation on a raw list.\n\n### How it works\n1. Every weekday at 07:00 it reads a batch of new rows from the Organisations tab.\n2. Keyword rules give each organisation a category. An optional AI call classifies the rest.\n3. Apollo finds decision makers at each organisation. Each contact is scored against your ICP.\n4. Every address goes to an email verifier. Anything not clearly valid is held back, never sent.\n5. Both sheet tabs are updated, safe contacts go to an Instantly campaign, and a summary is posted.\n\n### Setup\n1. Create a Google Sheet with an `Organisations` tab and a `Contacts` tab. Row 1 headings must match `ORG_COLUMNS` and `CONTACT_COLUMNS` in the `config` node.\n2. Add a Google Sheets credential to the four `[cred] Sheets` nodes.\n3. In `config`, set `SHEET_ID` (the long id in the sheet URL).\n4. In `config`, add `APOLLO_API_KEY`, `VERIFIER_API_KEY`, `INSTANTLY_API_KEY` and `INSTANTLY_CAMPAIGN_ID`. Optional: `AI_API_KEY` and `ALERT_WEBHOOK_URL`.\n5. Run once with `TEST_RUN = true` and read the list in `STOP: not pushed`. Set `TEST_RUN = false` to go live.\n\n### Requirements\n- A Google account for Sheets\n- Apollo, MillionVerifier and Instantly API keys\n- Optional: an Anthropic API key and a Slack incoming webhook\n- A blank key skips that step instead of failing the run\n\n### Customization tips\n- Batch size, categories, title rules and accepted verifier statuses are in `config`.\n- To use another verifier or Smartlead, change its URL in `config` and the body of the matching HTTP node.",
+        "height": 940,
+        "width": 620,
+        "color": 1
       },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        0,
-        -1444
-      ],
       "id": "sticky-00",
-      "name": "Template overview"
-    },
-    {
-      "parameters": {
-        "content": "### 1. Take a batch, not the whole list\n\n**`pick this run's batch`** takes `BATCH_SIZE` rows that have not been enriched yet, so a 40,000-row list costs a predictable amount per run instead of everything at once.\n\n**`normalise the organisation`** cleans the name and domain before anything is spent on looking it up.",
-        "height": 202,
-        "width": 1600,
-        "color": 7
-      },
+      "name": "Overview",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        0,
-        -242
-      ],
+        -740,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Trigger and settings\nRuns every weekday at 07:00, or when you click Run. Every setting and API key is in the `config` node.",
+        "height": 660,
+        "width": 460,
+        "color": 7
+      },
       "id": "sticky-01",
-      "name": "1. Take a batch"
-    },
-    {
-      "parameters": {
-        "content": "### 2. Classify, then find the people\n\nKeyword rules place most organisations on their own. **`AI classification needed?`** only spends a token on the ones they cannot place.\n\nApollo is then asked for the decision makers. With no Apollo key the run continues on whatever contact details the raw list already had — see the note on degrading below.",
-        "height": 180,
-        "width": 2160,
-        "color": 7
-      },
+      "name": "1. Trigger and settings",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1680,
-        330
-      ],
+        -40,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Pick a batch\nReads the Organisations tab (Google Sheets credential), takes up to `BATCH_SIZE` rows not enriched recently and cleans each name and domain. `STOP: nothing to enrich` means no row was ready.",
+        "height": 660,
+        "width": 1020,
+        "color": 7
+      },
       "id": "sticky-02",
-      "name": "2. Classify, then find the people"
-    },
-    {
-      "parameters": {
-        "content": "### 3. This is the under-2% bounce rate\n\nNot the copy, not the domains — this node and the gate after it.\n\n**It fails closed.** A verifier that times out, runs out of credits, or returns\nsomething unrecognised produces `unknown`, and `unknown` is held back. Every other\nmistake in cold outreach is recoverable; a burnt sending domain is not.\n\n`ACCEPT_STATUSES` is what reaches the campaign. Catch-all and unknown are held by\ndefault — they are the addresses that pass a verifier and still bounce.\n\n`HOLD_UNVERIFIED = true` is the setting that makes the KPI true. Leave it.",
-        "height": 334,
-        "width": 1040,
-        "color": 3
-      },
+      "name": "2. Pick a batch",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        4200,
-        -374
-      ],
-      "id": "sticky-03",
-      "name": "3. This is the bounce rate"
+        520,
+        -140
+      ]
     },
     {
       "parameters": {
-        "content": "### 4. Every optional step degrades, none of them fail\n\nA blank key in `config` means *skip this step*, never *fail this run*:\n\n- **no Apollo key** -> uses whatever contact details the raw list already has\n- **no AI key** -> keyword rules only, which place most organisations anyway\n- **no verifier key** -> nothing is emailed, everything is written to the sheet\n- **no Instantly key** -> the sending list is produced and reviewed, not pushed\n\nWhich is why this whole pipeline can be demonstrated on a screen-share before the\nclient has handed over a single credential.",
-        "height": 312,
-        "width": 1600,
-        "color": 5
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        5320,
-        330
-      ],
-      "id": "sticky-04",
-      "name": "4. Every optional step degrades"
-    },
-    {
-      "parameters": {
-        "content": "### 5. Nothing is pushed until you say so\n\n`TEST_RUN = true` with a blank `TEST_CAMPAIGN_ID` (how it ships) runs the whole\npipeline and writes both sheet tabs, but pushes nothing to a campaign. Open\n**STOP: not pushed** to read the whole sending list first: name, title, score,\nverifier verdict, and for everyone held, the reason in plain words.\n\nPut a campaign id in `TEST_CAMPAIGN_ID` and leads really are pushed, to that\ncampaign. `TEST_RUN = false` goes live.\n\n`DEMO_VERIFIER = true` forces preview whichever way those are set — a fabricated\nverdict can never reach a real campaign.",
-        "height": 334,
-        "width": 1320,
-        "color": 6
-      },
-      "type": "n8n-nodes-base.stickyNote",
-      "typeVersion": 1,
-      "position": [
-        7000,
-        -374
-      ],
-      "id": "sticky-05",
-      "name": "5. Nothing is pushed until you say so"
-    },
-    {
-      "parameters": {
-        "content": "### 6. Report what happened\n\nThe summary counts what was enriched, verified, held and pushed, and posts it to Slack or Discord.\n\nNo webhook in `config` means the run ends quietly at **`STOP: no alert webhook`** — the work still happened and the sheet is still written.",
-        "height": 224,
-        "width": 760,
+        "content": "## 3. Classify the organisation\nKeyword rules set the category. Rows they cannot place go to the AI call when `AI_API_KEY` is set. `STOP: keyword rules only` is the normal path otherwise.",
+        "height": 660,
+        "width": 1020,
         "color": 7
       },
+      "id": "sticky-03",
+      "name": "3. Classify the organisation",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        8400,
-        330
-      ],
+        1640,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Find and score decision makers\nApollo searches each organisation for people in the target roles, then each contact gets an ICP score. With no Apollo key, `STOP: Apollo not configured` uses contacts already on the row.",
+        "height": 660,
+        "width": 1300,
+        "color": 7
+      },
+      "id": "sticky-04",
+      "name": "4. Find and score decision makers",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2760,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Verify every address\nEach email is checked with the verifier. This fails closed: timeouts, unknown and catch-all results are held back. `STOP: unverified - held back` collects addresses that could not be checked.",
+        "height": 660,
+        "width": 1300,
+        "color": 7
+      },
+      "id": "sticky-05",
+      "name": "5. Verify every address",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4160,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Write to the sheet\nUpdates the Organisations tab, then writes every contact to the Contacts tab, held ones with the reason. Rows match on an id column, so re-runs update instead of duplicating.",
+        "height": 660,
+        "width": 1300,
+        "color": 7
+      },
       "id": "sticky-06",
-      "name": "6. Report what happened"
+      "name": "6. Write to the sheet",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5560,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 7. Push to Instantly\nSafe contacts are added to the campaign and marked pushed in the sheet. With `TEST_RUN = true` and no `TEST_CAMPAIGN_ID` nothing is pushed: review the list in `STOP: not pushed`.",
+        "height": 660,
+        "width": 1300,
+        "color": 7
+      },
+      "id": "sticky-07",
+      "name": "7. Push to Instantly",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6960,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 8. Report the run\nCounts what was enriched, verified, held and pushed, and posts it to a Slack webhook. A blank `ALERT_WEBHOOK_URL` ends at `STOP: no alert webhook`.",
+        "height": 660,
+        "width": 1020,
+        "color": 7
+      },
+      "id": "sticky-08",
+      "name": "8. Report the run",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        8360,
+        -140
+      ]
     }
   ],
   "connections": {

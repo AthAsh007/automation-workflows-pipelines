@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Welcome new Lemon Squeezy customers and tag them in ConvertKit\n\n**Who's it for**\nCreators selling templates, courses or software on Lemon Squeezy who want each buyer to get a product-specific welcome and land in the right ConvertKit segment, instead of one generic receipt.\n\n**How it works**\n1. Lemon Squeezy calls the webhook on every new order. A manual run uses 5 sample payloads instead.\n2. Only `order_created` events for your store with status paid go on. Lemon Squeezy retries are dropped by order id.\n3. Orders placed in Lemon Squeezy test mode are never treated as real: the welcome goes to `TEST_EMAIL` and ConvertKit is skipped.\n4. The first item's product id picks the welcome subject and text, the ConvertKit form and the tag from `PRODUCTS`, with a default for unlisted products.\n5. The welcome is sent from Gmail, then the buyer is added to the form with the tag and their first name.\n\n**How to set up**\n1. Run it once as imported. It processes the sample payloads and stops at `STOP: preview - nothing sent`.\n2. Activate the workflow and add the production URL of `Lemon Squeezy order webhook` in Lemon Squeezy under Settings, Webhooks, with the order_created event. Set `STORE_ID`.\n3. Connect Gmail, add a ConvertKit credential to `Add to the ConvertKit form`, and fill `PRODUCTS` with your product ids, form ids, tag ids and welcome copy.\n4. Put your address in `TEST_EMAIL`, place a test-mode order in Lemon Squeezy, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Lemon Squeezy store\n- A Gmail account\n- A ConvertKit account with a form and tags\n\n**How to customize**\n- `PRODUCTS` holds the subject, welcome lines, form id and tag id per product.\n- `DEFAULT_PRODUCT` covers anything not listed.\n- `SENDER_NAME` signs every email.",
-        "height": 1008,
+        "content": "## Welcome new Lemon Squeezy customers and tag them in ConvertKit\n\n**Who's it for**\nCreators selling templates, courses or software on Lemon Squeezy who want each buyer to get a product-specific welcome and land in the right ConvertKit segment, instead of one generic receipt.\n\n**How it works**\n1. Lemon Squeezy calls the webhook on every new order. A manual run uses 5 sample payloads instead.\n2. Only `order_created` events for your store with status paid go on. Lemon Squeezy retries are dropped by order id.\n3. Orders placed in Lemon Squeezy test mode are never treated as real: the welcome goes to `TEST_EMAIL` and ConvertKit is skipped.\n4. The first item's product id picks the welcome subject and text, the ConvertKit form and the tag from `PRODUCTS`, with a default for unlisted products.\n5. Each buyer's orders are remembered by email. A second purchase opens with \"welcome back\" and the order count instead of the first-time intro, adds `REPEAT_TAG_ID`, and lifetime spend at or above `VIP_SPEND` adds `VIP_TAG_ID`.\n6. The welcome is sent from Gmail, then the buyer is added to the form with the product tag plus any repeat or VIP tag.\n7. An `order_refunded` event sends no email: the product tag is removed in ConvertKit so the buyer drops out of that product's sequence, and the order no longer counts toward spend.\n\n**How to set up**\n1. Run it once as imported. It processes the sample payloads and stops at `STOP: preview - nothing sent`.\n2. Activate the workflow and add the production URL of `Lemon Squeezy order webhook` in Lemon Squeezy under Settings, Webhooks, with the order_created and order_refunded events. Set `STORE_ID`.\n3. Connect Gmail, add a ConvertKit credential to `Add to the ConvertKit form`, and fill `PRODUCTS` with your product ids, form ids, tag ids and welcome copy.\n4. Put your address in `TEST_EMAIL`, place a test-mode order in Lemon Squeezy, then set `TEST_RUN = false`.\n\n**Requirements**\n- A Lemon Squeezy store\n- A Gmail account\n- A ConvertKit account with a form and tags\n\n**How to customize**\n- `PRODUCTS` holds the subject, welcome lines, form id and tag id per product.\n- `DEFAULT_PRODUCT` covers anything not listed.\n- `REPEAT_TAG_ID`, `VIP_TAG_ID` and `VIP_SPEND` control the returning-customer segments; leave a tag id blank to skip it.\n- `SENDER_NAME` signs every email.",
+        "height": 1200,
         "width": 520,
         "color": 4
       },
@@ -20,7 +20,7 @@
     {
       "parameters": {
         "content": "## 1. Start and settings\n\nThe webhook answers Lemon Squeezy at once and then runs; the manual trigger replays sample payloads. Product copy, form ids and tag ids all live in `config`.",
-        "height": 528,
+        "height": 912,
         "width": 416,
         "color": 7
       },
@@ -36,7 +36,7 @@
     {
       "parameters": {
         "content": "## 2. Read the payload\n\n`Read the webhook payload` passes the JSON body on, or a marker on a manual run so `Load sample payloads` takes over with the same Lemon Squeezy shape.",
-        "height": 528,
+        "height": 912,
         "width": 864,
         "color": 7
       },
@@ -51,9 +51,9 @@
     },
     {
       "parameters": {
-        "content": "## 3. Check the order and write\n\nCheap checks come first: wrong event, wrong store, unpaid, retry. The `test_mode` flag in the payload is trusted over everything else, so a test purchase can never reach a real inbox or list.",
-        "height": 528,
-        "width": 416,
+        "content": "## 3. Check the order\n\nCheap checks come first: wrong event, wrong store, unpaid, retry. The `test_mode` flag is trusted over everything else. The customer record decides repeat and VIP, and a refund becomes an untag job.",
+        "height": 912,
+        "width": 320,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -67,15 +67,15 @@
     },
     {
       "parameters": {
-        "content": "## 4. Send and subscribe\n\nConvertKit is only touched on a live run, for a real order, with a form id set. The order id is remembered after the subscribe call, so a Lemon Squeezy retry is dropped at the check.",
-        "height": 528,
-        "width": 1072,
+        "content": "## 4. Welcome buyers, untag refunds\n\nTop lane: repeat buyers get a welcome back opener, ConvertKit is touched only on a live run for a real order with a form id, and the order is remembered after the subscribe call so a retry is dropped. Bottom lane: a refund removes the product tag and marks the order refunded so it stops counting toward repeat and VIP.",
+        "height": 912,
+        "width": 1296,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1840,
+        1744,
         0
       ],
       "id": "2fad6f17-5717-4c4e-9a00-2fad6f171003",
@@ -87,11 +87,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// WELCOME NEW LEMON SQUEEZY CUSTOMERS AND TAG THEM IN CONVERTKIT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE webhook payloads; real orders arrive on the webhook.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Lemon Squeezy test-mode orders never reach a customer or ConvertKit.\n\n// your Lemon Squeezy store id; blank accepts any store\nconst STORE_ID = '';\n// Lemon Squeezy product id -> welcome copy, ConvertKit form id and tag id\nconst PRODUCTS = {\n  \"11\": {\n    name: \"Budget Planner for Notion\",\n    subject: \"Your Budget Planner is ready, {first_name}\",\n    lines: [\n      \"Open the duplicate link on your receipt to copy the planner into your Notion workspace.\",\n      \"Start with the Monthly view: it fills itself from the Transactions table.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  },\n  \"12\": {\n    name: \"Freelance Pricing Course\",\n    subject: \"Welcome to the Freelance Pricing Course\",\n    lines: [\n      \"Lesson 1 is waiting in your account: it takes 20 minutes.\",\n      \"Bring one current client quote; we use it in lesson 3.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  }\n};\n// used for products not in PRODUCTS\nconst DEFAULT_PRODUCT = {\n  subject: \"Thanks for your order, {first_name}\",\n  lines: [\n    \"Your download link and receipt are in the Lemon Squeezy email.\",\n    \"Reply to this email if anything does not work.\"\n  ],\n  form_id: \"\",\n  tag_id: \"\"\n};\n// sign-off on every email\nconst SENDER_NAME = 'Maya at Paperlane';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    store_id: STORE_ID,\n    products: PRODUCTS,\n    default_product: DEFAULT_PRODUCT,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// WELCOME NEW LEMON SQUEEZY CUSTOMERS AND TAG THEM IN CONVERTKIT - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// A manual run uses SAMPLE webhook payloads; real orders arrive on the webhook.\n// TEST_RUN true + TEST_EMAIL blank -> preview only. Lemon Squeezy test-mode orders never reach a customer or ConvertKit.\n\n// your Lemon Squeezy store id; blank accepts any store\nconst STORE_ID = '';\n// Lemon Squeezy product id -> welcome copy, ConvertKit form id and tag id\nconst PRODUCTS = {\n  \"11\": {\n    name: \"Budget Planner for Notion\",\n    subject: \"Your Budget Planner is ready, {first_name}\",\n    lines: [\n      \"Open the duplicate link on your receipt to copy the planner into your Notion workspace.\",\n      \"Start with the Monthly view: it fills itself from the Transactions table.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  },\n  \"12\": {\n    name: \"Freelance Pricing Course\",\n    subject: \"Welcome to the Freelance Pricing Course\",\n    lines: [\n      \"Lesson 1 is waiting in your account: it takes 20 minutes.\",\n      \"Bring one current client quote; we use it in lesson 3.\"\n    ],\n    form_id: \"\",\n    tag_id: \"\"\n  }\n};\n// used for products not in PRODUCTS\nconst DEFAULT_PRODUCT = {\n  subject: \"Thanks for your order, {first_name}\",\n  lines: [\n    \"Your download link and receipt are in the Lemon Squeezy email.\",\n    \"Reply to this email if anything does not work.\"\n  ],\n  form_id: \"\",\n  tag_id: \"\"\n};\n// ConvertKit tag added from the second paid order on; blank skips it\nconst REPEAT_TAG_ID = '';\n// ConvertKit tag added once lifetime spend reaches VIP_SPEND; blank skips it\nconst VIP_TAG_ID = '';\n// lifetime spend (store currency, refunds excluded) that makes a buyer VIP\nconst VIP_SPEND = 150;\n// sign-off on every email\nconst SENDER_NAME = 'Maya at Paperlane';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    store_id: STORE_ID,\n    products: PRODUCTS,\n    default_product: DEFAULT_PRODUCT,\n    repeat_tag_id: REPEAT_TAG_ID,\n    vip_tag_id: VIP_TAG_ID,\n    vip_spend: VIP_SPEND,\n    sender_name: SENDER_NAME,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
-        208
+        240
       ]
     },
     {
@@ -102,7 +102,7 @@
       "parameters": {},
       "position": [
         48,
-        208
+        240
       ]
     },
     {
@@ -118,7 +118,7 @@
       },
       "position": [
         48,
-        384
+        416
       ]
     },
     {
@@ -131,7 +131,7 @@
       },
       "position": [
         512,
-        208
+        240
       ]
     },
     {
@@ -165,7 +165,7 @@
       },
       "position": [
         736,
-        208
+        240
       ]
     },
     {
@@ -174,11 +174,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Used on a manual run. Shaped like Lemon Squeezy webhook bodies.\nconst p = (id, event, status, testMode, productId, productName, email, name) => ({ source: 'sample', body: {\n  meta: { event_name: event, test_mode: testMode, webhook_id: 'wh_' + id },\n  data: { type: 'orders', id: String(id), attributes: { store_id: 4401, order_number: id, identifier: 'ord-' + id, user_name: name, user_email: email,\n    status, total: 2900, currency: 'USD', test_mode: testMode, urls: { receipt: 'https://app.lemonsqueezy.com/my-orders/ord-' + id },\n    first_order_item: { product_id: productId, product_name: productName, variant_name: 'Default' } } } } });\nreturn [\n  p(1001, 'order_created', 'paid', false, 11, 'Budget Planner for Notion', 'priya@quillworks.example', 'Priya Nair'),\n  p(1002, 'order_created', 'paid', true, 12, 'Freelance Pricing Course', 'me@yourcompany.example', 'Store Owner'),\n  p(1003, 'order_created', 'pending', false, 11, 'Budget Planner for Notion', 'sam@hollowtree.example', 'Sam Reid'),\n  p(1004, 'order_created', 'paid', false, 99, 'Icon Pack Vol. 2', 'lucas@brightfold.example', 'Lucas Moreau'),\n  p(1005, 'subscription_created', 'active', false, 12, 'Freelance Pricing Course', 'amy@northlight.example', 'Amy Cho'),\n].map(json => ({ json }));\n"
+        "jsCode": "// Used on a manual run. Shaped like Lemon Squeezy webhook bodies.\nconst p = (id, event, status, testMode, productId, productName, email, name, total = 2900) => ({ source: 'sample', body: {\n  meta: { event_name: event, test_mode: testMode, webhook_id: 'wh_' + id },\n  data: { type: 'orders', id: String(id), attributes: { store_id: 4401, order_number: id, identifier: 'ord-' + id, user_name: name, user_email: email,\n    status, total, currency: 'USD', test_mode: testMode, urls: { receipt: 'https://app.lemonsqueezy.com/my-orders/ord-' + id },\n    first_order_item: { product_id: productId, product_name: productName, variant_name: 'Default' } } } } });\nreturn [\n  p(1001, 'order_created', 'paid', false, 11, 'Budget Planner for Notion', 'priya@quillworks.example', 'Priya Nair'),\n  p(1002, 'order_created', 'paid', true, 12, 'Freelance Pricing Course', 'me@yourcompany.example', 'Store Owner'),\n  p(1003, 'order_created', 'pending', false, 11, 'Budget Planner for Notion', 'sam@hollowtree.example', 'Sam Reid'),\n  p(1004, 'order_created', 'paid', false, 99, 'Icon Pack Vol. 2', 'lucas@brightfold.example', 'Lucas Moreau'),\n  p(1005, 'subscription_created', 'active', false, 12, 'Freelance Pricing Course', 'amy@northlight.example', 'Amy Cho'),\n  p(1006, 'order_created', 'paid', false, 12, 'Freelance Pricing Course', 'Priya@Quillworks.example', 'Priya Nair', 14900),\n  p(1007, 'order_refunded', 'refunded', false, 11, 'Budget Planner for Notion', 'ben@marlowe.example', 'Ben Marlowe'),\n].map(json => ({ json }));\n"
       },
       "position": [
         960,
-        384
+        416
       ]
     },
     {
@@ -191,7 +191,7 @@
       },
       "position": [
         1184,
-        208
+        240
       ]
     },
     {
@@ -200,11 +200,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Gate in this order: event, store, status, retry. Test-mode orders continue but are\n// marked so they can only reach TEST_EMAIL. Then map the product to its welcome.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst orders = [], held = [];\nfor (const { json: { body } } of $input.all()) {\n  const meta = body.meta || {}, a = body.data?.attributes || {};\n  const id = String(body.data?.id || '');\n  const reason =\n    meta.event_name !== 'order_created' ? 'event ' + meta.event_name + ' ignored' :\n    cfg.store_id && String(a.store_id) !== String(cfg.store_id) ? 'other store ' + a.store_id :\n    a.status !== 'paid' ? 'status ' + a.status :\n    done[id] ? 'already welcomed (webhook retry)' :\n    !a.user_email ? 'no email' : '';\n  if (reason) { held.push({ order: id, reason }); continue; }\n  const test = Boolean(meta.test_mode || a.test_mode);\n  if (test && cfg.test_email.trim() === '') { held.push({ order: id, reason: 'test-mode order and TEST_EMAIL is blank' }); continue; }\n  const pid = String(a.first_order_item?.product_id || '');\n  const product = cfg.products[pid] || cfg.default_product;\n  orders.push({ order: id, test_order: test, email: String(a.user_email).toLowerCase(), first_name: String(a.user_name || '').split(' ')[0],\n    product_id: pid, product_name: a.first_order_item?.product_name || product.name || '', receipt: a.urls?.receipt || '',\n    known_product: Boolean(cfg.products[pid]), subject_tpl: product.subject, lines: product.lines, form_id: product.form_id, tag_id: product.tag_id });\n}\nreturn [{ json: { orders, held } }];\n"
+        "jsCode": "// Gate in this order: event, store, status, retry. Test-mode orders continue but are\n// marked so they can only reach TEST_EMAIL. Then map the product to its welcome.\n// Customers are remembered by email with each order's product and total, so a\n// second order is recognised as a repeat and lifetime spend can reach VIP. A copy\n// is updated as the batch is read, so two orders in one batch count correctly.\n// order_refunded events become untag jobs instead of emails.\nconst cfg = $('config').first().json;\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst customers = JSON.parse(JSON.stringify(memory.customers || {}));\nconst tagOf = pid => (cfg.products[pid] || cfg.default_product).tag_id || '';\nconst orders = [], refunds = [], held = [];\nfor (const { json: { body } } of $input.all()) {\n  const meta = body.meta || {}, a = body.data?.attributes || {};\n  const id = String(body.data?.id || '');\n  if (meta.event_name === 'order_refunded') {\n    const email = String(a.user_email || '').toLowerCase();\n    const pid = String(a.first_order_item?.product_id || '');\n    if (cfg.store_id && String(a.store_id) !== String(cfg.store_id)) { held.push({ order: id, reason: 'other store ' + a.store_id }); continue; }\n    if (!email) { held.push({ order: id, reason: 'refund without email' }); continue; }\n    if (customers[email]?.orders?.[id]) customers[email].orders[id].refunded = true;\n    refunds.push({ order: id, email, product_id: pid, tag_id: tagOf(pid), test_order: Boolean(meta.test_mode || a.test_mode) });\n    continue;\n  }\n  const reason =\n    meta.event_name !== 'order_created' ? 'event ' + meta.event_name + ' ignored' :\n    cfg.store_id && String(a.store_id) !== String(cfg.store_id) ? 'other store ' + a.store_id :\n    a.status !== 'paid' ? 'status ' + a.status :\n    done[id] ? 'already welcomed (webhook retry)' :\n    !a.user_email ? 'no email' : '';\n  if (reason) { held.push({ order: id, reason }); continue; }\n  const test = Boolean(meta.test_mode || a.test_mode);\n  if (test && cfg.test_email.trim() === '') { held.push({ order: id, reason: 'test-mode order and TEST_EMAIL is blank' }); continue; }\n  const pid = String(a.first_order_item?.product_id || '');\n  const product = cfg.products[pid] || cfg.default_product;\n  const email = String(a.user_email).toLowerCase();\n  const c = test ? { orders: {} } : (customers[email] ||= { orders: {} });\n  const prior = Object.entries(c.orders).filter(([k, o]) => k !== id && !o.refunded);\n  const total = Number(a.total || 0) / 100;\n  if (!test) c.orders[id] = { product_id: pid, total, refunded: false };\n  const spend = Math.round((prior.reduce((t, [, o]) => t + o.total, 0) + total) * 100) / 100;\n  const repeat = prior.length > 0;\n  const vip = spend >= cfg.vip_spend;\n  const tags = [product.tag_id, repeat ? cfg.repeat_tag_id : '', vip ? cfg.vip_tag_id : ''].filter(t => String(t || '').trim() !== '').map(Number);\n  orders.push({ order: id, test_order: test, email, first_name: String(a.user_name || '').split(' ')[0],\n    product_id: pid, product_name: a.first_order_item?.product_name || product.name || '', receipt: a.urls?.receipt || '',\n    known_product: Boolean(cfg.products[pid]), subject_tpl: product.subject, lines: product.lines, form_id: product.form_id, tag_id: product.tag_id,\n    order_count: prior.length + 1, order_total: total, lifetime_spend: spend, repeat, vip, tags,\n    previous_products: [...new Set(prior.map(([, o]) => o.product_id))] });\n}\nreturn [{ json: { orders, refunds, held } }];\n"
       },
       "position": [
-        1424,
-        208
+        1488,
+        240
       ]
     },
     {
@@ -213,11 +213,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Product copy from PRODUCTS, receipt link from the order. Test-mode orders and\n// test runs both go to TEST_EMAIL.\nconst cfg = $('config').first().json;\nreturn $input.first().json.orders.map(o => {\n  const fill = s => s.replace('{first_name}', o.first_name || 'there').replace('{product}', o.product_name);\n  const body = ['Hi ' + (o.first_name || 'there') + ',', '', 'Thanks for buying ' + o.product_name + '.', '', ...o.lines.map(fill), '',\n    ...(o.receipt ? ['Your receipt and downloads: ' + o.receipt, ''] : []), cfg.sender_name].join('\\n');\n  const toTest = cfg.mode === 'test' || o.test_order;\n  return { json: { ...o, subject: fill(o.subject_tpl), body, send_to: toTest ? cfg.test_email : o.email } };\n});\n"
+        "jsCode": "// Product copy from PRODUCTS, receipt link from the order. Test-mode orders and\n// test runs both go to TEST_EMAIL.\nconst cfg = $('config').first().json;\nreturn $input.first().json.orders.map(o => {\n  const fill = s => s.replace('{first_name}', o.first_name || 'there').replace('{product}', o.product_name);\n  const opener = o.repeat\n    ? 'Welcome back, and thanks for buying ' + o.product_name + '. That is order number ' + o.order_count + ' with us, which we do not take for granted.'\n    : 'Thanks for buying ' + o.product_name + '.';\n  const body = ['Hi ' + (o.first_name || 'there') + ',', '', opener, '', ...o.lines.map(fill), '',\n    ...(o.receipt ? ['Your receipt and downloads: ' + o.receipt, ''] : []), cfg.sender_name].join('\\n');\n  const toTest = cfg.mode === 'test' || o.test_order;\n  return { json: { ...o, subject: (o.repeat ? 'Welcome back: ' : '') + fill(o.subject_tpl), body, send_to: toTest ? cfg.test_email : o.email } };\n});\n"
       },
       "position": [
-        1648,
-        208
+        1792,
+        240
       ]
     },
     {
@@ -250,8 +250,8 @@
         "options": {}
       },
       "position": [
-        1888,
-        208
+        2016,
+        240
       ]
     },
     {
@@ -261,8 +261,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2112,
-        384
+        2240,
+        416
       ]
     },
     {
@@ -283,8 +283,8 @@
         }
       },
       "position": [
-        2112,
-        208
+        2240,
+        240
       ]
     },
     {
@@ -337,8 +337,8 @@
         "options": {}
       },
       "position": [
-        2320,
-        208
+        2448,
+        240
       ]
     },
     {
@@ -348,8 +348,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2544,
-        384
+        2672,
+        416
       ]
     },
     {
@@ -364,7 +364,7 @@
         "nodeCredentialType": "convertKitApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ email: $('Write each welcome email').item.json.email, first_name: $('Write each welcome email').item.json.first_name, tags: $('Write each welcome email').item.json.tag_id ? [Number($('Write each welcome email').item.json.tag_id)] : [] }) }}",
+        "jsonBody": "={{ JSON.stringify({ email: $('Write each welcome email').item.json.email, first_name: $('Write each welcome email').item.json.first_name, tags: $('Write each welcome email').item.json.tags }) }}",
         "options": {
           "timeout": 20000
         }
@@ -373,8 +373,8 @@
       "maxTries": 3,
       "waitBetweenTries": 2000,
       "position": [
-        2544,
-        208
+        2672,
+        240
       ]
     },
     {
@@ -383,11 +383,127 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Lemon Squeezy retries a webhook until it gets a 200; this stops a retry from\n// sending a second welcome. Ids older than 30 days are dropped.\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst now = new Date().toISOString();\nfor (const o of $('Write each welcome email').all()) if (!o.json.test_order) done[o.json.order] = now;\nconst cutoff = new Date(Date.now() - 30 * 864e5).toISOString();\nfor (const [k, v] of Object.entries(done)) if (v < cutoff) delete done[k];\nmemory.welcomed = done;\nreturn [{ json: { remembered: Object.keys(done).length } }];\n"
+        "jsCode": "// Lemon Squeezy retries a webhook until it gets a 200; this stops a retry from\n// sending a second welcome. Ids older than 30 days are dropped.\nconst memory = $getWorkflowStaticData('global');\nconst done = memory.welcomed || {};\nconst now = new Date().toISOString();\n// The buyer's order (product and total) is added to their customer record, which\n// is what makes the next order a repeat.\nconst customers = memory.customers || {};\nfor (const o of $('Write each welcome email').all()) if (!o.json.test_order) {\n  done[o.json.order] = now;\n  const c = (customers[o.json.email] ||= { orders: {} });\n  c.orders[o.json.order] = { product_id: o.json.product_id, total: o.json.order_total, refunded: false };\n}\nconst cutoff = new Date(Date.now() - 30 * 864e5).toISOString();\nfor (const [k, v] of Object.entries(done)) if (v < cutoff) delete done[k];\nmemory.welcomed = done;\nmemory.customers = customers;\nreturn [{ json: { remembered: Object.keys(done).length, customers: Object.keys(customers).length } }];\n"
       },
       "position": [
-        2768,
-        208
+        2896,
+        240
+      ]
+    },
+    {
+      "id": "674252b8-137c-4938-a142-3142fcab6742",
+      "name": "List refunds to untag",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// One item per refunded order with the product tag to remove.\nreturn $input.first().json.refunds.map(json => ({ json }));\n"
+      },
+      "position": [
+        1792,
+        416
+      ]
+    },
+    {
+      "id": "0d65a799-bf5f-41c9-a8e8-e8e82c940d65",
+      "name": "Untag in ConvertKit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "99f13cdd-ef0a-49cd-a8b0-f8b0427899f1",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "98f13b4a-2cb5-482a-ae32-2e32efe998f1",
+              "leftValue": "={{ !$json.test_order }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "97f139b7-6a61-4687-ab81-1b81b34e97f1",
+              "leftValue": "={{ $json.tag_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2016,
+        416
+      ]
+    },
+    {
+      "id": "57dd490a-34ab-49ea-a1d8-61d8a42957dd",
+      "name": "STOP: preview, test or no tag - refund not untagged",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        2240,
+        576
+      ]
+    },
+    {
+      "id": "dd64082b-a542-48bb-a266-3266c3d2dd64",
+      "name": "Remove the product tag",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.convertkit.com/v3/tags/' + $('Untag in ConvertKit?').item.json.tag_id + '/unsubscribe' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "convertKitApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $('Untag in ConvertKit?').item.json.email }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "position": [
+        2240,
+        752
+      ]
+    },
+    {
+      "id": "5add1abe-5755-4b5e-a7dc-37dcc83d5add",
+      "name": "Mark orders refunded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// A refunded order stops counting toward repeat status and VIP spend.\nconst memory = $getWorkflowStaticData('global');\nconst customers = memory.customers || {};\nlet marked = 0;\nfor (const r of $('Untag in ConvertKit?').all()) {\n  const o = customers[r.json.email]?.orders?.[r.json.order];\n  if (o) { o.refunded = true; marked++; }\n}\nmemory.customers = customers;\nreturn [{ json: { untagged: $input.all().length, marked } }];\n"
+      },
+      "position": [
+        2448,
+        752
       ]
     }
   ],
@@ -481,6 +597,51 @@
         [
           {
             "node": "Write each welcome email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "List refunds to untag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List refunds to untag": {
+      "main": [
+        [
+          {
+            "node": "Untag in ConvertKit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Untag in ConvertKit?": {
+      "main": [
+        [
+          {
+            "node": "Remove the product tag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: preview, test or no tag - refund not untagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove the product tag": {
+      "main": [
+        [
+          {
+            "node": "Mark orders refunded",
             "type": "main",
             "index": 0
           }

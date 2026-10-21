@@ -9,6 +9,15 @@
 //   pillar   no two posts within WINDOW_SLOTS slots share an argument
 //   Thursday a "Design process" post goes out on a Thursday, or not at all
 //
+// and two more measured in calendar days against what the LOG says was actually published,
+// which still hold after the bank is reordered or a post goes out by hand:
+//
+//   cooldown the same pillar is not published again within TOPIC_COOLDOWN_DAYS
+//   family   at most FAMILY_MAX_PER_WEEK posts from one pillar family in any rolling 7 days
+//
+// It also decides WHO writes the caption: the bank cell if it has one, else the model, else
+// (demo bank only) the demo writer, else nobody and the caption check holds it.
+//
 // A guard that trips HOLDS the post and moves to the next candidate. It never rewrites the
 // bank and never silently publishes anyway — the reason travels with the run and ends up in
 // the log, so a held post is visible rather than mysteriously skipped.
@@ -113,7 +122,38 @@ function guards(p) {
   if (p.layout === 'grid' && !p.band) held.push('the grid layout needs a Band');
   if (p.layout === 'stat' && !p.stat_big) held.push('the stat layout needs a Stat big');
 
+  // Rotation by date, from the log. The slot window above only knows the bank's order; this
+  // knows what a follower actually saw and when.
+  const family = (s) => String(s || '').split(',')[0].trim().toLowerCase();
+  const history = state._posted_history || [];
+  if (cfg.topic_cooldown_days > 0 && p.pillar) {
+    const last = history.find((h) => h.pillar && h.pillar.toLowerCase() === p.pillar.toLowerCase());
+    if (last) {
+      const d = daysBetween(last.date, state._today);
+      if (d < cfg.topic_cooldown_days) {
+        held.push('pillar "' + p.pillar + '" was published ' + d + ' day(s) ago (' + last.slug
+          + '); TOPIC_COOLDOWN_DAYS is ' + cfg.topic_cooldown_days);
+      }
+    }
+  }
+  if (cfg.family_max_per_week > 0 && p.pillar) {
+    const week = history.filter((h) => h.pillar && family(h.pillar) === family(p.pillar)
+      && daysBetween(h.date, state._today) < 7);
+    if (week.length >= cfg.family_max_per_week) {
+      held.push(week.length + ' "' + family(p.pillar) + '" posts in the last 7 days ('
+        + week.map((h) => h.slug).join(', ') + '); FAMILY_MAX_PER_WEEK is '
+        + cfg.family_max_per_week);
+    }
+  }
+
   return held;
+}
+
+function daysBetween(a, b) {
+  const x = Date.parse(a + 'T00:00:00Z');
+  const y = Date.parse(b + 'T00:00:00Z');
+  if (isNaN(x) || isNaN(y)) return Infinity;
+  return Math.round(Math.abs(y - x) / 86400000);
 }
 
 // ---------------------------------------------------------------- choose
@@ -149,6 +189,10 @@ if (!chosen) {
 // The caption decides the next branch. A row that already carries one is delivered as
 // written; the model is only ever asked for a caption that does not exist yet.
 const caption = chosen.caption.trim();
+const writer = caption !== '' ? 'bank'
+  : cfg.llm_enabled ? 'model'
+  : cfg.using_demo_bank ? 'demo'
+  : 'none';
 
 // ---------------------------------------------------------------- the writing brief
 // Built here rather than inside the HTTP node's body, so the rules the model is given are
@@ -175,6 +219,7 @@ const system = [
   '  to action.',
   '- End with ' + cfg.hashtags_min + '-' + cfg.hashtags_max + ' hashtags on the last line,',
   '  the last of which is #Acme. At most ' + cfg.max_emoji + ' emoji in the whole caption.',
+  '- No links and no @mentions anywhere in the caption. Hashtags only on the last line.',
   '',
   'Never write: ' + cfg.banned_phrases.join(', ') + '.',
   'Never write a long throat-clearing intro, an invented urgency, or an unsupported superlative.',
@@ -199,7 +244,11 @@ const user = [
   '',
   'The supporting items on the image:',
   (chosen.items || []).map((it) => '- ' + (Array.isArray(it) ? it.map(plain).join(' — ') : plain(it))).join('\n'),
-  chosen.band ? '\nThe statement band on the image: ' + chosen.band : ''
+  chosen.band ? '\nThe statement band on the image: ' + chosen.band : '',
+  (state._recent_hooks || []).length
+    ? '\nRecent posts opened like this. Do not open the same way:\n'
+      + state._recent_hooks.slice(0, 8).map((h) => '- ' + h.hook).join('\n')
+    : ''
 ].join('\n');
 
 return [{
@@ -211,7 +260,9 @@ return [{
     _weekday_name: state._weekday_name,
     _caption: caption,
     _needs_caption: caption === '',
-    _caption_source: caption === '' ? 'model' : 'bank',
+    _writer: writer,
+    _caption_source: writer,
+    _attempt: 1,
     _holds: holds,
     _bank_size: bank.length,
     _ready_size: ready.length,

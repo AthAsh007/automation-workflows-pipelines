@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Post daily specials from Google Sheets to a Telegram channel\n\n**Who's it for**\nCafes, restaurants and food trucks that keep their specials in a spreadsheet and post them to a Telegram channel for regulars. The kitchen edits the sheet; the post goes out on time without anyone opening the app.\n\n**How it works**\n1. The workflow wakes every hour and posts only at `POST_HOUR` in your `TIMEZONE`. Days in `CLOSED_WEEKDAYS` and dates in `CLOSED_DATES` are skipped. A manual run always previews.\n2. It reads the Specials tab, or 9 sample rows until a sheet is set. A row counts today when its Date is today, or its Day is today's weekday or Daily. A dated row replaces a weekday row with the same dish.\n3. Dishes marked sold out are dropped. Prices like \"12.5\" or \"£12.50\" are formatted in `CURRENCY`, and allergens become short tags such as [V] or [N] with a legend line.\n4. Dishes are grouped by section in menu order and posted as one message. If nothing is left, nothing is posted.\n\n**How to set up**\n1. Run it once as imported. It builds today's post from sample rows and stops at `STOP: preview - nothing sent`.\n2. Create a Specials tab with Day, Date, Section, Dish, Description, Price, Allergens and Sold out columns, connect Google Sheets and set `SPECIALS_SHEET_ID`.\n3. Add a Telegram bot as admin of your channel, connect it and set `TELEGRAM_CHAT_ID`.\n4. For a test, set `TEST_EMAIL` to any address and `TEST_TELEGRAM_CHAT_ID` to a private chat. Set `TEST_RUN = false` to post to the channel.\n\n**Requirements**\n- A Google Sheet with a Specials tab\n- A Telegram bot added to your channel\n\n**How to customize**\n- `ALLERGEN_TAGS` maps allergen words in the sheet to the tag shown in the post.\n- `SECTION_ORDER` sets the order sections appear in.\n- Add holiday closures to `CLOSED_DATES` as YYYY-MM-DD.",
-        "height": 1024,
+        "content": "## Post daily specials from Google Sheets to a Telegram channel\n\n**Who's it for**\nCafes, restaurants and food trucks that keep their specials in a spreadsheet and post them to a Telegram channel for regulars. The kitchen edits the sheet; the post goes out on time, and regulars hear when the hake runs out without anyone opening the app.\n\n**How it works**\n1. The workflow wakes every hour. At `POST_HOUR` in your `TIMEZONE` it posts the menu; if that run was missed, the first run before `UPDATE_UNTIL_HOUR` posts it late, once. Days in `CLOSED_WEEKDAYS` and `CLOSED_DATES` are skipped.\n2. It reads the Specials tab, or 9 sample rows until a sheet is set. A row counts today when its Date is today, or its Day is today's weekday or Daily. A dated row replaces a weekday row with the same dish. Sold-out dishes are dropped, prices are formatted in `CURRENCY` and allergens become tags such as [V] or [N].\n3. After the post, each hourly run up to `UPDATE_UNTIL_HOUR` compares the sheet with what was posted, kept in workflow static data. A posted dish now marked sold out or removed, or a dish added since, produces one short update. No change means no message.\n4. If the sheet has nothing for today at posting time, the staff chat in `STAFF_CHAT_ID` is told once, so the channel never gets an empty menu and the kitchen knows why.\n\n**How to set up**\n1. Run it once as imported. It builds today's post from sample rows and stops at `STOP: preview - nothing sent`.\n2. Create a Specials tab with Day, Date, Section, Dish, Description, Price, Allergens and Sold out columns, connect Google Sheets and set `SPECIALS_SHEET_ID`.\n3. Add a Telegram bot as admin of your channel, connect it and set `TELEGRAM_CHAT_ID` (and `STAFF_CHAT_ID` for the empty-sheet nudge).\n4. For a test, set `TEST_EMAIL` to any address and `TEST_TELEGRAM_CHAT_ID` to a private chat. Test sends are not remembered. Set `TEST_RUN = false` to post to the channel.\n\n**Requirements**\n- A Google Sheet with a Specials tab\n- A Telegram bot added to your channel\n\n**How to customize**\n- `ALLERGEN_TAGS` maps allergen words in the sheet to the tag shown in the post; `SECTION_ORDER` sets the section order.\n- `UPDATE_UNTIL_HOUR` ends sold-out updates for the day; set it equal to `POST_HOUR` to turn them off.\n- Add holiday closures to `CLOSED_DATES` as YYYY-MM-DD.",
+        "height": 1152,
         "width": 520,
         "color": 4
       },
@@ -19,8 +19,8 @@
     },
     {
       "parameters": {
-        "content": "## 1. Start and settings\n\nAn hourly schedule lets `POST_HOUR` live in `config` instead of in a cron string. Menu order, allergen tags, currency and closures are set there too.",
-        "height": 512,
+        "content": "## 1. Start and settings\n\nAn hourly schedule lets `POST_HOUR` and `UPDATE_UNTIL_HOUR` live in `config` instead of in a cron string. Menu order, allergen tags, currency, closures and the staff chat are set there too.",
+        "height": 528,
         "width": 416,
         "color": 7
       },
@@ -35,8 +35,8 @@
     },
     {
       "parameters": {
-        "content": "## 2. Check the day\n\n`Check day and hour` works in `TIMEZONE`, so a server in another region still posts at 11:00 local. Twenty-three of the 24 hourly runs, and every closed day, end at the STOP before the sheet is read.",
-        "height": 512,
+        "content": "## 2. Decide post, update or skip\n\n`Check day and hour` works in `TIMEZONE` and reads what was posted today. It picks a full post at `POST_HOUR`, a late post if that run was missed, an update after it, or the STOP outside those hours and on closed days.",
+        "height": 528,
         "width": 640,
         "color": 7
       },
@@ -52,7 +52,7 @@
     {
       "parameters": {
         "content": "## 3. Read the specials\n\nThe kitchen owns the sheet; nothing here writes to it. `Load sample specials` keys its rows to today, so the dated override, sold-out and Daily rules all show in a preview.",
-        "height": 512,
+        "height": 528,
         "width": 640,
         "color": 7
       },
@@ -67,9 +67,9 @@
     },
     {
       "parameters": {
-        "content": "## 4. Build and post\n\nA dated row replaces the weekday row for the same dish, so the chef can change one dish for one day. An empty menu ends at `STOP: nothing to post` instead of sending a header with no dishes.",
-        "height": 512,
-        "width": 864,
+        "content": "## 4. Build the post or update\n\nA dated row replaces the weekday row for the same dish. An update lists only posted dishes that sold out or vanished and dishes added since, each announced once. An empty sheet nudges `STAFF_CHAT_ID` once rather than posting a bare header.",
+        "height": 528,
+        "width": 640,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -82,16 +82,32 @@
       "name": "Section 4 note"
     },
     {
+      "parameters": {
+        "content": "## 5. Post and remember\n\nNothing is sent while `TEST_RUN` is true and `TEST_EMAIL` is blank. The dish list is stored only after a live post, so a test run never stops the real post or swallows a sold-out update.",
+        "height": 528,
+        "width": 864,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2528,
+        0
+      ],
+      "id": "e048318b-5717-4c4e-9a00-e048318b1004",
+      "name": "Section 5 note"
+    },
+    {
       "id": "9d3d45f9-63ef-4229-af43-cf43b3349d3d",
       "name": "config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// POST DAILY SPECIALS FROM GOOGLE SHEETS TO A TELEGRAM CHANNEL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SPECIALS_SHEET_ID blank -> SAMPLE specials so the run works before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_TELEGRAM_CHAT_ID instead of the channel.\n\n// Google Sheets id holding the Specials tab; blank uses sample rows\nconst SPECIALS_SHEET_ID = '';\n// channel username or numeric chat id\nconst TELEGRAM_CHAT_ID = '@harbourcafe_specials';\n// IANA timezone for the posting hour and today\nconst TIMEZONE = 'Europe/London';\n// hour (24h) when the scheduled run posts\nconst POST_HOUR = 11;\n// weekdays with no post\nconst CLOSED_WEEKDAYS = [\n  \"Monday\"\n];\n// dates with no post (YYYY-MM-DD)\nconst CLOSED_DATES = [\n  \"2026-12-25\",\n  \"2026-12-26\",\n  \"2027-01-01\"\n];\n// currency code for prices\nconst CURRENCY = 'GBP';\n// sections in this order; anything else goes last\nconst SECTION_ORDER = [\n  \"Starter\",\n  \"Main\",\n  \"Dessert\",\n  \"Drink\"\n];\n// allergen word in the sheet -> tag in the post\nconst ALLERGEN_TAGS = {\n  vegetarian: \"V\",\n  vegan: \"VG\",\n  \"gluten free\": \"GF\",\n  nuts: \"N\",\n  dairy: \"D\",\n  egg: \"E\",\n  fish: \"F\",\n  shellfish: \"SF\",\n  sesame: \"SE\",\n  soy: \"SO\"\n};\n// first line of the post\nconst HEADER = 'Today at Harbour Cafe';\n// test mode posts here instead of the channel\nconst TEST_TELEGRAM_CHAT_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    specials_sheet_id: SPECIALS_SHEET_ID,\n    telegram_chat_id: TELEGRAM_CHAT_ID,\n    timezone: TIMEZONE,\n    post_hour: POST_HOUR,\n    closed_weekdays: CLOSED_WEEKDAYS,\n    closed_dates: CLOSED_DATES,\n    currency: CURRENCY,\n    section_order: SECTION_ORDER,\n    allergen_tags: ALLERGEN_TAGS,\n    header: HEADER,\n    test_telegram_chat_id: TEST_TELEGRAM_CHAT_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: SPECIALS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
+        "jsCode": "// POST DAILY SPECIALS FROM GOOGLE SHEETS TO A TELEGRAM CHANNEL - CONFIG\n// Edit values only in this node. Nothing else in this workflow needs changing.\n// SPECIALS_SHEET_ID blank -> SAMPLE specials so the run works before any credential exists.\n// Test mode (TEST_RUN true + TEST_EMAIL set) posts to TEST_TELEGRAM_CHAT_ID and remembers nothing.\n\n// Google Sheets id holding the Specials tab; blank uses sample rows\nconst SPECIALS_SHEET_ID = '';\n// channel username or numeric chat id\nconst TELEGRAM_CHAT_ID = '@harbourcafe_specials';\n// staff chat told once when the sheet has no specials for today; blank = no nudge\nconst STAFF_CHAT_ID = '';\n// IANA timezone for the posting hour and today\nconst TIMEZONE = 'Europe/London';\n// hour (24h) when the scheduled run posts\nconst POST_HOUR = 11;\n// last hour that posts sold-out updates (and a late post if POST_HOUR was missed)\nconst UPDATE_UNTIL_HOUR = 15;\n// weekdays with no post\nconst CLOSED_WEEKDAYS = [\n  \"Monday\"\n];\n// dates with no post (YYYY-MM-DD)\nconst CLOSED_DATES = [\n  \"2026-12-25\",\n  \"2026-12-26\",\n  \"2027-01-01\"\n];\n// currency code for prices\nconst CURRENCY = 'GBP';\n// sections in this order; anything else goes last\nconst SECTION_ORDER = [\n  \"Starter\",\n  \"Main\",\n  \"Dessert\",\n  \"Drink\"\n];\n// allergen word in the sheet -> tag in the post\nconst ALLERGEN_TAGS = {\n  vegetarian: \"V\",\n  vegan: \"VG\",\n  \"gluten free\": \"GF\",\n  nuts: \"N\",\n  dairy: \"D\",\n  egg: \"E\",\n  fish: \"F\",\n  shellfish: \"SF\",\n  sesame: \"SE\",\n  soy: \"SO\"\n};\n// first line of the post\nconst HEADER = 'Today at Harbour Cafe';\n// test mode posts here instead of the channel\nconst TEST_TELEGRAM_CHAT_ID = '';\n// ships true. Nothing reaches a real recipient or system.\nconst TEST_RUN = true;\n// blank -> preview only. Set -> sends go here instead. Never causes a send on its own.\nconst TEST_EMAIL = '';\n\nconst MODE = TEST_RUN !== true ? 'live' : (TEST_EMAIL.trim() !== '' ? 'test' : 'preview');\n\nreturn [{\n  json: {\n    specials_sheet_id: SPECIALS_SHEET_ID,\n    telegram_chat_id: TELEGRAM_CHAT_ID,\n    staff_chat_id: STAFF_CHAT_ID,\n    timezone: TIMEZONE,\n    post_hour: POST_HOUR,\n    update_until_hour: UPDATE_UNTIL_HOUR,\n    closed_weekdays: CLOSED_WEEKDAYS,\n    closed_dates: CLOSED_DATES,\n    currency: CURRENCY,\n    section_order: SECTION_ORDER,\n    allergen_tags: ALLERGEN_TAGS,\n    header: HEADER,\n    test_telegram_chat_id: TEST_TELEGRAM_CHAT_ID,\n    test_run: TEST_RUN,\n    test_email: TEST_EMAIL,\n    sheets_enabled: SPECIALS_SHEET_ID.trim() !== '',\n    mode: MODE,\n    live: MODE === 'live',\n    sends_enabled: MODE !== 'preview',\n    run_started_at: new Date().toISOString()\n  }\n}];\n"
       },
       "position": [
         272,
-        176
+        208
       ]
     },
     {
@@ -102,7 +118,7 @@
       "parameters": {},
       "position": [
         48,
-        176
+        208
       ]
     },
     {
@@ -122,7 +138,7 @@
       },
       "position": [
         48,
-        352
+        384
       ]
     },
     {
@@ -131,11 +147,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Today and the hour in TIMEZONE. The hourly schedule posts only at POST_HOUR and\n// never on a closed day; a manual run always continues so it can be previewed.\nconst cfg = $('config').first().json;\nlet scheduled = false;\ntry { scheduled = $('Every hour').first() !== undefined; } catch (e) { scheduled = false; }\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, hourCycle: 'h23', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit' })\n  .formatToParts(new Date()).map(x => [x.type, x.value]));\nconst today = p.year + '-' + p.month + '-' + p.day;\nconst hour = Number(p.hour) % 24;\nconst closed = cfg.closed_weekdays.includes(p.weekday) ? 'closed on ' + p.weekday + 's' : cfg.closed_dates.includes(today) ? 'closed on ' + today : '';\nconst reason = !scheduled ? '' : closed ? closed : hour !== cfg.post_hour ? 'not the posting hour (' + hour + ':00)' : '';\nreturn [{ json: { today, weekday: p.weekday, hour, scheduled, closed, post: !reason, reason } }];\n"
+        "jsCode": "// Today and the hour in TIMEZONE, plus what was already posted today (static data).\n// mode 'post'   = POST_HOUR, or a later hour up to UPDATE_UNTIL_HOUR when today's post was missed\n// mode 'update' = after today's post, up to UPDATE_UNTIL_HOUR\n// A manual run always continues so it can be previewed.\nconst cfg = $('config').first().json;\nlet scheduled = false;\ntry { scheduled = $('Every hour').first() !== undefined; } catch (e) { scheduled = false; }\nconst p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: cfg.timezone, hourCycle: 'h23', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit' })\n  .formatToParts(new Date()).map(x => [x.type, x.value]));\nconst today = p.year + '-' + p.month + '-' + p.day;\nconst hour = Number(p.hour) % 24;\nconst mem = $getWorkflowStaticData('global').specials || {};\nconst posted = mem.date === today;\nconst closed = cfg.closed_weekdays.includes(p.weekday) ? 'closed on ' + p.weekday + 's' : cfg.closed_dates.includes(today) ? 'closed on ' + today : '';\nconst inWindow = hour > cfg.post_hour && hour <= cfg.update_until_hour;\nlet mode = posted ? 'update' : 'post', reason = '', late = false;\nif (scheduled) {\n  if (closed) reason = closed;\n  else if (posted && !inWindow) reason = 'already posted today, outside the update hours';\n  else if (!posted && hour !== cfg.post_hour && !inWindow) reason = 'not the posting hour (' + hour + ':00)';\n  else late = !posted && hour !== cfg.post_hour;\n}\nreturn [{ json: { today, weekday: p.weekday, hour, scheduled, closed, mode, late, post: !reason, reason,\n  memory: posted ? mem : null, nudged_today: mem.nudged === today } }];\n"
       },
       "position": [
         512,
-        176
+        208
       ]
     },
     {
@@ -169,7 +185,7 @@
       },
       "position": [
         736,
-        176
+        208
       ]
     },
     {
@@ -180,7 +196,7 @@
       "parameters": {},
       "position": [
         960,
-        352
+        384
       ]
     },
     {
@@ -214,7 +230,7 @@
       },
       "position": [
         1200,
-        176
+        208
       ]
     },
     {
@@ -238,7 +254,7 @@
       },
       "position": [
         1424,
-        176
+        208
       ]
     },
     {
@@ -251,7 +267,7 @@
       },
       "position": [
         1424,
-        352
+        384
       ]
     },
     {
@@ -264,7 +280,7 @@
       },
       "position": [
         1648,
-        176
+        208
       ]
     },
     {
@@ -273,11 +289,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Selection: dated rows for today win over weekday/Daily rows with the same dish.\n// Sold out = yes/true/x/1 in the Sold out column. Output is one plain-text post.\nconst cfg = $('config').first().json;\nconst d = $('Check day and hour').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r.Dish);\nconst norm = s => String(s || '').trim().toLowerCase();\nconst dated = rows.filter(r => String(r.Date || '').slice(0, 10) === d.today);\nconst weekly = rows.filter(r => !r.Date && [norm(d.weekday), 'daily'].includes(norm(r.Day)));\nconst byDish = new Map();\nfor (const r of weekly) byDish.set(norm(r.Dish), r);\nfor (const r of dated) byDish.set(norm(r.Dish), r);\nconst soldOut = [], dishes = [];\nfor (const r of byDish.values()) (/^(yes|true|x|1)$/i.test(String(r['Sold out'] || '').trim()) ? soldOut : dishes).push(r);\nconst money = v => {\n  const n = Number(String(v || '').replace(/[^\\d.,]/g, '').replace(',', '.'));\n  return n ? new Intl.NumberFormat('en-GB', { style: 'currency', currency: cfg.currency }).format(n) : '';\n};\nconst used = new Set();\nconst tags = a => String(a || '').split(/[,;]/).map(norm).filter(Boolean).map(x => cfg.allergen_tags[x]).filter(Boolean)\n  .map(t => { used.add(t); return '[' + t + ']'; }).join('');\nconst order = s => { const i = cfg.section_order.findIndex(x => norm(x) === norm(s)); return i < 0 ? 99 : i; };\ndishes.sort((a, b) => order(a.Section) - order(b.Section));\nconst lines = [cfg.header + ', ' + d.weekday + ' ' + d.today.slice(8) + '/' + d.today.slice(5, 7), ''];\nlet section = null;\nfor (const r of dishes) {\n  const sec = r.Section || 'More';\n  if (sec !== section) { if (section !== null) lines.push(''); lines.push(sec.toUpperCase()); section = sec; }\n  lines.push('- ' + r.Dish + (r.Description ? ', ' + r.Description : '') + ' ' + money(r.Price) + (tags(r.Allergens) ? ' ' + tags(r.Allergens) : ''));\n}\nconst legend = Object.entries(cfg.allergen_tags).filter(([, t]) => used.has(t)).map(([w, t]) => t + ' ' + w).join(', ');\nif (legend) lines.push('', legend);\nconst text = lines.join('\\n').slice(0, 4000);\nreturn [{ json: { text, dishes: dishes.length, sold_out: soldOut.map(r => r.Dish), today: d.today,\n  send_to: cfg.mode === 'test' ? cfg.test_telegram_chat_id : cfg.telegram_chat_id } }];\n"
+        "jsCode": "// Selection: dated rows for today win over weekday/Daily rows with the same dish.\n// Sold out = yes/true/x/1 in the Sold out column.\n// kind: 'post' (full menu), 'update' (diff against what was posted), 'staff' (empty\n// sheet at posting time, told once) or 'none'.\nconst cfg = $('config').first().json;\nconst d = $('Check day and hour').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r.Dish);\nconst norm = s => String(s || '').trim().toLowerCase();\nconst dated = rows.filter(r => String(r.Date || '').slice(0, 10) === d.today);\nconst weekly = rows.filter(r => !r.Date && [norm(d.weekday), 'daily'].includes(norm(r.Day)));\nconst byDish = new Map();\nfor (const r of weekly) byDish.set(norm(r.Dish), r);\nfor (const r of dated) byDish.set(norm(r.Dish), r);\nconst soldOut = [], dishes = [];\nfor (const r of byDish.values()) (/^(yes|true|x|1)$/i.test(String(r['Sold out'] || '').trim()) ? soldOut : dishes).push(r);\nconst money = v => {\n  const n = Number(String(v || '').replace(/[^\\d.,]/g, '').replace(',', '.'));\n  return n ? new Intl.NumberFormat('en-GB', { style: 'currency', currency: cfg.currency }).format(n) : '';\n};\nconst used = new Set();\nconst tags = a => String(a || '').split(/[,;]/).map(norm).filter(Boolean).map(x => cfg.allergen_tags[x]).filter(Boolean)\n  .map(t => { used.add(t); return '[' + t + ']'; }).join('');\nconst line = r => '- ' + r.Dish + (r.Description ? ', ' + r.Description : '') + ' ' + money(r.Price) + (tags(r.Allergens) ? ' ' + tags(r.Allergens) : '');\nconst order = s => { const i = cfg.section_order.findIndex(x => norm(x) === norm(s)); return i < 0 ? 99 : i; };\ndishes.sort((a, b) => order(a.Section) - order(b.Section));\nconst legend = () => Object.entries(cfg.allergen_tags).filter(([, t]) => used.has(t)).map(([w, t]) => t + ' ' + w).join(', ');\nconst hh = String(d.hour).padStart(2, '0') + ':00';\nlet kind = 'none', text = '', reason = '';\nconst mem = d.memory;\nconst names = Object.fromEntries(dishes.map(r => [norm(r.Dish), r.Dish]));\nlet memoryNext = { date: d.today, dishes: dishes.map(r => norm(r.Dish)), names, announced_gone: [] };\nif (d.mode === 'update' && mem) {\n  // Diff against the last post: posted dishes now sold out or gone, and new dishes.\n  const avail = new Set(dishes.map(r => norm(r.Dish)));\n  const announced = new Set(mem.announced_gone || []);\n  const gone = mem.dishes.filter(k => !avail.has(k) && !announced.has(k));\n  const added = dishes.filter(r => !mem.dishes.includes(norm(r.Dish)));\n  memoryNext = { date: d.today, dishes: [...mem.dishes, ...added.map(r => norm(r.Dish))], names: { ...mem.names, ...names },\n    announced_gone: [...announced, ...gone] };\n  if (gone.length || added.length) {\n    kind = 'update';\n    const lines = ['Specials update, ' + hh];\n    if (gone.length) lines.push('Sold out: ' + gone.map(k => mem.names[k] || k).join(', '));\n    if (added.length) lines.push('', 'Just added:', ...added.map(line));\n    if (!dishes.length) lines.push('', 'That is everything for today. Thank you!');\n    if (added.length && legend()) lines.push('', legend());\n    text = lines.join('\\n');\n  } else reason = 'no change since the last post';\n} else if (dishes.length) {\n  kind = 'post';\n  const lines = [cfg.header + ', ' + d.weekday + ' ' + d.today.slice(8) + '/' + d.today.slice(5, 7), ''];\n  let section = null;\n  for (const r of dishes) {\n    const sec = r.Section || 'More';\n    if (sec !== section) { if (section !== null) lines.push(''); lines.push(sec.toUpperCase()); section = sec; }\n    lines.push(line(r));\n  }\n  if (legend()) lines.push('', legend());\n  text = lines.join('\\n');\n} else if (cfg.staff_chat_id && !d.nudged_today) {\n  kind = 'staff';\n  text = 'Specials not posted for ' + d.today + ': ' + (soldOut.length ? 'every dish for today is marked sold out' : 'the Specials tab has no rows for today') + '. Fill the sheet and the next hourly run posts it, until ' + cfg.update_until_hour + ':00.';\n} else reason = d.nudged_today ? 'sheet still empty, staff already told' : 'nothing for today and no STAFF_CHAT_ID';\nconst target = kind === 'staff' ? cfg.staff_chat_id : cfg.telegram_chat_id;\nreturn [{ json: { kind, reason, text: text.slice(0, 4000), dishes: dishes.length, sold_out: soldOut.map(r => r.Dish), today: d.today, late: d.late,\n  memory_next: memoryNext, send_to: cfg.mode === 'test' ? cfg.test_telegram_chat_id : target } }];\n"
       },
       "position": [
         1888,
-        176
+        208
       ]
     },
     {
@@ -296,7 +312,7 @@
           "conditions": [
             {
               "id": "01c30061-55d8-4c11-a674-0674db6c01c3",
-              "leftValue": "={{ $json.dishes > 0 && $json.send_to !== \"\" }}",
+              "leftValue": "={{ $json.kind !== \"none\" && $json.send_to !== \"\" }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -311,7 +327,7 @@
       },
       "position": [
         2112,
-        176
+        208
       ]
     },
     {
@@ -322,7 +338,7 @@
       "parameters": {},
       "position": [
         2336,
-        352
+        384
       ]
     },
     {
@@ -355,8 +371,8 @@
         "options": {}
       },
       "position": [
-        2336,
-        176
+        2576,
+        208
       ]
     },
     {
@@ -366,8 +382,8 @@
       "typeVersion": 1,
       "parameters": {},
       "position": [
-        2560,
-        352
+        2800,
+        384
       ]
     },
     {
@@ -377,14 +393,72 @@
       "typeVersion": 1.2,
       "parameters": {
         "chatId": "={{ $json.send_to }}",
-        "text": "={{ ($('config').first().json.mode === 'test' ? '[TEST] ' : '') + $json.text }}",
+        "text": "={{ ($('config').first().json.mode === 'test' ? '[TEST ' + $json.kind + '] ' : '') + $json.text }}",
         "additionalFields": {
           "appendAttribution": false
         }
       },
       "position": [
-        2560,
-        176
+        2800,
+        208
+      ]
+    },
+    {
+      "id": "a2a6f549-200e-4879-ac66-1c66fb44a2a6",
+      "name": "Live run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b6a0a9b5-612e-4325-a8e8-e8e886e0b6a0",
+              "leftValue": "={{ $('config').first().json.live }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        3024,
+        208
+      ]
+    },
+    {
+      "id": "68cc354f-305c-429f-a9b8-69b8fed668cc",
+      "name": "STOP: test send - nothing remembered",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        3248,
+        384
+      ]
+    },
+    {
+      "id": "5f62e70a-81bb-47ea-a57e-857e46295f62",
+      "name": "Remember what was posted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// The posted dish list is what later hourly runs diff against. A staff nudge only\n// records that the staff were told today.\nconst b = $(\"Build today's specials post\").first().json;\nconst s = $getWorkflowStaticData('global');\nconst prev = s.specials || {};\ns.specials = b.kind === 'staff' ? { ...prev, nudged: b.today } : { ...b.memory_next, nudged: prev.nudged };\nreturn [{ json: { kind: b.kind, date: b.today, dishes_tracked: (s.specials.dishes || []).length } }];\n"
+      },
+      "position": [
+        3248,
+        208
       ]
     }
   ],
@@ -543,6 +617,35 @@
         [
           {
             "node": "STOP: preview - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post the specials to Telegram": {
+      "main": [
+        [
+          {
+            "node": "Live run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live run?": {
+      "main": [
+        [
+          {
+            "node": "Remember what was posted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP: test send - nothing remembered",
             "type": "main",
             "index": 0
           }
